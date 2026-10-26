@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$(git rev-parse --show-toplevel 2>/dev/null)/scripts/agent_guard.py\"; [ -f \"$f\" ] || exit 0; py=$(command -v python3 || command -v python) || exit 0; \"$py\" \"$f\"",
+            "command": "f=\"$(git rev-parse --show-toplevel 2>/dev/null)/scripts/agent_guard.py\"; [ -f \"$f\" ] || exit 0; py=$(command -v python || command -v python3) || exit 0; \"$py\" \"$f\"",
+            "commandWindows": "python -c \"import runpy, subprocess; root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip(); runpy.run_path(root + '/scripts/agent_guard.py', run_name='__main__')\"; exit $LASTEXITCODE",
             "timeout": 30
           }
         ]
