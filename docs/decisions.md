@@ -7,7 +7,7 @@
 
 | 날짜 | 결정 | 이유 |
 | --- | --- | --- |
-| 10/21 | 쓰지 않는 기술: FastAPI·ORM·Docker·CI 도구(ruff·pre-commit·Actions) (수업 밖) / LangGraph·리랭킹 (배웠지만 범위 밖) | 8일 일정, 수업 범위 |
+| 10/21 | 쓰지 않는 기술: FastAPI·ORM·Docker·CI 도구(ruff·pre-commit·Actions) (수업 밖) / LangGraph·리랭킹 (배웠지만 범위 밖) → 변경 (10/26): Actions는 아래 PR 자동화에만 쓴다 | 8일 일정, 수업 범위 |
 | 10/21 | 로컬 실행 시연, 배포 없음 | 8일 일정 |
 | 10/21 | 임베딩 `text-embedding-3-small` 고정 | 바꾸면 전체 재색인 |
 | 10/21 | 청킹 3규칙(절 / 페이지·슬라이드 / 표 통째로) + 800자 재분할 | ChatPDF 평가: 조문 단위 90% vs 500자 고정 61.7% |
@@ -17,6 +17,7 @@
 | 10/26 | 「기능명세표」 28개만 만든다. KPI CSV·문서 요약·클러스터링·3사 비교는 만들지 않는다 | 명세표에 없는 기능 |
 | 10/26 | 로그인은 시드 계정 + 사원번호·비밀번호 유지, 해시는 `hashlib.pbkdf2_hmac` | 권한 시연에 계정 전환이 필요, bcrypt는 수업에 없음 |
 | 10/26 | 수업에서 배운 기술만 쓴다. 표준 라이브러리로 대체: 테스트 `unittest`, HTTP(DART) `urllib.request`, 해시 `hashlib`. 예외: `python-docx`·`python-pptx`(I-01 필수), `PyMySQL`+`cryptography`(Week4 MySQL 연결) | 수업 범위 안에서 설명할 수 있게 |
+| 10/26 | PR 자동화: `CODEOWNERS` 리뷰어 요청, 작성자 assignee·라벨(Actions), CodeRabbit 보조 리뷰. 테스트·린트 CI는 두지 않는다. CodeRabbit은 승인 수에 넣지 않는다 | 손으로 하던 지정 제거, 리뷰 누락 방지. 앱 코드가 아니라 수업 범위 규칙과 무관 |
 | 10/26 | `main.py`·`core`·`models`는 저장소 루트, 의존성은 `requirements.txt` + Python 3.11 | 루트에서 실행해야 import가 됨, pip만으로 환경 통일 |
 
 ## 아직 정하지 않은 것

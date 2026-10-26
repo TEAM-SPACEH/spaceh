@@ -71,6 +71,8 @@ body (필요할 때만)
 - 제목: `[FEAT] #12 BM25 검색 결과 결합 구현` (커밋 형식, prefix 대문자·대괄호)
 - 본문은 `.github/pull_request_template.md`를 따른다. Verification에는 실제로 실행한 것만 쓴다.
 - 리뷰어: 같은 묶음 짝꿍 1명. `core/`, `models/`, `main.py`, `requirements.txt`, DB 스키마, 권한(S-03) 변경은 팀장도 넣는다.
+- 자동으로 되는 것: 리뷰어 요청(`.github/CODEOWNERS`, 바뀐 경로 기준), 작성자 assignee, 라벨(브랜치 prefix → `FEAT`·`FIX` 등, 경로 → `검색·계정`·`문서·관리자`·`답변·보고서`·`공통`). 자동 요청이 빠졌거나 틀리면 손으로 고친다. DB 스키마 파일은 경로가 정해지면 CODEOWNERS에 추가한다.
+- CodeRabbit이 PR마다 한국어 AI 리뷰를 단다. 보조 리뷰라 **승인 1명에 포함되지 않는다**. 코멘트는 [AI 활용 규칙](./ai.md) §7대로 확인한 뒤 반영하거나, 이유를 답글로 남기고 넘긴다.
 - 리뷰 요청은 반나절 안에 본다. 승인 1명 이상이면 merge commit으로 합친다. 스쿼시하지 않는다.
 - PR은 기능 ID 하나 단위로 작게. 화면 변경은 스크린샷을 붙인다.
 - 정해 둔 결정을 바꾸는 PR은 [결정 기록](../decisions.md)도 같은 PR에서 고친다.
