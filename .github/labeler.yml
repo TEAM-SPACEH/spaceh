@@ -1,0 +1,43 @@
+# PR 라벨 자동 지정 (.github/workflows/pr-automation.yml)
+# 유형은 브랜치 prefix, 묶음은 바뀐 파일 경로로 붙인다.
+
+FEAT:
+  - head-branch: ['^feat/']
+FIX:
+  - head-branch: ['^fix/']
+REFACTOR:
+  - head-branch: ['^refactor/']
+DOCS:
+  - head-branch: ['^docs/']
+TEST:
+  - head-branch: ['^test/']
+CHORE:
+  - head-branch: ['^(chore|style|perf)/']
+
+검색·계정:
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/search/**
+          - app/permissions/**
+          - app/auth/**
+          - app/users/**
+          - app/history/**
+문서·관리자:
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/ingestion/**
+          - app/admin/**
+답변·보고서:
+  - changed-files:
+      - any-glob-to-any-file:
+          - app/documents/**
+          - app/reports/**
+공통:
+  - changed-files:
+      - any-glob-to-any-file:
+          - core/**
+          - models/**
+          - main.py
+          - requirements.txt
+          - .github/**
+          - scripts/**
