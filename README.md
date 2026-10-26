@@ -6,67 +6,36 @@
 
 ![spaceH 정보 구조도](docs/images/ia.png)
 
-## Git 컨벤션
+## 개발 문서
 
-### 브랜치
-
-| 브랜치 | 역할 |
+| 문서 | 내용 |
 | --- | --- |
-| `main` | 시연 가능한 상태만 둡니다. |
-| `develop` | 통합 브랜치이자 기본 브랜치입니다. 모든 작업은 여기서 분기합니다. |
-| `prefix/{이슈번호}-work-summary` | 작업 브랜치입니다. |
+| [기능 목록](docs/features.md) | 28개 기능의 패키지·담당·일정·선행 |
+| [구조 개요](docs/architecture/overview.md) | 전체 흐름, 권한 규칙, 패키지 사이 약속, 화면 |
+| [데이터 모델](docs/architecture/data-model.md) | 공통 문서 형식, 마스킹·청킹, Chroma·DB 필드, 시드 계정 |
+| [결정 기록](docs/decisions.md) | 이미 정한 것과 아직 정하지 않은 것 |
+| [로컬 개발 환경](docs/workflows/local-development.md) | Python 3.11·가상환경·requirements.txt, OS별 설치·실행 |
+| [코드 규칙](docs/conventions/coding.md) | 폴더 계층, 이름, DB, 보안 필수 규칙 |
+| [Git 규칙](docs/conventions/git.md) | 브랜치 전략, 커밋, PR·리뷰 |
+| [AI 활용 규칙](docs/conventions/ai.md) | AI 도구 사용 원칙, 검증 체크리스트 |
+| [AGENTS.md](AGENTS.md) | AI coding agent용 안내 |
 
-```text
-chore/1-repo-setup
-chore/2-issue-template
-docs/3-ia-image
+## 빠른 시작
+
+```bash
+python3.11 -m venv .venv && source .venv/bin/activate   # Windows: py -3.11 -m venv .venv; .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+cp .env.example .env                                     # 값 채우기 (Windows: copy)
+streamlit run main.py
 ```
 
-1. 작업 전에 이슈를 만듭니다.
-2. 이슈 번호로 `develop`에서 작업 브랜치를 분기합니다.
-3. 작업이 끝나면 `develop`으로 PR을 보냅니다.
-4. 머지한 작업 브랜치는 삭제합니다.
+OS별 자세한 설치·문제 해결은 [로컬 개발 환경](docs/workflows/local-development.md)을 참고해 주세요.
 
-### 커밋
+## Git 컨벤션 요약
 
-```text
-prefix: #{이슈번호} 작업 요약
+- `develop`이 기본 브랜치입니다. 이슈를 만든 뒤 `prefix/{이슈번호}-work-summary` 브랜치에서 작업하고 `develop`으로 PR을 보냅니다.
+- 커밋: `prefix: #{이슈번호} 작업 요약` (예: `feat: #12 BM25 검색 결과 결합 구현`)
+- PR 제목: `[PREFIX] #{이슈번호} 작업 요약`. 승인 1명 이상을 받은 뒤 머지 커밋으로 합칩니다.
+- `main`에는 시연 가능한 상태만 둡니다.
 
-body
-```
-
-```text
-chore: #1 기본 패키지 설정 추가
-chore: #2 이슈 템플릿 추가
-docs: #3 IA 이미지 갱신
-```
-
-- 요약은 한글 명사형으로 끝냅니다. (추가, 구현, 보정, 수정)
-- body는 필요할 때만 씁니다.
-- 커밋은 독립적으로 리뷰하고 되돌릴 수 있는 작업 단위로 나눕니다.
-- 리팩터링과 동작 변경은 한 커밋에 섞지 않습니다.
-
-#### Prefix
-
-| Prefix | Description |
-| --- | --- |
-| `feat` | 새로운 기능 추가 |
-| `fix` | 버그 수정 |
-| `refactor` | 동작 변화 없는 코드 구조 개선 |
-| `test` | 테스트 추가 및 변경 |
-| `docs` | 문서 수정 |
-| `chore` | 패키지, 설정, CI, 기타 작업 |
-| `style` | 코드 동작 변경이 없는 formatting 변경 |
-| `perf` | 성능 개선 |
-
-### PR
-
-- 제목은 커밋 형식을 따르되 prefix를 대문자로 쓰고 대괄호로 감쌉니다.
-- 본문은 `.github/pull_request_template.md` 양식을 따릅니다.
-- `develop`으로 보내는 PR은 1명 이상 승인을 받은 뒤 머지 커밋으로 합칩니다. 스쿼시하지 않습니다.
-- `main`으로는 단계가 끝날 때 `develop`에서 PR을 보냅니다.
-
-```text
-[CHORE] #1 기본 패키지 설정 추가
-[DOCS] #3 IA 이미지 갱신
-```
+자세한 규칙은 [Git 규칙](docs/conventions/git.md)을 따릅니다.
