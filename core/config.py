@@ -21,3 +21,5 @@ MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "spaceh")
 
 UPLOAD_DIR = ROOT_DIR / os.getenv("UPLOAD_DIR", "data/uploads")
 CHROMA_DIR = ROOT_DIR / os.getenv("CHROMA_DIR", "data/chroma")
+
+SEED_DEFAULT_PASSWORD = os.getenv("SEED_DEFAULT_PASSWORD", "")

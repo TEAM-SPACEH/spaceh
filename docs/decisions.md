@@ -7,7 +7,7 @@
 
 | 날짜 | 결정 | 이유 |
 | --- | --- | --- |
-| 10/21 | 쓰지 않는 기술: FastAPI·ORM·Docker·CI 도구(ruff·pre-commit·Actions) (수업 밖) / LangGraph·리랭킹 (배웠지만 범위 밖) | 8일 일정, 수업 범위 |
+| 10/21 | 쓰지 않는 기술: FastAPI·ORM·Docker·CI 도구(ruff·pre-commit·Actions) (수업 밖) / LangGraph·리랭킹 (배웠지만 범위 밖) → 변경 (10/26): Actions는 아래 PR 자동화에만 쓴다 | 8일 일정, 수업 범위 |
 | 10/21 | 로컬 실행 시연, 배포 없음 | 8일 일정 |
 | 10/21 | 임베딩 `text-embedding-3-small` 고정 | 바꾸면 전체 재색인 |
 | 10/21 | 청킹 3규칙(절 / 페이지·슬라이드 / 표 통째로) + 800자 재분할 | ChatPDF 평가: 조문 단위 90% vs 500자 고정 61.7% |
@@ -17,6 +17,8 @@
 | 10/26 | 「기능명세표」 28개만 만든다. KPI CSV·문서 요약·클러스터링·3사 비교는 만들지 않는다 | 명세표에 없는 기능 |
 | 10/26 | 로그인은 시드 계정 + 사원번호·비밀번호 유지, 해시는 `hashlib.pbkdf2_hmac` | 권한 시연에 계정 전환이 필요, bcrypt는 수업에 없음 |
 | 10/26 | 수업에서 배운 기술만 쓴다. 표준 라이브러리로 대체: 테스트 `unittest`, HTTP(DART) `urllib.request`, 해시 `hashlib`. 예외: `python-docx`·`python-pptx`(I-01 필수), `PyMySQL`+`cryptography`(Week4 MySQL 연결) | 수업 범위 안에서 설명할 수 있게 |
+| 10/26 | PR 자동화: `CODEOWNERS` 리뷰어 요청, 작성자 assignee·라벨(Actions). 테스트·린트 CI·AI 리뷰 봇은 두지 않는다 | 손으로 하던 지정 제거, 리뷰 누락 방지. 앱 코드가 아니라 수업 범위 규칙과 무관 |
+| 10/26 | 핵심 테이블은 팀 ERD 이름을 따른다: `company_id`는 회사 코드(`HRI`·`MVX`·`ELV`) 문자열 PK, `doc_id`는 앱이 만드는 uuid 문자열, 보안 등급 `access_level`, 작성일 `published_date`, 대상 기간 `finance_year`·`quarter`를 둔다 | ERD 확정, Chroma 메타데이터도 같은 이름으로 |
 | 10/26 | `main.py`·`core`·`models`는 저장소 루트, 의존성은 `requirements.txt` + Python 3.11 | 루트에서 실행해야 import가 됨, pip만으로 환경 통일 |
 
 ## 아직 정하지 않은 것
@@ -24,7 +26,6 @@
 이 항목에 걸린 작업은 혼자 정하지 말고 팀장에게 묻는다.
 
 - 분기 실적 보고서(R-02 ②)의 수치를 DART 공시 표 청크만으로 만들지
-- `documents`에 대상 기간(`fiscal_year`·`quarter`)을 둘지
 - 계열사 관리자의 "자사 관련 로그" 범위 (행위자 소속만 vs 대상 문서 소유 회사 포함)
 - `companies.default_share_enabled`의 정확한 의미
 - DB 값 표기 통일 (영어 소문자로 맞출지)

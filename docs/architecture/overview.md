@@ -69,14 +69,14 @@
 ```python
 where = {
     "$or": [
-        {"security_level": "public"},
-        {"$and": [{"company_id": 2}, {"security_level": "internal"}]},
-        {"$and": [{"security_level": "internal"}, {"is_group_shared": True}]},
-        {"doc_id": {"$in": [17]}},          # 승인 문서 (없으면 이 줄을 뺀다)
+        {"access_level": "public"},
+        {"$and": [{"company_id": "MVX"}, {"access_level": "internal"}]},
+        {"$and": [{"access_level": "internal"}, {"is_group_shared": True}]},
+        {"doc_id": {"$in": ["3f9c0a…"]}},  # 승인 문서 (없으면 이 줄을 뺀다)
     ]
 }
 # S-02 필터는 바깥에 $and로 붙인다
-final_where = {"$and": [where, {"company_id": {"$in": [2, 3]}}, {"doc_created_date": {"$gte": 20250101}}]}
+final_where = {"$and": [where, {"company_id": {"$in": ["MVX", "ELV"]}}, {"published_date": {"$gte": 20250101}}]}
 ```
 
 ## 3. 패키지 사이 약속
