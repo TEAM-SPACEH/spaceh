@@ -69,11 +69,11 @@ def update_email(user_id: int, email: str) -> bool:
 
 ```python
 with get_connection() as conn, conn.cursor() as cur:
-    cur.execute("SELECT * FROM users WHERE employee_id = %s", (employee_id,))
+    cur.execute("SELECT * FROM users WHERE employee_no = %s", (employee_no,))
     user = cur.fetchone()
 ```
 
-- 테이블 변경은 팀 ERD·DDL에 먼저 반영하고 팀에 알린다. ORM은 쓰지 않는다.
+- 테이블 변경은 팀 ERD와 `db/schema.sql`에 함께 반영하고 팀에 알린다. ORM은 쓰지 않는다.
 
 ## 6. 보안 필수 규칙
 
