@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$(git rev-parse --show-toplevel 2>/dev/null)/scripts/agent_guard.py\"; [ -f \"$f\" ] || exit 0; py=$(command -v python3 || command -v python) || exit 0; \"$py\" \"$f\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
