@@ -86,7 +86,15 @@ VS Code: `Ctrl/Cmd + Shift + P` → `Python: Select Interpreter` → `.venv`
 CREATE DATABASE spaceh CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 ```
 
-테이블 DDL·시드 스크립트는 확정되면 이 절에 추가한다. `SELECT VERSION();`이 8.0.16 미만이면 CHECK 제약이 무시되니 팀장에게 알린다.
+테이블과 시드 계정을 만든다 (저장소 루트, 가상환경 켠 상태). `schema.sql`은 기존 테이블을 지우고 다시 만드니 데이터가 사라진다.
+
+```bash
+mysql -u root -p spaceh < db/schema.sql
+mysql -u root -p spaceh < db/seed.sql
+python -m scripts.seed_users        # .env의 SEED_DEFAULT_PASSWORD 필요
+```
+
+Windows PowerShell은 `<`를 못 쓰니 `Get-Content db/schema.sql | mysql -u root -p spaceh`로 실행한다. `SELECT VERSION();`이 8.0.16 미만이면 CHECK 제약이 무시되니 팀장에게 알린다.
 
 ## 자주 나는 문제
 

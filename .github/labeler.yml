@@ -41,3 +41,4 @@ CHORE:
           - requirements.txt
           - .github/**
           - scripts/**
+          - db/**

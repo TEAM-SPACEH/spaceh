@@ -1,18 +1,22 @@
 # 데이터 모델
 
-> DB 스키마는 팀 ERD·DDL에서 계속 다듬는 중이다. 이 문서의 컬럼 이름은 현재 팀 DDL(`company_id`, `security_level`, `employee_id` 등)에 맞췄고, DDL이 바뀌면 함께 고친다.
+> 컬럼 이름은 팀 ERD와 `db/schema.sql`을 따른다. 지금 확정된 테이블은 `companies`·`users`·`documents` 3개이고, 나머지는 ERD가 끝나면 추가한다. ERD가 바뀌면 `db/schema.sql`과 이 문서를 같은 PR에서 고친다.
 
 ## 1. 공통 값
 
 | 항목 | 값 |
 | --- | --- |
 | 역할 `role` | `employee` · `company_admin` · `super_admin` |
-| 보안 등급 `security_level` | `public` · `internal` · `confidential` |
+| 회사 `company_id` | 회사 코드 대문자: `HRI`(현대경제연구원) · `MVX`(현대무벡스) · `ELV`(현대엘리베이터). 사원번호 앞부분과 같다 |
+| 보안 등급 `access_level` | `public` · `internal` · `confidential` |
 | 문서 유형 `doc_type` | `report`(연구 보고서) · `disclosure`(공시) · `manual`(매뉴얼·교육·FAQ) · `spec`(사양서) · `intro`(회사·제품 소개) · `memo`(내부 메모·목데이터) |
-| 파일 형식 `file_ext` | `pdf` · `docx` · `pptx` · `xlsx` · `hwp` · `dart_xml` |
+| 파일 형식 `file_format` | `pdf` · `docx` · `pptx` · `xlsx` · `hwp` · `dart_xml` |
 | 출처 `source_type` | `internal` · `dart` |
+| 색인 상태 `index_status` | `pending` · `indexing` · `done` · `failed` |
+| 분기 `quarter` | `Q1` · `Q2` · `Q3` · `Q4` (회계연도는 `finance_year`) |
 
-- 코드와 DB에는 영어 소문자 값만 저장한다. 화면에 보일 한글 이름은 화면에서 바꾼다.
+- 코드와 DB에는 영어 소문자 값만 저장한다 (예외: 회사 코드·분기는 대문자). 화면에 보일 한글 이름은 화면에서 바꾼다.
+- `doc_id`는 `documents` 행을 만들 때 앱이 `uuid.uuid4().hex`(32자)로 만든다.
 - 회사는 고정 목록이 아니다 (A-07). `companies` 테이블에서 읽는다.
 
 ## 2. 공통 문서 형식 (`models/`)
@@ -30,21 +34,21 @@ class Block:                 # 로더 출력의 최소 단위
 
 @dataclass
 class NormalizedDocument:
-    doc_id: int
-    company_id: int
+    doc_id: str
+    company_id: str
     title: str
     file_name: str
-    file_ext: str
+    file_format: str
     doc_type: str
-    security_level: str
+    access_level: str
     is_group_shared: bool
     blocks: list[Block]
-    file_hash: str           # 원본 SHA-256 (중복 검사)
-    masked_pii_count: int = 0
+    content_hash: str        # 원본 SHA-256 (중복 검사)
+    pii_masked_count: int = 0
 
 @dataclass
 class Chunk:                 # 검색 단위 = Chroma 1건
-    chunk_id: str            # "{doc_id}#{순번 4자리}" 예: "17#0003"
+    chunk_id: str            # "{doc_id}#{순번 4자리}" 예: "3f9c0a…#0003"
     text: str                # 맨 앞에 "[회사명 · 제목 · 위치]" 한 줄
     metadata: dict           # 아래 4장
 ```
@@ -100,25 +104,27 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 
 | 필드 | 타입 | 용도 |
 | --- | --- | --- |
-| `doc_id` | int | 원본 연결, 승인 문서 필터 |
+| `doc_id` | str | 원본 연결, 승인 문서 필터 |
 | `chunk_index` | int | 문서 안 순번 |
-| `company_id` | int | 회사 필터, **권한 필터** |
-| `security_level` | str | **권한 필터** |
+| `company_id` | str | 회사 필터, **권한 필터** |
+| `access_level` | str | **권한 필터** |
 | `is_group_shared` | bool | **권한 필터** (A-03 변경 시 일괄 갱신) |
 | `doc_type` | str | 유형 필터 |
 | `source_type` | str | DART만 보기 필터 |
-| `doc_created_date` | int | 기간 필터 (`YYYYMMDD`, DB `documents.doc_created_date`) |
-| `company_name`, `title`, `file_name`, `file_ext` | str | 출처 배지·각주 |
+| `published_date` | int | 기간 필터 (`YYYYMMDD`, DB `documents.published_date`) |
+| `company_name`, `title`, `file_name`, `file_format` | str | 출처 배지·각주 |
 | `page`, `location`, `section`, `block_type` | int/str | 위치 표시·원문 이동 |
-| `dart_rcp_no` | str | DART 뷰어 연결 (없으면 `""`) |
+| `source_url` | str | DART 뷰어 연결 (없으면 `""`) |
 
-## 5. MySQL 테이블 (팀 DDL 기준)
+## 5. MySQL 테이블
+
+✅ = `db/schema.sql`에 있음. 나머지 이름은 ERD가 끝나면 바뀔 수 있다.
 
 | 테이블 | 용도 | 기능 |
 | --- | --- | --- |
-| `companies` | 계열사 | A-07 |
-| `users` | 사용자 (사원번호 로그인) | M-01, M-02 |
-| `documents` | 문서 메타데이터·색인 상태·공유 | I-02, A-01~A-03 |
+| ✅ `companies` | 계열사 | A-07 |
+| ✅ `users` | 사용자 (사원번호 `employee_no` 로그인) | M-01, M-02 |
+| ✅ `documents` | 문서 메타데이터·색인 상태·공유 | I-02, A-01~A-03 |
 | `document_access_requests` | 열람 권한 요청 | M-03, A-05 |
 | `document_permissions` | 승인된 문서 단위 열람 권한 | A-05 → S-03 |
 | `reports` · `report_sections` · `report_footnotes` | 보고서·섹션·각주 | R-02~R-05, A-06 |
@@ -135,9 +141,9 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 | `HRI-0001` / `HRI-0002` | 일반 사원 / 계열사 관리자 | 현대경제연구원 |
 | `MVX-0001` / `MVX-0002` | 일반 사원 / 계열사 관리자 | 현대무벡스 |
 | `ELV-0001` / `ELV-0002` | 일반 사원 / 계열사 관리자 | 현대엘리베이터 |
-| `ADM-0001` | 최종 어드민 | 없음 |
+| `ADM-0001` | 최종 어드민 | 없음 (`company_id` NULL) |
 
-이름은 가짜 이름, 메일은 `@example.com`. 비밀번호는 `.env`의 `SEED_DEFAULT_PASSWORD`로만 넣고 DB에는 해시(`hashlib.pbkdf2_hmac`)만 저장한다.
+이름은 가짜 이름. 비밀번호는 `.env`의 `SEED_DEFAULT_PASSWORD`로만 넣고(`python -m scripts.seed_users`), DB `users.password`에는 해시만 저장한다. 해시·검증은 `core/security.py`의 `hash_password()`·`verify_password()`를 쓴다 (`hashlib.pbkdf2_hmac`).
 
 ## 7. 목데이터
 
