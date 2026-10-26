@@ -1,0 +1,28 @@
+# Python 3.11 기준. 수업에서 배운 기술만 쓴다 (예외는 docs/decisions.md)
+# 패키지 추가 규칙은 docs/workflows/local-development.md 참고
+
+# 화면 (Day1 웹 챗봇)
+streamlit==1.66.1
+
+# LLM·RAG (Day1·Day5~6, 수업 ChatPDF와 같은 버전)
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.3.31
+langchain-openai==0.3.35
+langchain-chroma==0.2.6
+langchain-text-splitters==0.3.11
+chromadb==1.5.9
+rank-bm25==0.2.2           # Day8 하이브리드 검색
+
+# PDF (Day8)
+pdfplumber==0.11.10
+pypdfium2==5.14.0          # PDF 페이지 이미지 (S-05)
+
+# 예외: 수업에 없지만 대체할 수 없는 것 (docs/decisions.md)
+python-docx==1.2.0         # I-01 DOCX 로더
+python-pptx==1.0.2         # I-01 PPTX 로더
+PyMySQL==1.2.3             # Week4 MySQL을 Python에서 쓰기 위한 드라이버
+cryptography==50.0.2       # PyMySQL이 MySQL 8 기본 인증에 필요 (직접 쓰지 않음)
+
+# 설정
+python-dotenv==1.2.4

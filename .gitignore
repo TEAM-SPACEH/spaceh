@@ -1,0 +1,19 @@
+# 비밀 값
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 원본 문서·벡터 DB (공유는 구글 드라이브)
+data/uploads/*
+data/chroma/*
+!data/uploads/.gitkeep
+!data/chroma/.gitkeep
+
+# 개인 설정
+.claude/settings.local.json
+.vscode/
+.idea/
+.DS_Store
