@@ -11,6 +11,8 @@ from langchain_openai import ChatOpenAI
 
 from .rag_prompt import SYSTEM_PROMPT, USER_PROMPT
 
+from openai import APIError
+
 def _get_field(chunk: Any, name: str, default=None) :
     """딕셔너리 또는 객체에서 필드 값을 가져옵니다"""
     if isinstance(chunk, Mapping):
@@ -149,12 +151,17 @@ def _generate_with_openai(query: str, context: str) -> str:
 
 NO_ANSWER = "찾을 수 없음"
 
+class RAGServiceError(RuntimeError):
+    """AI 답변 생성 또는 검증 과정의 서비스 오류."""
+    pass
+
 def _is_no_answer(answer: str) -> bool:
     """AI 응답이 근거 없음 메시지인지 확인합니다."""
 
     normalized = answer.strip().rstrip(".!。").strip()
 
     return normalized == NO_ANSWER
+
 
 def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
     """검색된 문서 청크를 기반으로 AI 답변을 생성합니다."""
@@ -174,11 +181,18 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
         }
 
     # 4. OpenAI 답변 생성
-    answer = _generate_with_openai(query.strip(), context)
+    try:
+        answer = _generate_with_openai(query.strip(), context)
+    except APIError as exc:
+        raise RAGServiceError(
+            "AI 답변 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
+        ) from exc
 
     # 5. AI 응답이 비정상적으로 비어 있는 경우
     if not isinstance(answer, str) or not answer.strip():
-        raise RuntimeError("AI 답변을 생성하지 못했습니다.")
+        raise RAGServiceError(
+            "AI 답변을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요."
+        )
 
     # 6. 근거가 없는 경우
     if _is_no_answer(answer):
@@ -188,7 +202,14 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
         }
 
     # 7. 출처 번호 및 실제 문서 내용 근거 검증
-    if not check_answer_grounding(answer, chunks):
+    try:
+        is_grounded = check_answer_grounding(answer, chunks)
+    except APIError as exc:
+        raise RAGServiceError(
+            "AI 답변 검증 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
+        ) from exc
+
+    if not is_grounded:
         return {
             "answer": NO_ANSWER,
             "sources": [],
@@ -202,6 +223,7 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
         "answer": answer.strip(),
         "sources": cited_sources,
     }
+
 
 def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
     """AI 답변의 출처 번호가 실제 검색 청크에 존재하는지 검증합니다."""

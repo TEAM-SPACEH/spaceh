@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from app.search.services import rag_service
 
+import httpx
+from openai import APIConnectionError
+
 
 NO_ANSWER = "찾을 수 없음"
 
@@ -190,6 +193,51 @@ class TestRagService(unittest.TestCase):
         mock_llm.assert_not_called()
         mock_grounding.assert_not_called()
 
+    
+    # 11. AI 답변 생성 API 연결 실패
+    def test_openai_generation_failure(self):
+        api_error = APIConnectionError(
+            request=httpx.Request(
+                "POST",
+                "https://api.openai.com/v1/chat/completions",
+            )
+        )
+
+        with patch.object(
+            rag_service,
+            "_generate_with_openai",
+            side_effect=api_error,
+        ):
+            with self.assertRaises(rag_service.RAGServiceError):
+                rag_service.generate_answer(
+                    "가상 프로젝트 회의 일정은?",
+                    self.chunks,
+                )
+
+    # 12. AI 근거 검증 API 연결 실패
+    def test_openai_grounding_failure(self):
+        api_error = APIConnectionError(
+            request=httpx.Request(
+                "POST",
+                "https://api.openai.com/v1/chat/completions",
+            )
+        )
+
+        with patch.object(
+            rag_service,
+            "_generate_with_openai",
+            return_value="월요일 오전 9시입니다. [1]",
+        ):
+            with patch.object(
+                rag_service,
+                "_judge_grounding",
+                side_effect=api_error,
+            ):
+                with self.assertRaises(rag_service.RAGServiceError):
+                    rag_service.generate_answer(
+                        "가상 프로젝트 회의 일정은?",
+                        self.chunks,
+                    )
 
 if __name__ == "__main__":
     unittest.main()
