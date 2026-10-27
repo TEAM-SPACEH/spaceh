@@ -13,8 +13,14 @@
 """
 
 from app.permissions.repositories.permission_repository import get_approved_doc_ids
-
-ROLES = ("employee", "company_admin", "super_admin")
+from core.constants import (
+    ACCESS_CONFIDENTIAL,
+    ACCESS_INTERNAL,
+    ACCESS_PUBLIC,
+    ROLE_COMPANY_ADMIN,
+    ROLE_SUPER_ADMIN,
+    ROLES,
+)
 
 
 def apply_rbac_filter(user: dict, filters: dict | None) -> dict:
@@ -82,7 +88,7 @@ def _allowed_conditions(user: dict) -> list[dict] | None:
     # 로그인 정보가 없거나 모르는 역할이면 아무것도 보여 주지 않는다 (안전한 쪽으로 실패).
     if not user or user.get("role") not in ROLES:
         raise PermissionError("알 수 없는 사용자입니다.")
-    if user["role"] == "super_admin":
+    if user["role"] == ROLE_SUPER_ADMIN:
         return None
 
     # super_admin이 아닌데 소속 회사가 없으면 "자사" 기준을 정할 수 없으므로 막는다.
@@ -92,18 +98,18 @@ def _allowed_conditions(user: dict) -> list[dict] | None:
 
     conditions = [
         # 1) 전사 공개 문서는 누구나 본다.
-        {"access_level": "public"},
+        {"access_level": ACCESS_PUBLIC},
         # 2) 우리 회사 내부 문서는 본다.
-        {"company_id": company_id, "access_level": "internal"},
+        {"company_id": company_id, "access_level": ACCESS_INTERNAL},
         # 3) 다른 회사 문서라도 그룹사 공유가 켜진 내부 문서는 본다.
         #    confidential(계약 단가 등)은 공유 대상이 아니므로 internal로 한정한다.
         #    공유 플래그가 잘못 켜진 confidential 문서가 있어도 여기서 새지 않는다.
-        {"access_level": "internal", "is_group_shared": True},
+        {"access_level": ACCESS_INTERNAL, "is_group_shared": True},
     ]
 
     # 4) 계열사 관리자는 우리 회사 기밀 문서도 본다. 일반 사원은 승인을 받아야 한다.
-    if user["role"] == "company_admin":
-        conditions.append({"company_id": company_id, "access_level": "confidential"})
+    if user["role"] == ROLE_COMPANY_ADMIN:
+        conditions.append({"company_id": company_id, "access_level": ACCESS_CONFIDENTIAL})
 
     # 5) 열람 권한 요청(M-03)이 승인(A-05)된 문서는 등급·회사와 관계없이 본다.
     approved_doc_ids = get_approved_doc_ids(user["id"])
