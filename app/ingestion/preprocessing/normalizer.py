@@ -16,6 +16,7 @@ def normalize_blocks(blocks: list[dict]) -> list[dict]:
             raise ValueError("블록의 내용·위치·절 제목은 문자열이어야 합니다.")
         if not block["location"].strip():
             raise ValueError("블록의 원문 위치가 필요합니다.")
+        # 마스킹의 같은 줄 판정에 쓰이므로 줄바꿈은 합치지 않는다.
         text = block["text"].replace("\r\n", "\n").replace("\r", "\n")
         text = "\n".join(re.sub(r"[^\S\n]+", " ", line).strip()
                          for line in text.split("\n")).strip()
@@ -41,6 +42,8 @@ def table_to_markdown(rows: list[list[str | None]]) -> str:
         for value in row:
             text = "" if value is None else value
             text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+            # PPTX 셀은 소프트 줄바꿈을 수직 탭으로 반환한다.
+            text = text.replace("\v", "\n")
             text = text.replace("\\", "\\\\").replace("|", "\\|")
             cells.append(text.replace("\n", "<br>"))
         escaped_rows.append(cells + [""] * (width - len(cells)))

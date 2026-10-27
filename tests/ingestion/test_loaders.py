@@ -49,12 +49,16 @@ def write_pdf(path: Path, streams: list[bytes]) -> None:
 
 
 class LoaderTest(unittest.TestCase):
+    """I-01 로더의 공통 계약과 형식별 추출 결과를 검증한다."""
+
     def setUp(self):
+        """각 테스트의 목문서를 격리하고 종료 시 자동 삭제한다."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
     def assert_common_blocks(self, blocks):
+        """추출된 모든 블록의 필드·내용·원문 위치를 확인한다."""
         for block in blocks:
             self.assertEqual(set(block), {"block_type", "text", "page",
                                           "location", "section"})
@@ -63,6 +67,7 @@ class LoaderTest(unittest.TestCase):
             self.assertTrue(block["location"])
 
     def test_docx_preserves_order_heading_and_merged_cells(self):
+        """제목·본문·가로 병합 표 순서와 빈 문단 이후 순번을 검증한다."""
         path = self.root / "sample.DOCX"
         doc = Document()
         doc.add_heading("점검 절차", level=1)
@@ -85,6 +90,7 @@ class LoaderTest(unittest.TestCase):
         self.assert_common_blocks(blocks)
 
     def test_docx_keeps_nested_table_content(self):
+        """부모 셀 안 중첩 표의 내용과 앞뒤 문단 순서를 보존한다."""
         path = self.root / "nested.docx"
         doc = Document()
         cell = doc.add_table(rows=1, cols=1).cell(0, 0)
@@ -97,6 +103,7 @@ class LoaderTest(unittest.TestCase):
         self.assertLess(text.index("안쪽 표"), text.index("뒤"))
 
     def test_docx_vertical_merge_keeps_column_positions(self):
+        """세로 병합 연속 셀을 비워 나머지 열이 밀리지 않게 한다."""
         path = self.root / "vertical.docx"
         doc = Document()
         table = doc.add_table(rows=2, cols=2)
@@ -110,6 +117,7 @@ class LoaderTest(unittest.TestCase):
         self.assertIn("| | 아래 |", text)
 
     def test_pptx_reads_visual_order_tables_and_groups(self):
+        """슬라이드·그룹의 시각적 순서와 표·제목·위치를 확인한다."""
         path = self.root / "sample.pptx"
         ppt = Presentation()
         slide = ppt.slides.add_slide(ppt.slide_layouts[5])
@@ -135,7 +143,24 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(blocks[3]["section"], "")
         self.assert_common_blocks(blocks)
 
+    def test_pptx_table_keeps_soft_breaks_and_paragraphs(self):
+        """실제 PPTX 셀의 소프트 줄바꿈·문단을 Markdown에서 보존한다."""
+        path = self.root / "line_breaks.pptx"
+        ppt = Presentation()
+        slide = ppt.slides.add_slide(ppt.slide_layouts[6])
+        table = slide.shapes.add_table(
+            1, 1, Inches(1), Inches(1), Inches(4), Inches(2),
+        ).table
+        table.cell(0, 0).text = "첫 줄\v둘째 줄\n새 문단"
+        ppt.save(path)
+        blocks = load_document(path)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["block_type"], "table")
+        self.assertIn("첫 줄<br>둘째 줄<br>새 문단", blocks[0]["text"])
+        self.assertNotIn("\v", blocks[0]["text"])
+
     def test_pdf_tables_are_not_duplicated_and_pages_are_preserved(self):
+        """PDF 표 문자의 중복을 막고 본문 순서·페이지 위치를 유지한다."""
         path = self.root / "sample.pdf"
         write_pdf(path, [b"""
 BT /F1 12 Tf 50 760 Td (Before) Tj ET
@@ -159,6 +184,7 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         self.assert_common_blocks(blocks)
 
     def test_scanned_pdf_is_reported_instead_of_silently_skipped(self):
+        """이미지뿐인 페이지를 조용히 누락시키지 않고 오류로 알린다."""
         page = MagicMock()
         page.images = [{}]
         page.chars = []
@@ -168,6 +194,7 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
                 parse_pdf("scanned.pdf")
 
     def test_missing_unsupported_corrupt_and_empty_documents(self):
+        """잘못된 파일을 성공한 빈 결과로 반환하지 않는지 확인한다."""
         with self.assertRaises(FileNotFoundError):
             load_document(self.root / "missing.pdf")
         path = self.root / "unsupported.xlsx"
@@ -185,7 +212,31 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         with self.assertRaisesRegex(ValueError, "추출 가능한"):
             load_document(empty)
 
+    def test_oversized_file_is_rejected_before_parsing(self):
+        """화면 없는 직접 로더 호출도 상한 초과 파일을 파싱하지 않는다."""
+        path = self.root / "oversized.pdf"
+        # 큰 파일을 실제로 만들지 않고 제한을 줄여 경계 조건을 검증한다.
+        path.write_bytes(b"1234")
+        with patch("app.ingestion.parsers.loader.MAX_DOCUMENT_BYTES", 3):
+            with patch("app.ingestion.parsers.loader.parse_pdf") as parser:
+                with self.assertRaisesRegex(ValueError, "20 MiB"):
+                    load_document(path)
+                parser.assert_not_called()
+
+    def test_file_at_size_limit_is_passed_to_parser(self):
+        """정확히 상한 크기인 파일은 허용하고 기존 블록 반환을 유지한다."""
+        path = self.root / "boundary.pdf"
+        path.write_bytes(b"123")
+        expected = [{"block_type": "text", "text": "허용", "page": 1,
+                     "location": "p.1", "section": ""}]
+        with patch("app.ingestion.parsers.loader.MAX_DOCUMENT_BYTES", 3):
+            with patch("app.ingestion.parsers.loader.parse_pdf",
+                       return_value=expected) as parser:
+                self.assertEqual(load_document(path), expected)
+                parser.assert_called_once_with(path)
+
     def test_markdown_preserves_cells_and_escapes_special_characters(self):
+        """셀의 열 위치·줄바꿈·특수 문자가 Markdown 구조를 깨지 않는다."""
         result = table_to_markdown([
             ["A|B", "line1\nline2"], [None, "x\\y"], ["last"],
         ])
@@ -196,6 +247,7 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         self.assertEqual(table_to_markdown([[None, ""]]), "")
 
     def test_normalization_keeps_lines_locations_and_input(self):
+        """정규화가 원본·위치·줄바꿈을 유지하며 잘못된 블록을 거부한다."""
         blocks = [{"block_type": "text", "text": " A  B\r\n C\tD ",
                    "page": 1, "location": "문단 1", "section": ""}]
         original = copy.deepcopy(blocks)
