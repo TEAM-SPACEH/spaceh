@@ -21,7 +21,7 @@
 | 10/26 | 핵심 테이블은 팀 ERD 이름을 따른다: `company_id`는 회사 코드(`HRI`·`MVX`·`ELV`) 문자열 PK, `doc_id`는 앱이 만드는 uuid 문자열, 보안 등급 `access_level`, 작성일 `published_date`, 대상 기간 `finance_year`·`quarter`를 둔다 | ERD 확정, Chroma 메타데이터도 같은 이름으로 |
 | 10/27 | DB 8개 테이블 확정 (`db/schema.sql`이 원본, 스키마 정의서 엑셀은 제출용 사본). 값은 영어 소문자(회사 코드·분기만 대문자). `password_hash`, 작성일 필수, `company_code` 이름은 `audit_logs.company_code`·`access_requests.owner_company_code` 두 컬럼에만 유지하고(FK 없음, 값은 `companies.company_id`), 나머지 테이블(`companies`·`users`·`documents`)은 `company_id`를 쓴다. 열람 승인은 기간·중복 제약 없이 `access_grants`에 쌓고, `companies.default_share_enabled`는 두지 않는다. M-04 히스토리는 `audit_logs`에서 읽는다 | ERD·정의서 확정, 관문 일정상 단순하게 |
 | 10/26 | `main.py`·`core`·`models`는 저장소 루트, 의존성은 `requirements.txt` + Python 3.11 | 루트에서 실행해야 import가 됨, pip만으로 환경 통일 |
-| 10/27 | I-02의 등록 제목이 없거나 공백이면 파일명의 마지막 확장자를 뺀 이름으로 대체한다. 작성일은 파일명·수정 시각으로 추측하지 않고 기존 미상 값 규칙을 따른다 | 사용자 합의, 출처 제목 누락 방지와 날짜 오인 방지 |
+| 10/27 | I-02의 등록 제목이 없거나 공백이면 파일명의 마지막 확장자를 뺀 이름으로 대체한다. 작성일은 파일명·수정 시각으로 추측하지 않고 [데이터 모델의 I-02 작성일 규칙](./architecture/data-model.md#공통-메타데이터-구성-i-02)을 따른다 | 사용자 합의, 출처 제목 누락 방지와 날짜 오인 방지 |
 
 ## 아직 정하지 않은 것
 
