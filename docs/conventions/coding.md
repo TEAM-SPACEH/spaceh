@@ -91,6 +91,7 @@ with get_connection() as conn, conn.cursor() as cur:
 ### 화면 (views)
 
 - 색·글꼴·둥글기는 `.streamlit/config.toml` 테마가 정한다. views에서 `<style>`·CSS를 넣지 않는다.
+- 문서 제목·파일명·청크 본문·회사명처럼 데이터에서 온 글자는 `st.markdown`·`st.caption`·`st.write`에 넣지 않는다. Markdown 링크·이미지가 그대로 그려진다. `app.common.ui.show_text()`를 쓴다.
 - 보안 등급 배지, 회사 태그, 각주 번호, 근거 하이라이트, 권한 없음 안내, 빈 결과는 `app/common/ui.py` 함수를 쓴다. 없는 요소가 필요하면 직접 만들지 말고 팀장에게 요청한다.
 - 페이지는 `page_header()` → 필터 → 본문 순서로 만든다. 주요 버튼만 `st.button(..., type="primary")`.
 - 화면 문구는 "~합니다"체. 입력칸 예시는 "현대무벡스 3분기 실적 보고서"처럼 구체적으로 쓴다.

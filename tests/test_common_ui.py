@@ -1,6 +1,6 @@
 import unittest
 
-from app.common.ui import citation_html, company_tag_html, highlight_html, security_badge_html
+from app.common.ui import citation_html, company_tag_html, highlight_html, security_badge_html, text_html
 
 
 class CommonUiHtmlTest(unittest.TestCase):
@@ -15,6 +15,13 @@ class CommonUiHtmlTest(unittest.TestCase):
     def test_text_is_escaped(self):
         self.assertNotIn("<script>", highlight_html("<script>x</script>"))
         self.assertNotIn("<b>", company_tag_html("<b>MVX</b>"))
+
+    def test_markdown_in_title_stays_plain_text(self):
+        """제목 속 Markdown 링크·이미지는 글자 그대로 남고 태그가 되지 않는다 (st.html은 Markdown을 해석하지 않음)."""
+        out = text_html("[확인](https://example.com) ![x](https://example.com/a.png) <img src=x>", bold=True)
+        self.assertIn("[확인](https://example.com)", out)
+        self.assertNotIn("<a", out)
+        self.assertNotIn("<img", out)
 
     def test_citation_number_only(self):
         self.assertIn(">3<", citation_html(3))

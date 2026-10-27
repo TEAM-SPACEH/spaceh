@@ -1,8 +1,9 @@
 """공통 화면 요소. 모든 views는 반복되는 UI를 직접 만들지 말고 여기 함수를 부른다.
 
 - 색·글꼴·둥글기는 .streamlit/config.toml 테마가 정한다. views에서 `<style>`을 넣지 않는다.
-- `*_html()` 함수는 문자열만 만든다. 화면에 넣을 때는 `st.markdown(..., unsafe_allow_html=True)`.
-  값은 모두 html.escape를 거치므로 문서 제목 같은 사용자 입력을 그대로 넘겨도 된다.
+- 문서 제목·파일명·본문처럼 업로드한 사람이 정할 수 있는 값은 `st.markdown`·`st.caption`·`st.write`에
+  넘기지 않는다. 이 함수들은 Markdown을 해석해 `[링크](https://…)`·`![이미지](…)`를 그대로 그린다.
+  대신 `show_text()` 또는 `*_html()` + `st.html()`을 쓴다 (html.escape 후 Markdown 해석 없이 표시).
 """
 
 import html
@@ -25,6 +26,7 @@ _CSS = """
 .sh-cite{display:inline-block;min-width:19px;padding:0 4px;border-radius:9px;background:#E7F0FA;color:#004098;font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-left:3px}
 .sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
 .sh-muted{color:#868E96;font-size:13px}
+.sh-text{white-space:pre-wrap;line-height:1.6}
 </style>
 """
 
@@ -63,13 +65,24 @@ def highlight_html(text: str) -> str:
     return f'<span class="sh-hl">{html.escape(text)}</span>'
 
 
+def text_html(text: str, *, bold: bool = False, muted: bool = False) -> str:
+    """문서에서 온 글자를 Markdown·HTML 해석 없이 보여 줄 HTML. 줄바꿈은 유지한다."""
+    css = "sh-text sh-muted" if muted else "sh-text"
+    body = html.escape(text)
+    return f'<div class="{css}">{f"<b>{body}</b>" if bold else body}</div>'
+
+
+def show_text(text: str, *, bold: bool = False, muted: bool = False) -> None:
+    """문서 제목·파일명·본문 미리보기를 그대로 표시한다. st.markdown·st.caption·st.write 대신 쓴다."""
+    st.html(text_html(text, bold=bold, muted=muted))
+
+
 def source_line(company_code: str, access_level: str, title: str, location: str = "") -> None:
     """출처 한 줄: [회사] [보안 등급] 제목, 위치. 검색 결과·출처·각주 목록에서 같이 쓴다."""
     meta = f' <span class="sh-muted">{html.escape(location)}</span>' if location else ""
-    st.markdown(
-        f"{company_tag_html(company_code)} {security_badge_html(access_level)} "
-        f"<b>{html.escape(title)}</b>{meta}",
-        unsafe_allow_html=True,
+    st.html(
+        f"<div>{company_tag_html(company_code)} {security_badge_html(access_level)} "
+        f"<b>{html.escape(title)}</b>{meta}</div>"
     )
 
 
@@ -79,8 +92,8 @@ def no_permission_notice(title: str, company_name: str, key: str) -> bool:
     반환: [열람 권한 요청] 버튼을 눌렀으면 True. key는 화면 안에서 겹치지 않게 doc_id 등으로 준다.
     """
     with st.container(border=True):
-        st.markdown(f"🔒 **{title}**")
-        st.caption(f"{company_name} 문서라 내 권한으로는 내용을 볼 수 없습니다. 답변 근거에서도 뺐습니다.")
+        st.html(f"<div>🔒 <b>{html.escape(title)}</b></div>")
+        show_text(f"{company_name} 문서라 내 권한으로는 내용을 볼 수 없습니다. 답변 근거에서도 뺐습니다.", muted=True)
         return st.button("열람 권한 요청", key=f"request-{key}")
 
 
