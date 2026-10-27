@@ -16,7 +16,7 @@ agent용 허브 문서다. 상세 규칙을 여기에 복붙하지 말고, 작�
 2. GitHub 이슈 생성 → `develop`에서 브랜치 생성
 3. 구현 → 실제 실행으로 검증
 4. 커밋 계획 → 커밋 → push → `develop`으로 PR (`closes #N`)
-5. 리뷰 승인 → merge commit으로 머지
+5. 리뷰 승인 → 팀장이 merge commit으로 머지
 
 절차 상세: [task-workflow](./.claude/skills/task-workflow/SKILL.md), 형식: [Git 규칙](./docs/conventions/git.md)
 

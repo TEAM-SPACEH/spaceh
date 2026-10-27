@@ -2,7 +2,10 @@
 
 import streamlit as st
 
+from app.common.ui import apply_theme
+
 st.set_page_config(page_title="spaceH", layout="wide")
+apply_theme()
 
 
 def home() -> None:
