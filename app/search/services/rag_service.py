@@ -187,8 +187,8 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
             "sources": [],
         }
 
-    # 7. 답변 출처 번호 검증
-    if not validate_answer(answer, chunks):
+    # 7. 출처 번호 및 실제 문서 내용 근거 검증
+    if not check_answer_grounding(answer, chunks):
         return {
             "answer": NO_ANSWER,
             "sources": [],
