@@ -132,7 +132,7 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 | `dart_sync_jobs` | DART 수집 작업 | I-05 |
 
 - 내 사용 히스토리(M-04)는 별도 테이블 없이 `audit_logs`에서 본인 행을 읽는다.
-- `audit_logs.company_code`·`access_requests.owner_company_code`에는 `companies.company_id` 값(HRI 등)을 넣는다.
+- 회사 참조 컬럼 이름: `companies`·`users`·`documents`는 `company_id`(FK), `audit_logs.company_code`와 `access_requests.owner_company_code` 두 컬럼만 `*_code`다. 두 컬럼에도 `companies.company_id` 값(HRI 등)을 넣고 FK는 걸지 않는다. Chroma 메타데이터는 `company_id`.
 - `documents.published_date`는 필수다. 파일에서 날짜를 못 읽으면 업로드일을 넣는다.
 
 ## 6. 시드 계정 (7개)
