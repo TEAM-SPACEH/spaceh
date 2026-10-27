@@ -12,7 +12,7 @@ def _user(**over) -> dict:
     user = {
         "id": 1,
         "employee_no": "HRI-0001",
-        "password": hash_password("pw-1234"),
+        "password_hash": hash_password("pw-1234"),
         "name": "김연구",
         "role": "employee",
         "company_id": "HRI",
@@ -34,7 +34,7 @@ class LoginTest(unittest.TestCase):
         self.assertEqual(saved["id"], 1)
         self.assertEqual(saved["role"], "employee")
         self.assertEqual(saved["company_id"], "HRI")  # 소속이 세션에 들어간다
-        self.assertNotIn("password", saved)  # 해시는 세션에 넣지 않는다
+        self.assertNotIn("password_hash", saved)  # 해시는 세션에 넣지 않는다
 
     @mock.patch("app.auth.services.auth_service.session.set_current_user")
     @mock.patch("app.auth.services.auth_service.user_repository.find_user_by_employee_no")

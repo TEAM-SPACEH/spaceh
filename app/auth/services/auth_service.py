@@ -27,7 +27,7 @@ def login(employee_no: str, password: str) -> bool:
     if not user["is_active"]:
         logger.info("로그인 실패: 비활성 계정")
         return False
-    if not verify_password(password, user["password"]):
+    if not verify_password(password, user["password_hash"]):
         logger.info("로그인 실패: 비밀번호 불일치")
         return False
 
