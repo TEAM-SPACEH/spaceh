@@ -145,6 +145,15 @@ def _generate_with_openai(query: str, context: str) -> str:
 
     return answer
 
+NO_ANSWER = "찾을 수 없음"
+
+def _is_no_answer(answer: str) -> bool:
+    """AI 응답이 근거 없음 메시지인지 확인합니다."""
+
+    normalized = answer.strip().rstrip(".!。").strip()
+
+    return normalized == NO_ANSWER
+
 def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
     """검색된 문서 청크를 기반으로 AI 답변을 생성합니다."""
 
@@ -158,14 +167,25 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
     # 3. 검색 결과가 없는 경우
     if not sources:
         return {
-            "answer": "찾을 수 없음",
+            "answer": NO_ANSWER,
             "sources": [],
         }
 
-    # 4. OpenAI를 통한 답변 생성
+    # 4. OpenAI 답변 생성
     answer = _generate_with_openai(query.strip(), context)
 
-    # 5. 답변 및 출처 후보 반환
+    # 5. AI 응답이 비정상적으로 비어 있는 경우
+    if not isinstance(answer, str) or not answer.strip():
+        raise RuntimeError("AI 답변을 생성하지 못했습니다.")
+
+    # 6. 근거가 없는 경우
+    if _is_no_answer(answer):
+        return {
+            "answer": NO_ANSWER,
+            "sources": [],
+        }
+
+    # 7. 정상 답변 반환
     return {
         "answer": answer.strip(),
         "sources": sources,
