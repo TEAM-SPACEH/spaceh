@@ -5,6 +5,7 @@ import logging
 import streamlit as st
 
 from app.auth.session import get_current_user
+from app.common.ui import show_text
 from app.search.services.search_service import search_documents
 
 logger = logging.getLogger(__name__)
@@ -52,14 +53,16 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     with doc_tab:
         for doc in documents:
             meta = doc["metadata"]
-            st.markdown(f"**{meta.get('title') or meta.get('file_name', '')}**")
-            st.caption(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련 청크 {doc['chunk_count']}개 · 관련도 {doc['score']:.2f}")
+            # 제목·파일명은 업로드한 사람이 정하므로 Markdown으로 해석하지 않는다 (show_text).
+            show_text(meta.get("title") or meta.get("file_name", ""), bold=True)
+            show_text(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련 청크 {doc['chunk_count']}개 · 관련도 {doc['score']:.2f}", muted=True)
     with chunk_tab:
         for chunk in chunks:
             meta = chunk["metadata"]
-            st.markdown(f"**{meta.get('title', '')}** — {meta.get('location', '')}")
-            st.caption(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련도 {chunk['score']:.2f}")
-            st.write(chunk["text"][:PREVIEW_CHARS])
+            show_text(f"{meta.get('title', '')} — {meta.get('location', '')}", bold=True)
+            show_text(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련도 {chunk['score']:.2f}", muted=True)
+            # 청크 본문은 업로드 문서 내용 그대로라 st.write(Markdown 해석)로 보여 주지 않는다.
+            show_text(chunk["text"][:PREVIEW_CHARS])
             st.divider()
 
 
