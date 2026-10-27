@@ -56,10 +56,14 @@ class IndexerTest(unittest.TestCase):
                          {"A#0001": "갱신된 본문", "B#0001": "검증 본문"})
 
     def test_foreign_id_in_later_batch_is_rejected_before_any_write(self):
-        """접두사가 겹친 다른 문서 ID를 뒤 배치에 넣어도 어느 문서도 덮어쓰지 않는다."""
+        """기존에 잘못 저장된 다른 문서 소유 ID도 뒤 배치에서 발견하면 전체 쓰기를 막는다."""
         self.indexer.index_chunks("A", [chunk("A", 1, "원래 A")], [[1.0, 0.0]])
-        self.indexer.index_chunks("A#1", [chunk("A#1", 1, "다른 문서")], [[0.0, 1.0]])
-        foreign = {**chunk("A", 2, "덮어쓰기 시도"), "chunk_id": "A#1#0001"}
+        # 과거 버전·수동 기록으로 ID와 소유자가 어긋난 레코드를 재현한다.
+        self.indexer.collection.upsert(
+            ids=["A#0002"], documents=["다른 문서"], embeddings=[[0.0, 1.0]],
+            metadatas=[{**chunk("B", 1)["metadata"]}],
+        )
+        foreign = chunk("A", 2, "덮어쓰기 시도")
         with patch.object(self.indexer.client, "get_max_batch_size", return_value=1):
             with self.assertRaisesRegex(ValueError, "소유"):
                 self.indexer.index_chunks(
@@ -68,10 +72,37 @@ class IndexerTest(unittest.TestCase):
                 )
         found = self.indexer.collection.get(include=["documents", "metadatas"])
         self.assertEqual(dict(zip(found["ids"], found["documents"])),
-                         {"A#0001": "원래 A", "A#1#0001": "다른 문서"})
+                         {"A#0001": "원래 A", "A#0002": "다른 문서"})
         owners = {key: metadata["doc_id"]
                   for key, metadata in zip(found["ids"], found["metadatas"])}
-        self.assertEqual(owners, {"A#0001": "A", "A#1#0001": "A#1"})
+        self.assertEqual(owners, {"A#0001": "A", "A#0002": "B"})
+
+    def test_noncanonical_ids_are_rejected_before_ownership_lookup(self):
+        """기존 레코드가 없어도 다른 문서와 충돌 가능한 ID를 조회·저장 전에 차단한다."""
+        invalid = ("A#1#0001", "A#1", "A#0000", "A#00001", "A#-001",
+                   "A#+001", "A#０００１", "A#0001\n", "B#0001", "A#0001suffix")
+        with patch.object(type(self.indexer.collection), "get", autospec=True) as lookup:
+            for chunk_id in invalid:
+                with self.subTest(chunk_id=chunk_id):
+                    item = {**chunk("A", 1), "chunk_id": chunk_id}
+                    with self.assertRaisesRegex(ValueError, "형식"):
+                        self.indexer.index_chunks("A", [item], [[1.0, 0.0]])
+            lookup.assert_not_called()
+        self.assertEqual(self.indexer.collection.count(), 0)
+
+    def test_chunker_number_format_accepts_more_than_four_digits(self):
+        """최소 네 자리 순번을 허용하되 10,000번째 이후 청크도 잘못 거부하지 않는다."""
+        chunks = [chunk("A", i) for i in (1, 9999, 10000)]
+        self.indexer.index_chunks("A", chunks, [[1.0, 0.0]] * len(chunks))
+        self.assertEqual(set(self.indexer.collection.get(include=[])["ids"]),
+                         {"A#0001", "A#9999", "A#10000"})
+
+    def test_document_ids_with_separator_have_distinct_chunk_namespaces(self):
+        """문서 ID 자체에 #가 있어도 마지막 구분자를 기준으로 서로의 청크와 분리한다."""
+        for doc_id in ("A", "A#1"):
+            self.indexer.index_chunks(doc_id, [chunk(doc_id, 1)], [[1.0, 0.0]])
+        self.assertEqual(set(self.indexer.collection.get(include=[])["ids"]),
+                         {"A#0001", "A#1#0001"})
 
     def test_existing_id_without_owner_is_rejected(self):
         """기존 레코드의 메타데이터가 없거나 문서 ID가 없으면 덮어쓰지 않는다."""
