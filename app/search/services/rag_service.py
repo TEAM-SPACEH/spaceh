@@ -1,6 +1,14 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from dotenv import load_dotenv
+
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_openai import ChatOpenAI
+
+from .rag_prompt import SYSTEM_PROMPT, USER_PROMPT
+
 def _get_field(chunk: Any, name: str, default=None) :
     """딕셔너리 또는 객체에서 필드 값을 가져옵니다"""
     if isinstance(chunk, Mapping):
@@ -107,3 +115,32 @@ def prepare_context(chunks: Sequence[Any]) -> tuple[str, list[dict]]:
     context = "\n\n".join(sections)
 
     return context, sources
+
+def _generate_with_openai(query: str, context: str) -> str:
+    """OpenAI LLM을 활용해 문서 기반 답변을 생성합니다."""
+
+    # 1. 환경변수 불러오기
+    load_dotenv()
+
+    # 2. 프롬프트 구성
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", SYSTEM_PROMPT),
+        ("human", USER_PROMPT),
+    ])
+
+    # 3. OpenAI 모델 설정
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+    )
+
+    # 4. LCEL 체인 구성
+    chain = prompt | llm | StrOutputParser()
+
+    # 5. 답변 생성
+    answer = chain.invoke({
+        "query": query,
+        "context": context,
+    })
+
+    return answer
