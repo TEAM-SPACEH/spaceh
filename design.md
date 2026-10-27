@@ -17,7 +17,7 @@ Anthropic의 `frontend-design` 가이드라인과 현대 계열사의 브랜드 
 3. **정보 밀도와 여백의 조화 (Compact Density & Breathable Space)**:
    - 전문적인 문서 요약, 각주 인용 등 고밀도 데이터를 사용자가 피로감 없이 빠르게 스캔할 수 있도록 8px 기준 그리드와 정돈된 카드 구조를 유지한다.
 4. **권한과 보안의 직관적 시각화 (Security Visibility)**:
-   - 문서마다 보안 등급(common, manager, admin)과 계열사 소속을 명확히 노출하여 보안 사고를 예방하고 사용자의 접근 권한 상태를 한눈에 파악하게 한다.
+   - 문서마다 보안 등급(전사 public, 자사 internal, 타사 internal)과 계열사 소속을 명확히 노출하여 보안 사고를 예방하고 사용자의 접근 권한 상태를 한눈에 파악하게 한다.
 
 ---
 
@@ -44,11 +44,18 @@ Anthropic의 `frontend-design` 가이드라인과 현대 계열사의 브랜드 
 | **Accent 1 (1순위 포인트)**| `#FABE00` | **현대 옐로우 (Priority Accent)**<br>- 시선 집중 포인트, 북마크 아이콘 활성화<br>- RAG 근거 문장 하이라이트 배경 tint (연하게 투명도 적용: `rgba(250, 190, 0, 0.15)`)<br>- 주의(Warning) 알림 배지, 요약 핵심 키워드 칩 |
 | **Accent 2 (2순위 포인트)**| `#004098` | **현대 블루 (Secondary Accent)**<br>- 텍스트 링크, 문서 열람(원문 보기) 보조 버튼<br>- 정보성(Info) 알림 배지, 시스템 설정 아이콘<br>- 계열사 구분 시 신뢰성 상징 메타 태그 |
 
-### 2.3 문서·보안 등급 뱃지 컬러 (Security Classification)
-문서 등급과 사용자 보안 등급은 동일하게 **admin > manager > common** 3단계로 구분한다. 사용자는 자신의 등급 이하의 문서만 열람할 수 있다.
-- **common**: 배경 `#EBFBEE`, 텍스트/보더 `#2B8A3E` (전 임직원 열람 가능)
-- **manager**: 배경 `#FFF9DB`, 텍스트/보더 `#F59F00` (manager 이상 열람 가능)
-- **admin**: 배경 `#FFF5F5`, 텍스트/보더 `#E03131` (admin만 열람 가능, 열람 제한/권한 요청 대상)
+### 2.3 문서 보안 등급 뱃지 컬러 (Security Classification)
+문서의 보안 등급은 **열람자의 소속 계열사 기준**으로 3가지 상태로 표시한다.
+- **public (전사)**: 배경 `#EBFBEE`, 텍스트/보더 `#2B8A3E` (전 계열사 임직원 열람 가능)
+- **internal · 자사**: 배경 `#E7F5FF`, 텍스트/보더 `#1971C2` (열람자와 같은 계열사 문서, 같은 계열사 임직원만 열람 가능)
+- **internal · 타사**: 배경 `#FFF5F5`, 텍스트/보더 `#E03131` (다른 계열사의 internal 문서, 열람 제한/권한 요청 대상)
+
+### 2.4 사용자 역할 (Role)
+| 역할 | 표시명 | 열람 범위 |
+|---|---|---|
+| `employee` | 일반사원 | 전사 public + 자사 internal |
+| `company_admin` | 계열사 관리자 | 전사 public + 자사 internal (자사 문서의 권한 관리) |
+| `super_admin` | 최종 어드민 | 전사 public + 자사·타사 internal 전체 |
 
 ---
 
@@ -61,6 +68,8 @@ spaceH의 서체는 현대 브랜드 전용 폰트 2종을 기반으로 설계�
 /* 기본 폰트 스택 */
 font-family: "NeoHyundai", "Marine", -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
 ```
+- `"NeoHyundai"`, `"Marine"`은 시스템 설치 폰트에 의존하지 않고 **`@font-face`로 직접 제공**한다. 폰트 파일은 `app/static/fonts/`에 두고 `.streamlit/config.toml`의 `[server] enableStaticServing = true`로 서빙한다 (구현 예시는 7장 참조).
+- `"Pretendard"` 등은 폰트 로딩 실패 시를 위한 fallback이며, 두 브랜드 폰트를 대체하지 않는다.
 1. **메인 서체: `"NeoHyundai"`**
    - **용도**: 제목(Heading), 본문(Body), 입력 폼, UI 전반의 한국어 텍스트.
    - **특징**: 단단한 골격과 정직한 인상을 주어 기업 공식 문서 및 데이터 표현에 안정감을 부여.
@@ -92,7 +101,7 @@ font-family: "NeoHyundai", "Marine", -apple-system, BlinkMacSystemFont, "Pretend
 ### 4.2 Streamlit 뷰 구조화 (Page Layout)
 ```text
 +-----------------------------------------------------------------------+
-| [GNB] spaceH 로고 | [통합 현황] | [내 보안 등급: manager] | 사용자정보 |
+| [GNB] spaceH 로고 | [통합 현황] | [내 역할: employee · 현대무벡스] | 사용자정보 |
 +------------------+----------------------------------------------------+
 | [사이드바 필터]     | [메인 워크스페이스]                                     |
 | - 검색어 입력      |  - 탭: [자연어 통합 검색] [종합 보고서]     |
@@ -119,6 +128,7 @@ font-family: "NeoHyundai", "Marine", -apple-system, BlinkMacSystemFont, "Pretend
 - **Action / Link Button**:
   - 배경 투명, 텍스트 `#004098`, Underline on hover
   - 용도: 출처 각주 클릭, 권한 요청 링크
+- **Streamlit 매핑**: `st.button(type="primary")` → Primary, `type="secondary"` → Outline, `type="tertiary"` → Link. 변형은 `button[kind=...]` 선택자로 구분하고, `.stButton > button`은 공통 기본(Primary) 스타일로 유지한다.
 
 ### 5.2 검색 결과 카드 (Document Card)
 - **외관**: 배경 `#FFFFFF`, 테두리 `1px solid #E9ECEF`, `border-radius: 6px`, 내부 여백 `16px`.
@@ -138,7 +148,7 @@ font-family: "NeoHyundai", "Marine", -apple-system, BlinkMacSystemFont, "Pretend
   - 스타일: 배경 `#E7F5FF`, 텍스트 `#004098`, 클릭 시 우측에 원문 청크 팝오버/슬라이드 노출.
 
 ### 5.4 권한 제한 문서 표시 (M-03 연계)
-- 열람 권한이 없는 문서는 검색 목록에서 완전히 제외(사전 필터링)하는 것이 기본 원칙(S-03).
+- 열람 권한이 없는 문서(타사 internal을 `employee`·`company_admin`이 조회하는 경우)는 검색 목록에서 완전히 제외(사전 필터링)하는 것이 기본 원칙(S-03).
 - 단, 메타데이터만 열람 가능한 경우:
   - 카드 배경 `#F8F9FA`, 제목 옆에 자물쇠 아이콘(🔒)만 표시한다. 제목은 흐림 처리 없이 일반 카드와 동일하게 노출한다.
   - 우측 하단에 **[열람 권한 요청]** 버튼 (`#FABE00` 바탕의 세컨더리 CTA) 배치.
@@ -152,7 +162,7 @@ Figma 원본(`Space-H #1-2`)의 정적 그래픽을 Streamlit 애플리케이션
 | Figma 디자인 요소 | 발생 가능한 문제점 (Streamlit) | 보완 구현 원칙 (Solutions) |
 |---|---|---|
 | **기본 Streamlit 테마 누출** | Streamlit 기본 붉은색 테마 및 불필요한 상단 햄버거 메뉴/푸터 노출 | `.streamlit/config.toml`에 primaryColor를 `#009944`로 지정하고, CSS injection으로 Streamlit 기본 헤더/푸터 숨김 처리 |
-| **커스텀 폰트 렌더링** | 로컬 폰트("NeoHyundai", "Marine") 미설치 클라이언트 환경에서 깨짐 | CSS `@font-face` 로컬/웹폰트 fallback 스택(`Pretendard`, `Segoe UI`, `sans-serif`)을 철저히 마련 |
+| **커스텀 폰트 렌더링** | 로컬 폰트("NeoHyundai", "Marine") 미설치 클라이언트 환경에서 Pretendard 등으로 대체됨 | `app/static/fonts/`의 폰트 파일을 `@font-face`(`local()` 우선, `url()` 보조)로 선언해 클라이언트 설치 여부와 무관하게 제공하고, `Pretendard`·`Segoe UI`·`sans-serif`는 fallback으로만 사용 |
 | **대시보드 카드 간격 불균형** | `st.container()` 사용 시 불필요하게 늘어지는 세로 여백 | 커스텀 CSS 클래스(`.spaceh-card`)를 선언하여 `padding: 16px; margin-bottom: 12px;`로 여백 통제 |
 | **RAG 인용 출처 상호작용** | 텍스트 내 각주 클릭 시 전체 페이지가 리로드되는 현상 | `st.popover` 또는 탭/사이드바 토글을 활용하여 페이지 재실행 없이 출처 본문 즉시 확인 지원 |
 
@@ -172,6 +182,32 @@ def apply_spaceh_theme():
         """
         <style>
         /* 1. 폰트 및 기본 캔버스 설정 */
+        /* 브랜드 폰트: 설치본(local) 우선, 없으면 정적 서빙 파일 사용 */
+        @font-face {
+            font-family: "NeoHyundai";
+            src: local("NeoHyundai"), url("app/static/fonts/NeoHyundai-Regular.woff2") format("woff2");
+            font-weight: 400;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: "NeoHyundai";
+            src: local("NeoHyundai Bold"), url("app/static/fonts/NeoHyundai-Bold.woff2") format("woff2");
+            font-weight: 700;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: "Marine";
+            src: local("Marine"), url("app/static/fonts/Marine-Regular.woff2") format("woff2");
+            font-weight: 400;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: "Marine";
+            src: local("Marine Bold"), url("app/static/fonts/Marine-Bold.woff2") format("woff2");
+            font-weight: 700;
+            font-display: swap;
+        }
+        /* Pretendard는 fallback 전용 */
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
         
         html, body, [class*="css"] {
@@ -185,7 +221,7 @@ def apply_spaceh_theme():
         footer {visibility: hidden;}
         header {visibility: hidden;}
 
-        /* 3. 버튼 스타일 통일 */
+        /* 3. 버튼 스타일: 기본(Primary) + 변형(Outline, Link) */
         .stButton > button {
             background-color: #009944;
             color: #FFFFFF;
@@ -199,6 +235,33 @@ def apply_spaceh_theme():
             background-color: #007A36;
             color: #FFFFFF;
             box-shadow: 0 2px 6px rgba(0, 153, 68, 0.2);
+        }
+        .stButton > button:active {
+            background-color: #005C29;
+        }
+        /* Secondary / Outline */
+        .stButton > button[kind="secondary"] {
+            background-color: #FFFFFF;
+            color: #009944;
+            border: 1px solid #009944;
+        }
+        .stButton > button[kind="secondary"]:hover {
+            background-color: #F0FDF4;
+            color: #009944;
+            box-shadow: none;
+        }
+        /* Action / Link */
+        .stButton > button[kind="tertiary"] {
+            background-color: transparent;
+            color: #004098;
+            border: none;
+            padding: 0;
+        }
+        .stButton > button[kind="tertiary"]:hover {
+            background-color: transparent;
+            color: #004098;
+            text-decoration: underline;
+            box-shadow: none;
         }
 
         /* 4. 카드 컨테이너 */
