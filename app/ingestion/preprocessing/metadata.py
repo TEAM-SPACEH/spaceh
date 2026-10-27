@@ -3,6 +3,9 @@
 from datetime import date, datetime
 from pathlib import Path
 
+from app.ingestion.preprocessing.masking import mask_sensitive_data
+from app.ingestion.preprocessing.normalizer import normalize_text
+
 
 def build_metadata(
     doc_id: str, document_info: dict, extracted_info: dict,
@@ -82,4 +85,12 @@ def build_metadata(
         metadata[key] = value
     if metadata["block_type"] not in {"", "text", "table", "title"}:
         raise ValueError("지원하지 않는 블록 유형입니다.")
+    # 검색용 표시 값만 치환하고, 원본 등록 정보와 파일 확장자는 보존한다.
+    filename = Path(metadata["file_name"])
+    display, _ = mask_sensitive_data([
+        {"text": normalize_text(metadata["title"])},
+        {"text": normalize_text(filename.stem)},
+    ])
+    metadata["title"] = display[0]["text"]
+    metadata["file_name"] = display[1]["text"] + filename.suffix
     return metadata

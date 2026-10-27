@@ -122,6 +122,17 @@ class MaskSensitiveDataTest(unittest.TestCase):
         self.assertEqual(blocks, before)
         self.assertEqual([b["page"] for b in masked], [1, 2, 3])
 
+    def test_section_whitespace_is_normalized_without_joining_lines(self):
+        """여러 공백·탭 전화번호를 치환하고 계좌 키워드의 줄 경계는 보존한다."""
+        blocks = [{"text": "본문", "section":
+                   " 문의 010  1234\t\t5678\r\n입금\r\n110-123-456789 "}]
+        before = copy.deepcopy(blocks)
+        masked, counts = mask_sensitive_data(blocks)
+        self.assertEqual(masked[0]["section"],
+                         "문의 [마스킹: 연락처]\n입금\n110-123-456789")
+        self.assertEqual(sum(counts.values()), 0)
+        self.assertEqual(blocks, before)
+
     def test_section_does_not_change_body_table_header_state(self):
         """절 이름의 법인등록번호 라벨을 본문 표의 머리글로 오인하지 않는다."""
         blocks = [{"text": "표 안내", "section": "법인등록번호", "block_type": "table"},

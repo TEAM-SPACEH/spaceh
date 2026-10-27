@@ -9,6 +9,8 @@
 import logging
 import re
 
+from app.ingestion.preprocessing.normalizer import normalize_text
+
 logger = logging.getLogger(__name__)
 
 # 마스킹 유형 이름. 치환 문자열 `[마스킹: {유형}]`과 반환 건수 딕셔너리의 키로 함께 쓴다.
@@ -168,7 +170,7 @@ def mask_sensitive_data(
         section = block.get("section")
         if isinstance(section, str) and section:
             # 제목 복사본은 중복 집계하지 않고 본문의 표 머리글 상태도 공유하지 않는다.
-            new_block["section"] = _mask_text(section, dict.fromkeys(counts, 0))
+            new_block["section"] = _mask_text(normalize_text(section), dict.fromkeys(counts, 0))
         masked_blocks.append(new_block)
 
     total = sum(counts.values())
