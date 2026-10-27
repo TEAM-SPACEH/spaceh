@@ -26,13 +26,13 @@ def find_profile_by_id(user_id: int) -> dict | None:
 def find_password_hash_by_id(user_id: int) -> str | None:
     """M-02 user_id의 비밀번호 해시를 조회한다. 없으면 None."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT password FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT password_hash FROM users WHERE id = %s", (user_id,))
         row = cur.fetchone()
-    return row["password"] if row else None
+    return row["password_hash"] if row else None
 
 
 def update_password(user_id: int, password_hash: str) -> int:
     """M-02 user_id의 비밀번호 해시를 바꾸고, 바뀐 행 수를 돌려준다(없으면 0)."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE users SET password = %s WHERE id = %s", (password_hash, user_id))
+        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s", (password_hash, user_id))
         return cur.rowcount

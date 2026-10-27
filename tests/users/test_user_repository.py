@@ -33,7 +33,7 @@ class UserRepositoryTest(unittest.TestCase):
 
     @mock.patch("app.users.repositories.user_repository.get_connection")
     def test_find_password_hash_by_id(self, get_conn):
-        conn, cur = _fake_connection(fetchone={"password": "HASH"})
+        conn, cur = _fake_connection(fetchone={"password_hash": "HASH"})
         get_conn.return_value = conn
         self.assertEqual(user_repository.find_password_hash_by_id(1), "HASH")
 
