@@ -150,6 +150,15 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 - `extracted_info`에는 I-01 블록의 `page`, `location`, `section`, `block_type`을 전달한다. 문서 공통값만 구성할 때는 `{}`를 전달해 위치를 `0`·`""`로 두고 후속 청크 생성에서 실제 위치를 붙인다. 블록의 `text`는 메타데이터에 복사하지 않는다.
 - 이 단계는 문서 ID 생성·원본 해시 계산·DB 저장·청크 번호 부여·임베딩을 수행하지 않는다. 원본 해시는 문서 등록 정보에서 별도로 관리한다.
 
+### 청크 임베딩 (I-02)
+
+`DocumentEmbedder().embed_chunks(chunks)`는 마스킹·청킹이 끝난 dict 목록을 받아 같은 순서의 `list[list[float]]`를 반환한다. 출처 접두어를 포함한 `text`만 모델에 보내고 입력·청크 ID·메타데이터는 변경하지 않는다. DB·Chroma 저장은 수행하지 않는다.
+
+- 검색과 동일한 `core.config.EMBEDDING_MODEL`·`OPENAI_API_KEY`로 `OpenAIEmbeddings`를 생성해 객체 안에서 재사용한다. 새 패키지는 추가하지 않는다.
+- 빈 목록은 요청 없이 `[]`를 반환한다. 잘못된 청크·빈 텍스트는 전체 입력을 검증한 뒤 API 호출 전에 거부한다. 호출자는 반드시 I-03 마스킹을 먼저 적용한다.
+- 긴 텍스트는 LangChain의 기본 길이 검사·분할·가중 평균 처리를 사용해 원본 청크당 벡터 하나를 유지한다. 요청 배치는 32개로 제한한다. [OpenAI 입력 제한](https://developers.openai.com/api/reference/resources/embeddings/methods/create)에 맞춰 길이 검사로 나뉜 최대 8,191토큰 입력 32개도 요청당 300,000토큰 이내로 유지한다.
+- 응답 개수·빈 벡터·차원 불일치·비유한 수는 오류로 알린다. API 오류도 그대로 호출자에게 전달하며 실패를 빈 성공 결과로 바꾸거나 부분 벡터를 반환하지 않는다.
+
 ## 5. MySQL 테이블
 
 8개 테이블 모두 `db/schema.sql`에 있다. 컬럼 설명은 팀 「DB 스키마 정의서」(제출용 사본)와 `schema.sql`의 COMMENT에 있고, 둘이 다르면 `schema.sql`을 따른다.
