@@ -5,77 +5,6 @@ from datetime import date
 import streamlit as st
 
 
-def apply_spaceh_theme() -> None:
-    """spaceH 공통 디자인 테마 CSS를 주입한다 (임시).
-
-    공통 테마는 app/common/ui.py + .streamlit/config.toml로 옮기기로 했으나, 그 공통
-    파일이 아직 없다. 생길 때까지는 필터 UI에 테마가 빠지지 않도록 여기서 임시로 입힌다.
-    공통 파일이 머지되면 이 함수와 호출을 지우고 그쪽을 쓴다.
-    """
-    st.markdown(
-        """
-        <style>
-        /* 1. 폰트 및 기본 캔버스 설정 */
-        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-
-        html, body, [class*="css"] {
-            font-family: "NeoHyundai", "Marine", "Pretendard", -apple-system, sans-serif;
-            color: #111111;
-            background-color: #FFFFFF;
-        }
-
-        /* 2. Streamlit 기본 헤더/푸터 정리 */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-
-        /* 3. 버튼 스타일 통일 */
-        .stButton > button {
-            background-color: #009944;
-            color: #FFFFFF;
-            border-radius: 4px;
-            border: none;
-            font-weight: 600;
-            padding: 8px 16px;
-            transition: all 0.2s ease;
-        }
-        .stButton > button:hover {
-            background-color: #007A36;
-            color: #FFFFFF;
-            box-shadow: 0 2px 6px rgba(0, 153, 68, 0.2);
-        }
-
-        /* 4. 카드 컨테이너 */
-        .spaceh-card {
-            background-color: #FFFFFF;
-            border: 1px solid #E9ECEF;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 12px;
-            transition: border-color 0.2s;
-        }
-        .spaceh-card:hover {
-            border-color: #009944;
-        }
-
-        /* 5. 3사 비교 헤더 라인 */
-        .card-hri { border-top: 3px solid #004098 !important; }
-        .card-movex { border-top: 3px solid #009944 !important; }
-        .card-hdel { border-top: 3px solid #FABE00 !important; }
-
-        /* 6. 인용 하이라이트 */
-        .citation-highlight {
-            background-color: rgba(250, 190, 0, 0.15);
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-weight: 500;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_search_filters(companies: list, doc_types: list, dates) -> dict:
     """S-02 기업·문서 유형·기간을 고르는 다중 필터 UI를 그리고 선택값을 dict로 돌려준다.
 
@@ -93,9 +22,8 @@ def render_search_filters(companies: list, doc_types: list, dates) -> dict:
             "date_to": 20251231,         # 종료일(YYYYMMDD 정수), 안 골랐으면 None
         }
     """
-    # 공통 테마(app/common/ui.py)가 생기기 전까지 임시로 여기서 테마를 입힌다.
-    apply_spaceh_theme()
-
+    # 색·글꼴 등 공통 테마는 .streamlit/config.toml + app/common/ui.py(main.py의 apply_theme)가
+    # 맡는다. 이 컴포넌트는 <style>을 넣지 않는다.
     st.markdown("**검색 필터**")
 
     # 1) 기업 다중 선택
