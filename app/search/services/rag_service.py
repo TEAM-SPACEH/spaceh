@@ -341,3 +341,45 @@ def extract_cited_sources(
         cited_sources.append(source)
 
     return cited_sources
+
+def _search_documents_for_user(
+        query: str,
+        filters: dict | None,
+        user: dict
+) -> list[dict]:
+    """권한 필터가 적용된 검색 결과를 가져옵니다."""
+
+    from .search_service import search_documents
+
+    return search_documents(query, filters, user)
+
+def answer_question(
+        query: str,
+        filters: dict | None,
+        user: dict
+) -> dict[str, Any]:
+    """기존 검색 서비스와 AI 질의응답 기능을 연결합니다."""
+
+    # 1. 로그인 사용자 확인
+    if not isinstance(user, dict) or not user:
+        raise PermissionError("로그인이 필요합니다.")
+
+    # 2. 질문 유효성 검사
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("질문을 입력해 주세요.")
+
+    query = query.strip()
+
+    # 3. 권한 필터가 적용된 검색 결과 조회
+    chunks = _search_documents_for_user(
+        query,
+        filters,
+        user
+    )
+
+    # 4. 검색 결과 형식 확인
+    if not isinstance(chunks, list):
+        raise TypeError("검색 결과는 리스트여야 합니다.")
+
+    # 5. 검색 결과를 기반으로 AI 답변 생성
+    return generate_answer(query, chunks)
