@@ -15,7 +15,7 @@ class PasswordHashTest(unittest.TestCase):
     def test_same_password_gets_different_salt(self):
         self.assertNotEqual(hash_password("same"), hash_password("same"))
 
-    def test_hash_fits_users_password_column(self):
+    def test_hash_fits_users_password_hash_column(self):
         self.assertLessEqual(len(hash_password("x" * 64)), 100)
 
     def test_malformed_stored_value_fails(self):

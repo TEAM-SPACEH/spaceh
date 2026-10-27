@@ -19,6 +19,7 @@
 | 10/26 | 수업에서 배운 기술만 쓴다. 표준 라이브러리로 대체: 테스트 `unittest`, HTTP(DART) `urllib.request`, 해시 `hashlib`. 예외: `python-docx`·`python-pptx`(I-01 필수), `PyMySQL`+`cryptography`(Week4 MySQL 연결) | 수업 범위 안에서 설명할 수 있게 |
 | 10/26 | PR 자동화: `CODEOWNERS` 리뷰어 요청, 작성자 assignee·라벨(Actions). 테스트·린트 CI·AI 리뷰 봇은 두지 않는다 | 손으로 하던 지정 제거, 리뷰 누락 방지. 앱 코드가 아니라 수업 범위 규칙과 무관 |
 | 10/26 | 핵심 테이블은 팀 ERD 이름을 따른다: `company_id`는 회사 코드(`HRI`·`MVX`·`ELV`) 문자열 PK, `doc_id`는 앱이 만드는 uuid 문자열, 보안 등급 `access_level`, 작성일 `published_date`, 대상 기간 `finance_year`·`quarter`를 둔다 | ERD 확정, Chroma 메타데이터도 같은 이름으로 |
+| 10/27 | DB 8개 테이블 확정 (`db/schema.sql`이 원본, 스키마 정의서 엑셀은 제출용 사본). 값은 영어 소문자(회사 코드·분기만 대문자). `password_hash`, 작성일 필수, `company_code` 이름은 `audit_logs.company_code`·`access_requests.owner_company_code` 두 컬럼에만 유지하고(FK 없음, 값은 `companies.company_id`), 나머지 테이블(`companies`·`users`·`documents`)은 `company_id`를 쓴다. 열람 승인은 기간·중복 제약 없이 `access_grants`에 쌓고, `companies.default_share_enabled`는 두지 않는다. M-04 히스토리는 `audit_logs`에서 읽는다 | ERD·정의서 확정, 관문 일정상 단순하게 |
 | 10/26 | `main.py`·`core`·`models`는 저장소 루트, 의존성은 `requirements.txt` + Python 3.11 | 루트에서 실행해야 import가 됨, pip만으로 환경 통일 |
 | 10/27 | I-02의 등록 제목이 없거나 공백이면 파일명의 마지막 확장자를 뺀 이름으로 대체한다. 작성일은 파일명·수정 시각으로 추측하지 않고 기존 미상 값 규칙을 따른다 | 사용자 합의, 출처 제목 누락 방지와 날짜 오인 방지 |
 
@@ -28,6 +29,4 @@
 
 - 분기 실적 보고서(R-02 ②)의 수치를 DART 공시 표 청크만으로 만들지
 - 계열사 관리자의 "자사 관련 로그" 범위 (행위자 소속만 vs 대상 문서 소유 회사 포함)
-- `companies.default_share_enabled`의 정확한 의미
-- DB 값 표기 통일 (영어 소문자로 맞출지)
 - I-04 XLSX·HWP 확장 파싱(P3)을 할 경우 쓸 라이브러리 (수업에 없음 — 시작 전에 결정)
