@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from docx import Document
+from pptx import Presentation
+from pptx.util import Inches
 
 from app.ingestion.indexing.indexer import DocumentIndexer
 from app.ingestion.pipeline import ingest_document
@@ -70,6 +72,47 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(set(saved["documents"]), {c["text"] for c in chunks})
         self.assertEqual(self.info, before)
         self.assertFalse(self.indexer.client._closed)
+
+    def test_docx_and_pptx_title_pii_is_removed_from_sections_and_table_context(self):
+        """제목에 포함된 개인정보가 임베딩 텍스트와 Chroma section에 남지 않는다."""
+        title = "담당 010-1234-5678 test@example.com"
+        for extension in ("docx", "pptx"):
+            with self.subTest(extension=extension):
+                path = Path(self.temp.name) / ("title." + extension)
+                if extension == "docx":
+                    document = Document()
+                    document.add_heading(title, level=1)
+                    document.add_paragraph("안전 점검 안내")
+                    document.add_table(rows=1, cols=1).cell(0, 0).text = "표 내용"
+                    document.save(path)
+                else:
+                    presentation = Presentation()
+                    slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+                    slide.shapes.title.text = title
+                    slide.shapes.add_table(
+                        1, 1, Inches(1), Inches(3), Inches(4), Inches(1),
+                    ).table.cell(0, 0).text = "표 내용"
+                    presentation.save(path)
+                doc_id = "title-" + extension
+                info = {**self.info, "file_name": path.name, "file_format": extension}
+                result = self.run_pipeline(file_path=path, doc_id=doc_id, document_info=info)
+                self.assertEqual(result["index_status"], "done")
+                chunks = self.embedder.embed_chunks.call_args.args[0]
+                self.assertTrue(any(c["metadata"]["block_type"] == "table" for c in chunks))
+                for item in chunks:
+                    for value in (item["text"], item["metadata"]["section"]):
+                        self.assertNotIn("010-1234-5678", value)
+                        self.assertNotIn("test@example.com", value)
+                saved = self.indexer.collection.get(
+                    where={"doc_id": doc_id}, include=["documents", "metadatas"],
+                )
+                self.assertEqual(len(saved["ids"]), result["chunk_count"])
+                for text, metadata in zip(saved["documents"], saved["metadatas"]):
+                    for value in (text, metadata["section"]):
+                        self.assertNotIn("010-1234-5678", value)
+                        self.assertNotIn("test@example.com", value)
+                    self.assertIn("[마스킹: 연락처]", metadata["section"])
+                    self.assertIn("[마스킹: 이메일]", metadata["section"])
 
     def test_saved_documents_respect_company_permissions(self):
         """저장한 자사 internal 문서를 자사에만 보이고 타사 검색 후보에서는 제외한다."""
