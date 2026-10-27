@@ -4,10 +4,37 @@ from bisect import bisect_left, bisect_right
 import re
 
 
+def _split_table(text: str, context: list[str], size: int):
+    """긴 Markdown 표를 행 단위로 나누고 머리글·문맥을 반복한다."""
+    whole = "\n".join([*context, text])
+    if len(whole) <= size:
+        yield whole
+        return
+    lines = text.splitlines()
+    header_end = 0
+    if (len(lines) > 1 and "-" in lines[1]
+            and re.fullmatch(r"[| :\-]+", lines[1])):
+        header_end = 2
+        # I-01의 빈 Markdown 머리글 다음 첫 원본 행도 문맥으로 반복한다.
+        if not lines[0].strip("| ") and len(lines) > 2:
+            header_end = 3
+    header = lines[:header_end]
+    rows = []
+    for row in lines[header_end:]:
+        candidate = "\n".join([*context, *header, *rows, row])
+        if rows and len(candidate) > size:
+            yield "\n".join([*context, *header, *rows])
+            rows = []
+        rows.append(row)
+    # shortcut: 한 행·머리글 자체가 크면 상한을 넘겨 보존, 임베딩 연결 시 토큰 한도 검증 필요.
+    if rows or header:
+        yield "\n".join([*context, *header, *rows])
+
+
 def split_into_chunks(
     blocks: list[dict], metadata: dict, chunking_config: dict,
 ) -> list[dict]:
-    """I-02 절·페이지별 본문 분할과 분할하지 않는 표 청크를 구성한다."""
+    """I-02 절·페이지별 본문과 행을 보존하는 표 청크를 구성한다."""
     size = chunking_config.get("chunk_size", 800)
     overlap = chunking_config.get("chunk_overlap", 150)
     if (type(size) is not int or type(overlap) is not int
@@ -107,9 +134,9 @@ def split_into_chunks(
             if unit is not None:
                 context.append(unit["text"])
             context = list(dict.fromkeys(context))
-            text = "\n".join([*context, block["text"]])
             sources = [*recent, block]
-            append_chunk(text, sources, "table", section)
+            for text in _split_table(block["text"], context, size):
+                append_chunk(text, sources, "table", section)
             recent = []
             continue
 

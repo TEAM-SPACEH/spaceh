@@ -86,19 +86,50 @@ class ChunkerTest(unittest.TestCase):
             )
             self.assertEqual([body(c) for c in chunks], ["첫째\n둘째", "다음"])
 
-    def test_large_table_is_whole_with_caption_unit_and_section(self):
-        """800자를 넘는 표도 제목·단위를 붙여 분할 없이 보존한다."""
+    def test_large_table_repeats_header_context_without_losing_rows(self):
+        """긴 표의 모든 행을 보존하고 각 조각에 머리글·제목·단위를 반복한다."""
         table = "| 항목 | 값 |\n| --- | --- |\n" + "| 자산 | 123 |\n" * 100
         blocks = [block("재무 요약", section="재무", kind="title"),
                   block("(단위: 천원)", section="재무"),
                   block(table, section="재무", kind="table")]
         chunks = split_into_chunks(blocks, self.metadata, {})
         tables = [c for c in chunks if c["metadata"]["block_type"] == "table"]
-        self.assertEqual(len(tables), 1)
-        self.assertGreater(len(body(tables[0])), 800)
-        self.assertIn(table, body(tables[0]))
-        for text in ("재무", "재무 요약", "(단위: 천원)"):
-            self.assertIn(text, body(tables[0]))
+        self.assertGreater(len(tables), 1)
+        self.assertEqual(sum(body(c).count("| 자산 | 123 |") for c in tables), 100)
+        for chunk in tables:
+            self.assertLessEqual(len(body(chunk)), 800)
+            for text in ("재무", "재무 요약", "(단위: 천원)",
+                         "| 항목 | 값 |\n| --- | --- |"):
+                self.assertIn(text, body(chunk))
+            self.assertEqual(chunk["metadata"]["page"], 1)
+            self.assertEqual(chunk["metadata"]["section"], "재무")
+
+    def test_loader_blank_header_repeats_first_original_row(self):
+        """로더의 빈 Markdown 머리글 뒤 원본 첫 행을 반복하고 데이터 순서를 유지한다."""
+        header = "| | |\n| --- | --- |\n| 항목 | 금액 |"
+        rows = [f"| 항목{i} | {i} |" for i in range(20)]
+        chunks = split_into_chunks(
+            [block(header + "\n" + "\n".join(rows), kind="table")],
+            self.metadata, {"chunk_size": 100, "chunk_overlap": 0},
+        )
+        restored = []
+        for chunk in chunks:
+            self.assertTrue(body(chunk).startswith(header + "\n"))
+            self.assertLessEqual(len(body(chunk)), 100)
+            restored.extend(body(chunk).splitlines()[3:])
+        self.assertEqual(restored, rows)
+
+    def test_single_oversized_row_is_never_cut_or_dropped(self):
+        """한 행이 상한을 넘더라도 셀 내용·열 구분을 잘라 버리지 않는다."""
+        header = "| 항목 | 값 |\n| --- | --- |"
+        row = "| 긴 설명 | " + "가" * 900 + " |"
+        chunks = split_into_chunks(
+            [block(header + "\n" + row + "\n| 다음 | 1 |", kind="table")],
+            self.metadata, {},
+        )
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(body(chunks[0]), header + "\n" + row)
+        self.assertEqual(body(chunks[1]), header + "\n| 다음 | 1 |")
 
     def test_table_context_does_not_leak_from_previous_page(self):
         """이전 페이지의 표 제목·단위를 다음 페이지 표에 임의로 붙이지 않는다."""
