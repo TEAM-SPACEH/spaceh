@@ -14,7 +14,8 @@ from app.ingestion.preprocessing.normalizer import (
 def _iter_shapes(shapes):
     """I-01 그룹 내부까지 재귀적으로 위→아래·왼쪽→오른쪽으로 순회한다."""
     # 저장 순서는 화면의 읽기 순서가 아니라 겹침 순서이므로 좌표로 정렬한다.
-    for shape in sorted(shapes, key=lambda item: (item.top, item.left)):
+    # OOXML에서 생략된 좌표는 0으로 취급해 None과 정수의 비교 오류를 막는다.
+    for shape in sorted(shapes, key=lambda item: (item.top or 0, item.left or 0)):
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             yield from _iter_shapes(shape.shapes)
         else:

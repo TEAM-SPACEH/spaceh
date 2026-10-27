@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from docx import Document
 from pptx import Presentation
+from pptx.oxml.ns import qn
 from pptx.util import Inches
 
 from app.ingestion.parsers.loader import load_document
@@ -142,6 +143,37 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(blocks[3]["page"], 2)
         self.assertEqual(blocks[3]["section"], "")
         self.assert_common_blocks(blocks)
+
+    def test_pptx_missing_coordinates_do_not_stop_loading(self):
+        """변환·오프셋 정보가 생략된 실제 도형도 누락 없이 읽는다."""
+        for missing_part in ("a:xfrm", "a:off"):
+            with self.subTest(missing_part=missing_part):
+                path = self.root / "missing_coordinates.pptx"
+                ppt = Presentation()
+                slide = ppt.slides.add_slide(ppt.slide_layouts[6])
+                slide.shapes.add_textbox(
+                    Inches(2), Inches(2), Inches(3), Inches(1),
+                ).text = "정상 좌표"
+                missing = slide.shapes.add_textbox(
+                    Inches(1), Inches(1), Inches(3), Inches(1),
+                )
+                missing.text = "누락 좌표"
+                # API 기본값 대신 저장된 OOXML에서 실제 좌표 정보를 생략한다.
+                props = missing._element.find(qn("p:spPr"))
+                transform = props.find(qn("a:xfrm"))
+                offset = transform.find(qn("a:off"))
+                if missing_part == "a:xfrm":
+                    props.remove(transform)
+                else:
+                    transform.remove(offset)
+                ppt.save(path)
+                reloaded = Presentation(path).slides[0].shapes[1]
+                self.assertIsNone(reloaded.left)
+                self.assertIsNone(reloaded.top)
+                blocks = load_document(path)
+                self.assertEqual([b["text"] for b in blocks],
+                                 ["누락 좌표", "정상 좌표"])
+                self.assert_common_blocks(blocks)
 
     def test_pptx_table_keeps_soft_breaks_and_paragraphs(self):
         """실제 PPTX 셀의 소프트 줄바꿈·문단을 Markdown에서 보존한다."""
