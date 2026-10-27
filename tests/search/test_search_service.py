@@ -9,10 +9,8 @@
 OpenAI·MySQL 없이 돌도록 질문 임베딩(_embed_query)과 승인 문서 조회는 patch로 가짜 값을 넣는다.
 임베딩은 2차원 벡터로 단순화해, 질문 [1, 0]에 가까울수록 관련도가 높게 만든다.
 """
-
-import tempfile
+import uuid
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import chromadb
@@ -39,22 +37,62 @@ CHUNKS = {
 
 
 class SearchDocumentsTest(unittest.TestCase):
+    
     def setUp(self):
-        # repository가 config.CHROMA_DIR을 읽으므로 테스트 동안만 임시 폴더로 바꾼다.
-        self.tmp = tempfile.TemporaryDirectory()
-        patcher = patch.object(config, "CHROMA_DIR", Path(self.tmp.name))
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.addCleanup(self.tmp.cleanup)
+        # 디스크 파일을 생성하지 않는 테스트용 Chroma 클라이언트
+        self.client = chromadb.EphemeralClient()
 
+        # 테스트마다 고유한 컬렉션 이름 사용
+        self.collection_name = f"test_documents_{uuid.uuid4().hex}"
+
+        # 테스트 동안만 컬렉션 이름 변경
+        collection_patcher = patch.object(
+            config,
+            "CHROMA_COLLECTION",
+            self.collection_name,
+        )
+
+        # 저장소의 PersistentClient를 테스트 클라이언트로 대체
+        client_patcher = patch(
+            "app.search.repositories.chunk_repository.chromadb.PersistentClient",
+            return_value=self.client,
+        )
+
+        collection_patcher.start()
+        client_patcher.start()
+
+        self.addCleanup(collection_patcher.stop)
+        self.addCleanup(client_patcher.stop)
+        self.addCleanup(self._cleanup_collection)
+
+    def _cleanup_collection(self):
+        """테스트에 사용한 컬렉션만 삭제."""
+        try:
+            self.client.delete_collection(self.collection_name)
+        except chromadb.errors.NotFoundError:
+            pass
+
+
+    
     def _index_chunks(self):
-        client = chromadb.PersistentClient(path=self.tmp.name)
-        collection = client.create_collection(config.CHROMA_COLLECTION)
+        collection = self.client.create_collection(
+            self.collection_name
+        )
+
         collection.add(
             ids=list(CHUNKS),
-            embeddings=[embedding for _, embedding in CHUNKS.values()],
-            metadatas=[metadata for metadata, _ in CHUNKS.values()],
-            documents=[f"{chunk_id} 본문" for chunk_id in CHUNKS],
+            embeddings=[
+                embedding
+                for _, embedding in CHUNKS.values()
+            ],
+            metadatas=[
+                metadata
+                for metadata, _ in CHUNKS.values()
+            ],
+            documents=[
+                f"{chunk_id} 본문"
+                for chunk_id in CHUNKS
+            ],
         )
 
     def _search(self, query, user, filters=None):
