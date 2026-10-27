@@ -11,25 +11,33 @@ class ApplyMetadataFiltersTest(unittest.TestCase):
         self.assertEqual(apply_metadata_filters({}), {})
         self.assertEqual(apply_metadata_filters(None), {})
 
-    def test_single_condition_returned_as_is(self):
-        # 조건이 1개면 $and로 묶지 않고 그대로 돌려준다.
+    def test_single_value_uses_equality(self):
+        # 값이 1개면 $in이 아니라 동등 비교를 쓴다 (#22 요구사항).
+        self.assertEqual(
+            apply_metadata_filters({"companies": ["HRI"]}),
+            {"company_id": "HRI"},
+        )
+        self.assertEqual(
+            apply_metadata_filters({"doc_types": ["report"]}),
+            {"doc_type": "report"},
+        )
+
+    def test_multiple_values_use_in(self):
+        # 값이 여러 개면 $in(목록 중 하나)을 쓴다.
         self.assertEqual(
             apply_metadata_filters({"companies": ["HRI", "MVX"]}),
             {"company_id": {"$in": ["HRI", "MVX"]}},
         )
-        self.assertEqual(
-            apply_metadata_filters({"doc_types": ["report"]}),
-            {"doc_type": {"$in": ["report"]}},
-        )
 
-    def test_string_value_normalized_to_list(self):
-        # 문자열 하나가 와도 글자 단위로 쪼개지 않고 한 항목으로 센다.
+    def test_string_value_uses_equality(self):
+        # 문자열 하나는 글자 단위로 쪼개지 않고 한 값으로 보고, 동등 비교를 쓴다.
         self.assertEqual(
             apply_metadata_filters({"companies": "HRI"}),
-            {"company_id": {"$in": ["HRI"]}},
+            {"company_id": "HRI"},
         )
 
     def test_multiple_conditions_wrapped_in_and(self):
+        # 서로 다른 필드 조건이 여러 개면 $and로 묶는다. 단일 값 필드는 동등 비교.
         result = apply_metadata_filters(
             {"companies": ["MVX"], "doc_types": ["report"], "date_from": 20250101, "date_to": 20251231}
         )
@@ -37,8 +45,8 @@ class ApplyMetadataFiltersTest(unittest.TestCase):
             result,
             {
                 "$and": [
-                    {"company_id": {"$in": ["MVX"]}},
-                    {"doc_type": {"$in": ["report"]}},
+                    {"company_id": "MVX"},
+                    {"doc_type": "report"},
                     {"published_date": {"$gte": 20250101}},
                     {"published_date": {"$lte": 20251231}},
                 ]

@@ -17,6 +17,7 @@ def apply_metadata_filters(filters: dict) -> dict:
 
     반환 — Chroma where 조각(dict):
         - 조건이 없으면 빈 dict {} (필터를 걸지 않음)
+        - 한 필드의 값이 1개면 동등 비교({"company_id": "HRI"}), 여러 개면 $in을 쓴다.
         - 조건이 1개면 그 조건을 그대로, 2개 이상이면 {"$and": [...]}로 묶는다.
         - 이 조각은 S-03 권한 필터와 '바깥에서' 다시 $and로 합쳐진다.
 
@@ -26,15 +27,15 @@ def apply_metadata_filters(filters: dict) -> dict:
     filters = filters or {}
     conditions: list[dict] = []
 
-    # 1) 기업: 고른 회사 코드 중 하나라도 맞으면 통과 ($in = 목록 중 하나)
+    # 1) 기업: 1개면 동등 비교, 여러 개면 $in(목록 중 하나)
     companies = _as_list(filters.get("companies"))
     if companies:
-        conditions.append({"company_id": {"$in": companies}})
+        conditions.append(_match_any("company_id", companies))
 
-    # 2) 문서 유형: 고른 유형 코드(report 등) 중 하나라도 맞으면 통과
+    # 2) 문서 유형: 1개면 동등 비교, 여러 개면 $in
     doc_types = _as_list(filters.get("doc_types"))
     if doc_types:
-        conditions.append({"doc_type": {"$in": doc_types}})
+        conditions.append(_match_any("doc_type", doc_types))
 
     # 3) 기간: 시작일 이상(>=), 종료일 이하(<=). 날짜는 YYYYMMDD 정수로 비교한다.
     #    Chroma는 한 필드에 연산자 하나만 받으므로 시작·종료를 각각 조건으로 넣는다.
@@ -54,6 +55,13 @@ def apply_metadata_filters(filters: dict) -> dict:
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def _match_any(field: str, values: list) -> dict:
+    """한 필드 조건을 만든다. 값이 1개면 동등 비교, 여러 개면 $in(목록 중 하나)."""
+    if len(values) == 1:
+        return {field: values[0]}
+    return {field: {"$in": values}}
 
 
 def _as_list(value) -> list:
