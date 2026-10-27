@@ -15,8 +15,9 @@ from unittest.mock import patch
 
 import chromadb
 
-from app.search.services.search_service import search_documents
+from app.search.services.search_service import apply_metadata_filters, search_documents
 from core import config
+from core.chroma import open_chroma_client
 
 EMBED_PATH = "app.search.services.search_service._embed_query"
 APPROVED_PATH = "app.permissions.services.permission_service.get_approved_doc_ids"
@@ -75,25 +76,15 @@ class SearchDocumentsTest(unittest.TestCase):
 
     
     def _index_chunks(self):
-        collection = self.client.create_collection(
-            self.collection_name
-        )
-
-        collection.add(
-            ids=list(CHUNKS),
-            embeddings=[
-                embedding
-                for _, embedding in CHUNKS.values()
-            ],
-            metadatas=[
-                metadata
-                for metadata, _ in CHUNKS.values()
-            ],
-            documents=[
-                f"{chunk_id} 본문"
-                for chunk_id in CHUNKS
-            ],
-        )
+        # 검색 코드와 같은 잠금으로 열고, 임시 폴더를 지우기 전에 닫는다 (Windows 파일 잠금).
+        with open_chroma_client(self.tmp.name) as client:
+            collection = client.create_collection(config.CHROMA_COLLECTION)
+            collection.add(
+                ids=list(CHUNKS),
+                embeddings=[embedding for _, embedding in CHUNKS.values()],
+                metadatas=[metadata for metadata, _ in CHUNKS.values()],
+                documents=[f"{chunk_id} 본문" for chunk_id in CHUNKS],
+            )
 
     def _search(self, query, user, filters=None):
         with patch(EMBED_PATH, return_value=QUERY_VECTOR), patch(APPROVED_PATH, return_value=[]):
@@ -151,6 +142,72 @@ class SearchDocumentsTest(unittest.TestCase):
     def test_no_collection_returns_empty(self):
         """색인(I-02) 전이라 컬렉션이 없으면 오류 대신 빈 목록."""
         self.assertEqual(self._search("사양", MVX_EMPLOYEE), [])
+
+
+class ApplyMetadataFiltersTest(unittest.TestCase):
+    """S-02 apply_metadata_filters 테스트. 순수 함수라 DB 없이 바로 돈다."""
+
+    def test_empty_filter_returns_empty_dict(self):
+        # 고른 조건이 없으면 필터를 걸지 않는다.
+        self.assertEqual(apply_metadata_filters({}), {})
+        self.assertEqual(apply_metadata_filters(None), {})
+
+    def test_single_value_uses_equality(self):
+        # 값이 1개면 $in이 아니라 동등 비교를 쓴다 (#22 요구사항).
+        self.assertEqual(apply_metadata_filters({"companies": ["HRI"]}), {"company_id": "HRI"})
+        self.assertEqual(apply_metadata_filters({"doc_types": ["report"]}), {"doc_type": "report"})
+
+    def test_multiple_values_use_in(self):
+        # 값이 여러 개면 $in(목록 중 하나)을 쓴다.
+        self.assertEqual(
+            apply_metadata_filters({"companies": ["HRI", "MVX"]}),
+            {"company_id": {"$in": ["HRI", "MVX"]}},
+        )
+
+    def test_string_value_uses_equality(self):
+        # 문자열 하나는 글자 단위로 쪼개지 않고 한 값으로 보고, 동등 비교를 쓴다.
+        self.assertEqual(apply_metadata_filters({"companies": "HRI"}), {"company_id": "HRI"})
+
+    def test_only_start_date(self):
+        self.assertEqual(
+            apply_metadata_filters({"date_from": 20250101}),
+            {"published_date": {"$gte": 20250101}},
+        )
+
+    def test_only_end_date(self):
+        self.assertEqual(
+            apply_metadata_filters({"date_to": 20251231}),
+            {"published_date": {"$lte": 20251231}},
+        )
+
+    def test_multiple_conditions_wrapped_in_and(self):
+        # 서로 다른 필드 조건이 여러 개면 $and로 묶는다. 단일 값 필드는 동등 비교.
+        result = apply_metadata_filters(
+            {"companies": ["MVX"], "doc_types": ["report"], "date_from": 20250101, "date_to": 20251231}
+        )
+        self.assertEqual(
+            result,
+            {
+                "$and": [
+                    {"company_id": "MVX"},
+                    {"doc_type": "report"},
+                    {"published_date": {"$gte": 20250101}},
+                    {"published_date": {"$lte": 20251231}},
+                ]
+            },
+        )
+
+    def test_start_after_end_raises(self):
+        # 시작일이 종료일보다 늦으면 아무 문서도 못 찾으니 잘못된 입력으로 본다.
+        with self.assertRaises(ValueError):
+            apply_metadata_filters({"date_from": 20251231, "date_to": 20250101})
+
+    def test_same_start_and_end_is_allowed(self):
+        # 같은 날짜는 역전이 아니므로 통과한다.
+        self.assertEqual(
+            apply_metadata_filters({"date_from": 20250101, "date_to": 20250101}),
+            {"$and": [{"published_date": {"$gte": 20250101}}, {"published_date": {"$lte": 20250101}}]},
+        )
 
 
 if __name__ == "__main__":
