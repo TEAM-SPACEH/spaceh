@@ -187,7 +187,14 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
             "sources": [],
         }
 
-    # 7. 정상 답변 반환
+    # 7. 답변 출처 번호 검증
+    if not validate_answer(answer, chunks):
+        return {
+            "answer": NO_ANSWER,
+            "sources": [],
+        }
+
+    # 8. 검증을 통과한 답변 반환
     return {
         "answer": answer.strip(),
         "sources": sources,
