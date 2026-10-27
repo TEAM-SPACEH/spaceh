@@ -121,7 +121,8 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 `build_metadata(doc_id, document_info, extracted_info)`는 DB·파일을 직접 조회하지 않고 전달받은 정보를 검증·매핑한다. 제목이 없거나 공백이면 `file_name`의 마지막 확장자를 뺀 이름으로 대체한다. 등록한 제목이 있으면 유지하며 파일명에서 작성일·회사·보안 등급을 추측하지 않는다.
 
 - `document_info` 필수 값: `company_id`, `company_name`, `file_name`(경로 제외), `file_format`, `doc_type`, `access_level`, `is_group_shared`. 회사명은 호출자가 계열사 정보에서 조회해 전달한다. 신규 회사 코드를 고정 목록으로 제한하지 않는다.
-- 선택 값: `title`, `published_date`(DB `date` 또는 ISO 날짜 문자열), `source_type`(기본 `internal`), `source_url`. DB의 미상 날짜 `NULL`·빈 문자열은 검색용 `0`으로 매핑하며 DB 값 자체를 변경하지 않는다.
+- 선택 값: `title`, `source_type`(기본 `internal`), `source_url`. `published_date`는 DB `date` 또는 ISO 날짜 문자열을 받아 검색용 `YYYYMMDD` 정수로 변환한다. 작성일이 없거나 `NULL`·빈 문자열이면 문서 업로드 시각 `created_at`의 날짜로 대체한다(`date`·`datetime` 또는 ISO 날짜·시각 문자열). 둘 다 없거나 날짜 형식이 잘못되면 오류로 알리며 `0`·현재 날짜·파일명 날짜로 대체하지 않는다.
+- 문서 등록 호출자는 같은 확정 날짜를 DB의 `documents.published_date`에도 저장해야 한다. DB에서 이미 읽어 온 작성일은 그대로 사용한다. 이 함수는 입력 정보나 DB를 변경하지 않으며, 재색인 시에도 최초 업로드일을 사용한다.
 - `is_group_shared`는 bool 또는 DB의 정수 `0`·`1`을 받아 bool로 변환한다. 그룹사 공유는 `internal` 문서에만 허용한다. 권한 필드는 `document_info`에서만 받는다.
 - `extracted_info`에는 I-01 블록의 `page`, `location`, `section`, `block_type`을 전달한다. 문서 공통값만 구성할 때는 `{}`를 전달해 위치를 `0`·`""`로 두고 후속 청크 생성에서 실제 위치를 붙인다. 블록의 `text`는 메타데이터에 복사하지 않는다.
 - 이 단계는 문서 ID 생성·원본 해시 계산·DB 저장·청크 번호 부여·임베딩을 수행하지 않는다. 원본 해시는 문서 등록 정보에서 별도로 관리한다.
