@@ -145,7 +145,7 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 
 `build_metadata(doc_id, document_info, extracted_info)`는 DB·파일을 직접 조회하지 않고 전달받은 정보를 검증·매핑한다. 제목이 없거나 공백이면 `file_name`의 마지막 확장자를 뺀 이름으로 대체한다. 등록한 제목이 있으면 유지하며 파일명에서 작성일·회사·보안 등급을 추측하지 않는다.
 
-반환하는 검색용 `title`·`file_name`은 공백을 정규화하고 I-03과 같은 규칙으로 마스킹한다. 파일명에서 대체한 제목도 포함한다. 파일명은 마지막 확장자를 분리해 이름 부분만 마스킹한 뒤 확장자를 보존한다. 입력 등록 정보와 DB 원본 제목·파일명·파일 경로를 변경하지 않는다.
+반환하는 검색용 `title`·`file_name`은 공백을 정규화하고 I-03과 같은 규칙으로 마스킹한다. 파일명 대체 제목은 마스킹이 끝난 파일명에서 확장자를 제거해 만든다. 등록 파일명의 마지막 확장자가 `file_format`과 일치해야 한다(대소문자 무시, `dart_xml`은 `.xml`). 파일명 전체를 먼저 마스킹하고, 이메일 치환 과정에서 확장자까지 사라졌으면 검증된 확장자만 다시 붙인다. 입력 등록 정보와 DB 원본 제목·파일명·파일 경로를 변경하지 않는다.
 
 - `document_info` 필수 값: `company_id`, `company_name`, `file_name`(경로 제외), `file_format`, `doc_type`, `access_level`, `is_group_shared`. 회사명은 호출자가 계열사 정보에서 조회해 전달한다. 신규 회사 코드를 고정 목록으로 제한하지 않는다.
 - 선택 값: `title`, `source_type`(기본 `internal`), `source_url`. `published_date`는 DB `date` 또는 ISO 날짜 문자열을 받아 검색용 `YYYYMMDD` 정수로 변환한다. 작성일이 없거나 `NULL`·빈 문자열이면 문서 업로드 시각 `created_at`의 날짜로 대체한다(`date`·`datetime` 또는 ISO 날짜·시각 문자열). 둘 다 없거나 날짜 형식이 잘못되면 오류로 알리며 `0`·현재 날짜·파일명 날짜로 대체하지 않는다.
