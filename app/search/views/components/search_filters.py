@@ -118,18 +118,16 @@ def render_search_filters(companies: list, doc_types: list, dates) -> dict:
         format_func=lambda code: type_label.get(code, code),
     )
 
-    # 3) 기간 선택 (시작일 ~ 종료일). dates로 고를 수 있는 범위를 제한한다.
+    # 3) 기간 선택: 시작일과 종료일을 '각각' 고른다. 하나만 골라도 된다(예: 종료일만).
+    #    value=None 이면 처음엔 비어 있고, 안 고르면 None이 돌아온다.
     min_date = dates[0] if dates else None
     max_date = dates[1] if dates else None
-    picked_dates = st.date_input(
-        "기간",
-        value=(),  # 처음엔 아무 날짜도 안 고른 상태
-        min_value=min_date,
-        max_value=max_date,
-    )
+    start = st.date_input("시작일", value=None, min_value=min_date, max_value=max_date)
+    end = st.date_input("종료일", value=None, min_value=min_date, max_value=max_date)
 
-    # date_input은 0·1·2개의 날짜를 줄 수 있다. 고른 날짜만 YYYYMMDD 정수로 바꾼다.
-    date_from, date_to = _to_yyyymmdd_range(picked_dates)
+    # 고른 날짜만 YYYYMMDD 정수로 바꾼다(안 골랐으면 None). 종료일만 고르면 date_to만 채워진다.
+    date_from = _to_yyyymmdd(start)
+    date_to = _to_yyyymmdd(end)
 
     return {
         "companies": selected_companies,
@@ -139,23 +137,11 @@ def render_search_filters(companies: list, doc_types: list, dates) -> dict:
     }
 
 
-def _to_yyyymmdd_range(picked) -> tuple:
-    """st.date_input 결과를 (시작 YYYYMMDD, 종료 YYYYMMDD) 정수 쌍으로 바꾼다.
+def _to_yyyymmdd(picked: date | None) -> int | None:
+    """고른 날짜(date)를 YYYYMMDD 정수로 바꾼다. 안 골랐으면(None) None.
 
-    고른 날짜가 없으면 (None, None), 하나면 (시작, None), 둘이면 (시작, 종료).
+    예: 2025-01-02 → 20250102
     """
-    # date_input은 날짜 하나면 date 객체를, 범위면 (시작, 종료) 튜플을 돌려준다.
-    if isinstance(picked, (list, tuple)):
-        days = list(picked)
-    elif picked:
-        days = [picked]
-    else:
-        days = []
-
-    def to_int(d: date) -> int:
-        # 2025-01-02 → 20250102 (YYYYMMDD 정수)
-        return d.year * 10000 + d.month * 100 + d.day
-
-    start = to_int(days[0]) if len(days) >= 1 else None
-    end = to_int(days[1]) if len(days) >= 2 else None
-    return start, end
+    if not picked:
+        return None
+    return picked.year * 10000 + picked.month * 100 + picked.day
