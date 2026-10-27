@@ -1,3 +1,5 @@
+import re
+
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -190,3 +192,35 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
         "answer": answer.strip(),
         "sources": sources,
     }
+
+def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
+    """AI 답변의 출처 번호가 실제 검색 청크에 존재하는지 검증합니다."""
+
+    # 1. 답변이 비어 있거나 근거 없음 응답이면 False
+    if not isinstance(answer, str) or not answer.strip():
+        return False
+
+    if _is_no_answer(answer):
+        return False
+
+    # 2. 유효한 검색 청크 확인
+    _, sources = prepare_context(chunks)
+
+    if not sources:
+        return False
+
+    # 3. 답변에서 출처 번호 추출
+    citations = re.findall(r"\[(\d+)\]", answer)
+
+    # 4. 출처 표시가 없으면 False
+    if not citations:
+        return False
+
+    # 5. 모든 출처 번호가 실제 청크 범위에 있는지 검증
+    for citation in citations:
+        number = int(citation)
+
+        if number < 1 or number > len(sources):
+            return False
+
+    return True
