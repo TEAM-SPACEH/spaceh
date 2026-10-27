@@ -1,0 +1,25 @@
+# spaceH 공통 테마 (docs/design.md). 화면 코드에서 색·글꼴을 따로 정하지 않는다.
+# 테마로 안 되는 배지·각주·하이라이트 스타일만 app/common/ui.py의 apply_theme()에 있다.
+
+[theme]
+base = "light"
+primaryColor = "#009944"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8F9FA"
+textColor = "#111111"
+linkColor = "#004098"
+borderColor = "#E9ECEF"
+greenColor = "#009944"
+yellowColor = "#FABE00"
+blueColor = "#004098"
+baseRadius = "6px"
+buttonRadius = "4px"
+# NeoHyundai·Marine은 배포할 수 있는 글꼴 파일이 없어 Pretendard를 쓴다 (인터넷 연결 필요, 없으면 기본 글꼴)
+font = "Pretendard:https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css, sans-serif"
+
+[client]
+# 오른쪽 위 메뉴를 최소로 (헤더를 CSS로 숨기면 사이드바 버튼까지 사라진다)
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
