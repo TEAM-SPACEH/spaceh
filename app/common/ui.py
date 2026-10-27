@@ -1,0 +1,89 @@
+"""공통 화면 요소. 모든 views는 반복되는 UI를 직접 만들지 말고 여기 함수를 부른다.
+
+- 색·글꼴·둥글기는 .streamlit/config.toml 테마가 정한다. views에서 `<style>`을 넣지 않는다.
+- `*_html()` 함수는 문자열만 만든다. 화면에 넣을 때는 `st.markdown(..., unsafe_allow_html=True)`.
+  값은 모두 html.escape를 거치므로 문서 제목 같은 사용자 입력을 그대로 넘겨도 된다.
+"""
+
+import html
+
+import streamlit as st
+
+from core.constants import ACCESS_CONFIDENTIAL, ACCESS_INTERNAL, ACCESS_PUBLIC
+
+# 보안 등급 화면 이름과 배지 색 (design.md 2.3: 공개 그린, 사내 옐로, 기밀 빨강)
+ACCESS_LABELS = {ACCESS_PUBLIC: "공개", ACCESS_INTERNAL: "사내", ACCESS_CONFIDENTIAL: "기밀"}
+_ACCESS_CLASS = {ACCESS_PUBLIC: "sh-pub", ACCESS_INTERNAL: "sh-int", ACCESS_CONFIDENTIAL: "sh-con"}
+
+_CSS = """
+<style>
+.sh-tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;line-height:20px;white-space:nowrap}
+.sh-pub{background:#EBFBEE;color:#2B8A3E}
+.sh-int{background:#FFF4CC;color:#7A5A00}
+.sh-con{background:#FFF5F5;color:#E03131}
+.sh-co{background:#F1F3F5;color:#343A40;font-weight:700}
+.sh-cite{display:inline-block;min-width:19px;padding:0 4px;border-radius:9px;background:#E7F0FA;color:#004098;font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-left:3px}
+.sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
+.sh-muted{color:#868E96;font-size:13px}
+</style>
+"""
+
+
+def apply_theme() -> None:
+    """배지·각주·하이라이트용 CSS를 한 번 넣는다. main.py에서만 부른다."""
+    st.markdown(_CSS, unsafe_allow_html=True)
+
+
+def page_header(title: str, description: str | None = None) -> None:
+    """페이지 맨 위 제목과 한 줄 설명. 모든 페이지는 이것으로 시작한다."""
+    st.title(title)
+    if description:
+        st.caption(description)
+
+
+def security_badge_html(access_level: str) -> str:
+    """보안 등급 배지. 모르는 값이면 회색으로 값 그대로 보여 준다."""
+    label = ACCESS_LABELS.get(access_level, access_level)
+    css = _ACCESS_CLASS.get(access_level, "sh-co")
+    return f'<span class="sh-tag {css}">{html.escape(label)}</span>'
+
+
+def company_tag_html(company_code: str) -> str:
+    """회사 코드 태그 (HRI·MVX·ELV). 회사마다 색을 다르게 하지 않는다 (보안 등급 색과 헷갈림)."""
+    return f'<span class="sh-tag sh-co">{html.escape(company_code)}</span>'
+
+
+def citation_html(number: int) -> str:
+    """답변·보고서 본문 안의 각주 번호 [1]."""
+    return f'<span class="sh-cite">{int(number)}</span>'
+
+
+def highlight_html(text: str) -> str:
+    """근거 문장·검색어 하이라이트 (옐로)."""
+    return f'<span class="sh-hl">{html.escape(text)}</span>'
+
+
+def source_line(company_code: str, access_level: str, title: str, location: str = "") -> None:
+    """출처 한 줄: [회사] [보안 등급] 제목, 위치. 검색 결과·출처·각주 목록에서 같이 쓴다."""
+    meta = f' <span class="sh-muted">{html.escape(location)}</span>' if location else ""
+    st.markdown(
+        f"{company_tag_html(company_code)} {security_badge_html(access_level)} "
+        f"<b>{html.escape(title)}</b>{meta}",
+        unsafe_allow_html=True,
+    )
+
+
+def no_permission_notice(title: str, company_name: str, key: str) -> bool:
+    """권한 없는 문서 안내 (S-05·M-03). 제목은 보여 주고 본문은 보여 주지 않는다.
+
+    반환: [열람 권한 요청] 버튼을 눌렀으면 True. key는 화면 안에서 겹치지 않게 doc_id 등으로 준다.
+    """
+    with st.container(border=True):
+        st.markdown(f"🔒 **{title}**")
+        st.caption(f"{company_name} 문서라 내 권한으로는 내용을 볼 수 없습니다. 답변 근거에서도 뺐습니다.")
+        return st.button("열람 권한 요청", key=f"request-{key}")
+
+
+def empty_state(message: str) -> None:
+    """결과가 없을 때. 무엇을 하면 되는지 한 문장으로 쓴다 (예: "다른 검색어로 찾아보세요.")."""
+    st.info(message)
