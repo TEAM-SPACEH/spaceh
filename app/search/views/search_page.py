@@ -31,7 +31,9 @@ _DOC_TYPES = [
     {"code": "intro", "label": "회사·제품 소개"},
     {"code": "memo", "label": "내부 메모"},
 ]
-_DATE_RANGE = (date(2020, 1, 1), date.today())
+# 기간 하한. documents.published_date에 하한이 없으니 오래된 문서(예: 2019년 이전)도
+# 고를 수 있게 넉넉히 잡는다. (상한=오늘은 고정하지 않고 그릴 때 계산한다 — 아래 render_search)
+_EARLIEST_DOC_DATE = date(2000, 1, 1)
 
 
 def render_search(query: str | None = None, user: dict | None = None) -> None:
@@ -53,7 +55,10 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     )
 
     # S-02 필터를 그리고 선택값을 Chroma where 조건으로 바꾼다.
-    selection = render_search_filters(_COMPANIES, _DOC_TYPES, _DATE_RANGE, key="search")
+    # 기간 상한(오늘)은 여기서 계산한다. 모듈 로드 때 한 번 고정하면 자정을 넘겨 실행될 때
+    # 바뀐 오늘 날짜를 시작일·종료일로 고를 수 없다.
+    date_range = (_EARLIEST_DOC_DATE, date.today())
+    selection = render_search_filters(_COMPANIES, _DOC_TYPES, date_range, key="search")
     try:
         where = apply_metadata_filters(selection)
     except ValueError:
