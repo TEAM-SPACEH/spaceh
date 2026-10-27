@@ -75,7 +75,7 @@ class PipelineTest(unittest.TestCase):
 
     def test_docx_and_pptx_title_pii_is_removed_from_sections_and_table_context(self):
         """제목에 포함된 개인정보가 임베딩 텍스트와 Chroma section에 남지 않는다."""
-        title = "담당 010-1234-5678 test@example.com"
+        title = "담당 010  1234\t5678 test@example.com"
         for extension in ("docx", "pptx"):
             with self.subTest(extension=extension):
                 path = Path(self.temp.name) / ("title." + extension)
@@ -102,6 +102,8 @@ class PipelineTest(unittest.TestCase):
                 for item in chunks:
                     for value in (item["text"], item["metadata"]["section"]):
                         self.assertNotIn("010-1234-5678", value)
+                        self.assertNotIn("010 1234 5678", value)
+                        self.assertNotIn("010  1234\t5678", value)
                         self.assertNotIn("test@example.com", value)
                 saved = self.indexer.collection.get(
                     where={"doc_id": doc_id}, include=["documents", "metadatas"],
@@ -110,9 +112,66 @@ class PipelineTest(unittest.TestCase):
                 for text, metadata in zip(saved["documents"], saved["metadatas"]):
                     for value in (text, metadata["section"]):
                         self.assertNotIn("010-1234-5678", value)
+                        self.assertNotIn("010 1234 5678", value)
+                        self.assertNotIn("010  1234\t5678", value)
                         self.assertNotIn("test@example.com", value)
                     self.assertIn("[마스킹: 연락처]", metadata["section"])
                     self.assertIn("[마스킹: 이메일]", metadata["section"])
+
+    def test_registered_display_pii_does_not_reach_embedding_or_storage(self):
+        """등록 제목·파일명·파일명 대체 제목을 임베딩과 실제 저장 전에 치환한다."""
+        cases = [{"title": "문의 test@example.com"},
+                 {"title": "", "file_name": "문의_010  1234  5678.docx"},
+                 {"title": "점검 안내", "file_name": "test@example.com.docx"}]
+        for index, fields in enumerate(cases):
+            with self.subTest(fields=fields):
+                info = {**self.info, **fields}
+                before = copy.deepcopy(info)
+                doc_id = f"display-{index}"
+                result = self.run_pipeline(doc_id=doc_id, document_info=info)
+                self.assertEqual(result["index_status"], "done")
+                chunks = self.embedder.embed_chunks.call_args.args[0]
+                saved = self.indexer.collection.get(
+                    where={"doc_id": doc_id}, include=["documents", "metadatas"],
+                )
+                values = [c["text"] for c in chunks] + saved["documents"]
+                values.extend(m[key] for m in saved["metadatas"]
+                              for key in ("title", "file_name"))
+                for value in values:
+                    self.assertNotIn("test@example.com", value)
+                    self.assertNotIn("010 1234 5678", value)
+                    self.assertNotIn("010  1234  5678", value)
+                self.assertTrue(all(m["file_name"].endswith(".docx")
+                                    for m in saved["metadatas"]))
+                self.assertEqual(info, before)
+
+    def test_real_docx_table_keeps_caption_unit_and_source_range(self):
+        """실제 DOCX 문단 순번이 바뀌어도 표의 제목·단위와 출처 범위를 유지한다."""
+        document = Document()
+        document.add_heading("재무 현황", level=1)
+        document.add_paragraph("표 1. 매출 내역")
+        document.add_paragraph("(단위: 천원)")
+        document.add_table(rows=1, cols=1).cell(0, 0).text = "매출 123"
+        document.save(self.path)
+        self.assertEqual(self.run_pipeline()["index_status"], "done")
+        chunks = self.embedder.embed_chunks.call_args.args[0]
+        table = next(c for c in chunks if c["metadata"]["block_type"] == "table")
+        self.assertIn("표 1. 매출 내역", table["text"])
+        self.assertIn("(단위: 천원)", table["text"])
+        self.assertEqual(table["metadata"]["location"], "문단 2 ~ 표 4")
+
+    def test_real_docx_intro_is_not_split_at_each_paragraph(self):
+        """짧은 DOCX 소개서의 같은 절을 한 청크로 묶고 문단별 위치 범위는 보존한다."""
+        document = Document()
+        document.add_heading("회사 소개", level=1)
+        document.add_paragraph("물류 자동화 안내")
+        document.add_paragraph("설비 유지보수 안내")
+        document.save(self.path)
+        result = self.run_pipeline(document_info={**self.info, "doc_type": "intro"})
+        self.assertEqual(result["index_status"], "done")
+        self.assertEqual(result["chunk_count"], 1)
+        item = self.embedder.embed_chunks.call_args.args[0][0]
+        self.assertEqual(item["metadata"]["location"], "문단 1 ~ 문단 3")
 
     def test_saved_documents_respect_company_permissions(self):
         """저장한 자사 internal 문서를 자사에만 보이고 타사 검색 후보에서는 제외한다."""
