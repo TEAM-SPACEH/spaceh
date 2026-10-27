@@ -247,6 +247,14 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(saved["documents"], [foreign["text"]])
         self.assertEqual(saved["metadatas"], [metadata])
 
+    def test_email_filename_is_rejected_before_embedding_and_storage(self):
+        """실제 DOCX 파일 경로가 유효해도 잘못 등록한 이메일 파일명은 전송하지 않는다."""
+        result = self.run_pipeline(document_info={**self.info, "file_name": "test@example.com"})
+        self.assertEqual(result["index_status"], "failed")
+        self.assertEqual(result["error_message"], "메타데이터 구성 단계 실패 (ValueError)")
+        self.embedder.embed_chunks.assert_not_called()
+        self.assertEqual(self.indexer.collection.count(), 0)
+
     def test_invalid_metadata_or_config_does_not_reach_embedding(self):
         """형식 불일치·권한 오류·잘못된 청킹 설정을 API 요청 전에 차단한다."""
         for info in ({**self.info, "file_format": "pdf"},
