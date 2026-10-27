@@ -118,21 +118,22 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 
 ## 5. MySQL 테이블
 
-✅ = `db/schema.sql`에 있음. 나머지 이름은 ERD가 끝나면 바뀔 수 있다.
+8개 테이블 모두 `db/schema.sql`에 있다. 컬럼 설명은 팀 「DB 스키마 정의서」(제출용 사본)와 `schema.sql`의 COMMENT에 있고, 둘이 다르면 `schema.sql`을 따른다.
 
 | 테이블 | 용도 | 기능 |
 | --- | --- | --- |
-| ✅ `companies` | 계열사 | A-07 |
-| ✅ `users` | 사용자 (사원번호 `employee_no` 로그인) | M-01, M-02 |
-| ✅ `documents` | 문서 메타데이터·색인 상태·공유 | I-02, A-01~A-03 |
-| `document_access_requests` | 열람 권한 요청 | M-03, A-05 |
-| `document_permissions` | 승인된 문서 단위 열람 권한 | A-05 → S-03 |
-| `reports` · `report_sections` · `report_footnotes` | 보고서·섹션·각주 | R-02~R-05, A-06 |
-| `user_histories` | 내 사용 히스토리 | M-04 |
-| `audit_logs` | 감사 로그 (차단 포함 전부) | A-04 |
-| `dart_collect_jobs` | DART 수집 이력 | I-05 |
+| `companies` | 계열사 | A-07 |
+| `users` | 사용자 (사원번호 `employee_no` 로그인, `password_hash`) | M-01, M-02 |
+| `documents` | 문서 메타데이터·색인 상태·공유 | I-02, A-01~A-03 |
+| `access_requests` | 열람 권한 요청 (`owner_company_code` 회사 관리자가 처리) | M-03, A-05 |
+| `access_grants` | 승인된 문서 단위 열람 권한 (기간 없음) | A-05 → S-03 |
+| `reports` | 보고서 본문·각주·1페이지 요약 (각주는 JSON) | R-02~R-05, A-06 |
+| `audit_logs` | 감사 로그 (차단 포함 전부) | A-04, M-04 |
+| `dart_sync_jobs` | DART 수집 작업 | I-05 |
 
-`user_histories`는 성공한 사용 이력, `audit_logs`는 차단을 포함한 모든 행위다. 같은 서비스 함수에서 둘 다 기록한다.
+- 내 사용 히스토리(M-04)는 별도 테이블 없이 `audit_logs`에서 본인 행을 읽는다.
+- 회사 참조 컬럼 이름: `companies`·`users`·`documents`는 `company_id`(FK), `audit_logs.company_code`와 `access_requests.owner_company_code` 두 컬럼만 `*_code`다. 두 컬럼에도 `companies.company_id` 값(HRI 등)을 넣고 FK는 걸지 않는다. Chroma 메타데이터는 `company_id`.
+- `documents.published_date`는 필수다. 파일에서 날짜를 못 읽으면 업로드일을 넣는다.
 
 ## 6. 시드 계정 (7개)
 
