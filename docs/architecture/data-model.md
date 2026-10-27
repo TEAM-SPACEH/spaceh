@@ -150,6 +150,15 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 - `extracted_info`에는 I-01 블록의 `page`, `location`, `section`, `block_type`을 전달한다. 문서 공통값만 구성할 때는 `{}`를 전달해 위치를 `0`·`""`로 두고 후속 청크 생성에서 실제 위치를 붙인다. 블록의 `text`는 메타데이터에 복사하지 않는다.
 - 이 단계는 문서 ID 생성·원본 해시 계산·DB 저장·청크 번호 부여·임베딩을 수행하지 않는다. 원본 해시는 문서 등록 정보에서 별도로 관리한다.
 
+### Chroma 색인 저장 (I-02)
+
+`DocumentIndexer(chroma_config=None, collection_name=None)`는 연결 설정 `{"path": 경로}`와 컬렉션명을 받는다. 생략하면 공통 설정의 Chroma 경로·컬렉션명을 사용한다. 클라이언트와 컬렉션을 객체에 보관하며 `with DocumentIndexer(...) as indexer:` 또는 `close()`로 반드시 종료한다. 연결은 `core.chroma.open_chroma_client()`로만 연다. 벡터를 직접 전달하므로 Chroma 자동 임베딩은 사용하지 않는다.
+
+- `index_chunks(doc_id, chunks, embeddings)`는 입력 순서에 대응하는 청크·벡터를 저장하고 `{"doc_id": 문서 ID, "chunk_count": 저장 수, "index_status": "done"}`을 반환한다. MySQL 문서 상태 변경은 호출자가 수행한다.
+- 모든 입력을 먼저 검증한다. 청크 ID는 `{doc_id}#...` 형식이고 문서 메타데이터의 `doc_id`도 일치해야 한다. 중복 ID·빈 청크 목록·빈 텍스트·잘못된 권한 필드·중첩 메타데이터·개수 또는 차원이 다른 벡터·비유한 수는 거부한다. 빈 목록으로 기존 색인을 지우지 않는다.
+- [Chroma 클라이언트의 배치 상한](https://docs.trychroma.com/reference/python)을 따라 `upsert`하고, 새 청크 저장이 모두 끝난 뒤 해당 문서의 오래된 ID만 삭제한다. 다른 문서는 유지한다. 실패는 예외로 전달하며 성공 상태를 반환하지 않는다.
+- 여러 배치에 걸친 교체는 트랜잭션이 아니다. 중간 오류가 나면 일부 새 내용과 기존 내용이 함께 남을 수 있으므로 호출자는 문서를 실패로 기록하고 같은 입력으로 재시도해야 한다. 같은 문서에 대한 동시 재색인은 호출자가 직렬화해야 한다. DB 상태와 검색 노출의 연결은 적재 파이프라인에서 검증한다.
+
 ## 5. MySQL 테이블
 
 8개 테이블 모두 `db/schema.sql`에 있다. 컬럼 설명은 팀 「DB 스키마 정의서」(제출용 사본)와 `schema.sql`의 COMMENT에 있고, 둘이 다르면 `schema.sql`을 따른다.
