@@ -88,6 +88,13 @@ with get_connection() as conn, conn.cursor() as cur:
 - 모델 이름·top-k·청크 크기 같은 값은 `core/config.py`에 모은다.
 - 경로는 `pathlib.Path`로 만든다. OS마다 다른 구분자를 직접 쓰지 않는다.
 
+### 화면 (views)
+
+- 색·글꼴·둥글기는 `.streamlit/config.toml` 테마가 정한다. views에서 `<style>`·CSS를 넣지 않는다.
+- 보안 등급 배지, 회사 태그, 각주 번호, 근거 하이라이트, 권한 없음 안내, 빈 결과는 `app/common/ui.py` 함수를 쓴다. 없는 요소가 필요하면 직접 만들지 말고 팀장에게 요청한다.
+- 페이지는 `page_header()` → 필터 → 본문 순서로 만든다. 주요 버튼만 `st.button(..., type="primary")`.
+- 화면 문구는 "~합니다"체. 입력칸 예시는 "현대무벡스 3분기 실적 보고서"처럼 구체적으로 쓴다.
+
 ## 8. 오류 처리
 
 - `services`는 메소드 명세서의 출력(`bool`, `None`, `dict`)으로 결과를 알린다.
