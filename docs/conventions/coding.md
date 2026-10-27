@@ -65,6 +65,7 @@ def update_email(user_id: int, email: str) -> bool:
 ## 5. DB (MySQL + PyMySQL)
 
 - 연결은 `core.database.get_connection()`으로만 연다.
+- Chroma는 `core.chroma.open_chroma_client()`로만 연다 (`with` 블록). `chromadb.PersistentClient`를 직접 만들지 않는다. 동시에 열고 닫을 때 생기는 Chroma 내부 참조 오류와 Windows 파일 잠금을 막는다.
 - SQL 값은 반드시 `%s` 바인딩으로 넘긴다.
 
 ```python

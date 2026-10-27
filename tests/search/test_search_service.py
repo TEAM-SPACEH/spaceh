@@ -19,6 +19,7 @@ import chromadb
 
 from app.search.services.search_service import apply_metadata_filters, search_documents
 from core import config
+from core.chroma import open_chroma_client
 
 EMBED_PATH = "app.search.services.search_service._embed_query"
 APPROVED_PATH = "app.permissions.services.permission_service.get_approved_doc_ids"
@@ -48,14 +49,15 @@ class SearchDocumentsTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def _index_chunks(self):
-        client = chromadb.PersistentClient(path=self.tmp.name)
-        collection = client.create_collection(config.CHROMA_COLLECTION)
-        collection.add(
-            ids=list(CHUNKS),
-            embeddings=[embedding for _, embedding in CHUNKS.values()],
-            metadatas=[metadata for metadata, _ in CHUNKS.values()],
-            documents=[f"{chunk_id} 본문" for chunk_id in CHUNKS],
-        )
+        # 검색 코드와 같은 잠금으로 열고, 임시 폴더를 지우기 전에 닫는다 (Windows 파일 잠금).
+        with open_chroma_client(self.tmp.name) as client:
+            collection = client.create_collection(config.CHROMA_COLLECTION)
+            collection.add(
+                ids=list(CHUNKS),
+                embeddings=[embedding for _, embedding in CHUNKS.values()],
+                metadatas=[metadata for metadata, _ in CHUNKS.values()],
+                documents=[f"{chunk_id} 본문" for chunk_id in CHUNKS],
+            )
 
     def _search(self, query, user, filters=None):
         with patch(EMBED_PATH, return_value=QUERY_VECTOR), patch(APPROVED_PATH, return_value=[]):
