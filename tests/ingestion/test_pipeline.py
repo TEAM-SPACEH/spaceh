@@ -126,6 +126,25 @@ class PipelineTest(unittest.TestCase):
                 wrong.index_chunks.return_value = reply
                 self.assertEqual(self.run_pipeline(indexer=wrong)["index_status"], "failed")
 
+    def test_foreign_chunk_collision_returns_failure_and_preserves_owner(self):
+        """소유권 충돌을 파이프라인 실패로 반환하고 다른 문서의 원본을 보존한다."""
+        foreign_id = "pipeline-test#1#0001"
+        metadata = {"doc_id": "pipeline-test#1", "company_id": "MVX",
+                    "access_level": "internal", "is_group_shared": False}
+        foreign = {"chunk_id": foreign_id, "text": "보존할 다른 문서",
+                   "metadata": metadata}
+        self.indexer.index_chunks("pipeline-test#1", [foreign], [[1.0, 0.0]])
+        conflicting = {**foreign, "text": "덮어쓰기 시도",
+                       "metadata": {**metadata, "doc_id": "pipeline-test"}}
+        with patch("app.ingestion.pipeline.split_into_chunks", return_value=[conflicting]):
+            result = self.run_pipeline()
+        self.assertEqual(result["index_status"], "failed")
+        self.assertEqual(result["chunk_count"], 0)
+        self.assertEqual(result["error_message"], "색인 저장 단계 실패 (ValueError)")
+        saved = self.indexer.collection.get(ids=[foreign_id])
+        self.assertEqual(saved["documents"], [foreign["text"]])
+        self.assertEqual(saved["metadatas"], [metadata])
+
     def test_invalid_metadata_or_config_does_not_reach_embedding(self):
         """형식 불일치·권한 오류·잘못된 청킹 설정을 API 요청 전에 차단한다."""
         for info in ({**self.info, "file_format": "pdf"},
