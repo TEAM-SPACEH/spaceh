@@ -55,6 +55,40 @@ class IndexerTest(unittest.TestCase):
         self.assertEqual(dict(zip(found["ids"], found["documents"])),
                          {"A#0001": "갱신된 본문", "B#0001": "검증 본문"})
 
+    def test_foreign_id_in_later_batch_is_rejected_before_any_write(self):
+        """접두사가 겹친 다른 문서 ID를 뒤 배치에 넣어도 어느 문서도 덮어쓰지 않는다."""
+        self.indexer.index_chunks("A", [chunk("A", 1, "원래 A")], [[1.0, 0.0]])
+        self.indexer.index_chunks("A#1", [chunk("A#1", 1, "다른 문서")], [[0.0, 1.0]])
+        foreign = {**chunk("A", 2, "덮어쓰기 시도"), "chunk_id": "A#1#0001"}
+        with patch.object(self.indexer.client, "get_max_batch_size", return_value=1):
+            with self.assertRaisesRegex(ValueError, "소유"):
+                self.indexer.index_chunks(
+                    "A", [chunk("A", 1, "먼저 바뀌면 안 됨"), foreign],
+                    [[0.5, 0.5], [0.5, 0.5]],
+                )
+        found = self.indexer.collection.get(include=["documents", "metadatas"])
+        self.assertEqual(dict(zip(found["ids"], found["documents"])),
+                         {"A#0001": "원래 A", "A#1#0001": "다른 문서"})
+        owners = {key: metadata["doc_id"]
+                  for key, metadata in zip(found["ids"], found["metadatas"])}
+        self.assertEqual(owners, {"A#0001": "A", "A#1#0001": "A#1"})
+
+    def test_existing_id_without_owner_is_rejected(self):
+        """기존 레코드의 메타데이터가 없거나 문서 ID가 없으면 덮어쓰지 않는다."""
+        for number, metadata in ((1, None), (2, {"company_id": "MVX"})):
+            with self.subTest(metadata=metadata):
+                item = chunk("A", number)
+                args = {"ids": [item["chunk_id"]], "documents": ["기존 미확인 소유자"],
+                        "embeddings": [[1.0, 0.0]]}
+                if metadata is not None:
+                    args["metadatas"] = [metadata]
+                self.indexer.collection.upsert(**args)
+                with self.assertRaisesRegex(ValueError, "소유"):
+                    self.indexer.index_chunks("A", [item], [[0.0, 1.0]])
+                found = self.indexer.collection.get(ids=[item["chunk_id"]])
+                self.assertEqual(found["documents"], ["기존 미확인 소유자"])
+                self.assertEqual(found["metadatas"], [metadata])
+
     def test_batches_follow_client_limit(self):
         """클라이언트의 작은 배치 상한으로도 모든 청크를 순서에 맞게 저장한다."""
         chunks = [chunk("A", i) for i in range(1, 6)]

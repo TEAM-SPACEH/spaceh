@@ -92,8 +92,17 @@ class DocumentIndexer:
         if len(set(ids)) != len(ids):
             raise ValueError("중복 청크 ID는 저장할 수 없습니다.")
 
-        old_ids = self.collection.get(where={"doc_id": doc_id}, include=[])["ids"]
         batch_size = self.client.get_max_batch_size()
+        # ID의 접두사만으로는 다른 문서의 기존 청크 소유권을 보장할 수 없다.
+        for start in range(0, len(ids), batch_size):
+            existing = self.collection.get(
+                ids=ids[start:start + batch_size], include=["metadatas"],
+            )
+            if any(not isinstance(metadata, dict) or metadata.get("doc_id") != doc_id
+                   for metadata in existing["metadatas"]):
+                raise ValueError("다른 문서가 소유하거나 소유자를 확인할 수 없는 청크 ID입니다.")
+
+        old_ids = self.collection.get(where={"doc_id": doc_id}, include=[])["ids"]
         for start in range(0, len(ids), batch_size):
             stop = start + batch_size
             self.collection.upsert(
