@@ -235,7 +235,7 @@ def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
 
     return True
 
-def _judge_grounding(answer: str, contrxt: str) -> str:
+def _judge_grounding(answer: str, context: str) -> str:
     """LLM을 사용하여 답변의 문서 근거 여부를 판단합니다."""
 
     load_dotenv()
