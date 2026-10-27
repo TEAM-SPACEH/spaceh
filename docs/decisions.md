@@ -20,6 +20,7 @@
 | 10/26 | PR 자동화: `CODEOWNERS` 리뷰어 요청, 작성자 assignee·라벨(Actions). 테스트·린트 CI·AI 리뷰 봇은 두지 않는다 | 손으로 하던 지정 제거, 리뷰 누락 방지. 앱 코드가 아니라 수업 범위 규칙과 무관 |
 | 10/26 | 핵심 테이블은 팀 ERD 이름을 따른다: `company_id`는 회사 코드(`HRI`·`MVX`·`ELV`) 문자열 PK, `doc_id`는 앱이 만드는 uuid 문자열, 보안 등급 `access_level`, 작성일 `published_date`, 대상 기간 `finance_year`·`quarter`를 둔다 | ERD 확정, Chroma 메타데이터도 같은 이름으로 |
 | 10/26 | `main.py`·`core`·`models`는 저장소 루트, 의존성은 `requirements.txt` + Python 3.11 | 루트에서 실행해야 import가 됨, pip만으로 환경 통일 |
+| 10/27 | I-01 로더의 공통 블록은 `block_type`·`text`·`page`·`location`·`section` 5개 필드의 `list[dict]`로 제안하고 PR 리뷰로 확정한다. 데이터클래스 예시는 이 형식으로 변경 | I-03 마스킹과 직접 연결, 필드·위치 규칙은 `architecture/data-model.md` 한 곳에서 관리 |
 
 ## 아직 정하지 않은 것
 
