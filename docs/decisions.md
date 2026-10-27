@@ -10,7 +10,7 @@
 | 10/21 | 쓰지 않는 기술: FastAPI·ORM·Docker·CI 도구(ruff·pre-commit·Actions) (수업 밖) / LangGraph·리랭킹 (배웠지만 범위 밖) → 변경 (10/26): Actions는 아래 PR 자동화에만 쓴다 | 8일 일정, 수업 범위 |
 | 10/21 | 로컬 실행 시연, 배포 없음 | 8일 일정 |
 | 10/21 | 임베딩 `text-embedding-3-small` 고정 | 바꾸면 전체 재색인 |
-| 10/21 | 청킹 3규칙(절 / 페이지·슬라이드 / 표 통째로) + 800자 재분할 | ChatPDF 평가: 조문 단위 90% vs 500자 고정 61.7% |
+| 10/21 | 청킹 3규칙(절 / 페이지·슬라이드 / 표 통째로) + 800자 재분할 → 변경 (10/27): 긴 표는 행 단위 분할, 머리글·문맥 반복 | ChatPDF 평가: 조문 단위 90% vs 500자 고정 61.7% |
 | 10/20 | 권한은 검색 전에 거는 사전 필터만, 사후 필터 금지 | 권한 없는 청크가 LLM에 들어가는 경로 차단 |
 | 10/20 | 원문은 앱 안 뷰어 + DART 뷰어만, 외부 공유 링크 금지 | 링크로 권한 우회 방지 |
 | 10/20 | PII는 색인 전에 마스킹, 계약 단가는 마스킹 대신 `confidential` | 개인정보가 Chroma·LLM에 들어가지 않게, 단가는 검색이 필요 |
@@ -21,6 +21,7 @@
 | 10/26 | 핵심 테이블은 팀 ERD 이름을 따른다: `company_id`는 회사 코드(`HRI`·`MVX`·`ELV`) 문자열 PK, `doc_id`는 앱이 만드는 uuid 문자열, 보안 등급 `access_level`, 작성일 `published_date`, 대상 기간 `finance_year`·`quarter`를 둔다 | ERD 확정, Chroma 메타데이터도 같은 이름으로 |
 | 10/27 | DB 8개 테이블 확정 (`db/schema.sql`이 원본, 스키마 정의서 엑셀은 제출용 사본). 값은 영어 소문자(회사 코드·분기만 대문자). `password_hash`, 작성일 필수, `company_code` 이름은 `audit_logs.company_code`·`access_requests.owner_company_code` 두 컬럼에만 유지하고(FK 없음, 값은 `companies.company_id`), 나머지 테이블(`companies`·`users`·`documents`)은 `company_id`를 쓴다. 열람 승인은 기간·중복 제약 없이 `access_grants`에 쌓고, `companies.default_share_enabled`는 두지 않는다. M-04 히스토리는 `audit_logs`에서 읽는다 | ERD·정의서 확정, 관문 일정상 단순하게 |
 | 10/26 | `main.py`·`core`·`models`는 저장소 루트, 의존성은 `requirements.txt` + Python 3.11 | 루트에서 실행해야 import가 됨, pip만으로 환경 통일 |
+| 10/27 | I-01 로더의 공통 블록은 `block_type`·`text`·`page`·`location`·`section` 5개 필드의 `list[dict]`로 제안하고 PR 리뷰로 확정한다. 데이터클래스 예시는 이 형식으로 변경 | I-03 마스킹과 직접 연결, 필드·위치 규칙은 `architecture/data-model.md` 한 곳에서 관리 |
 
 ## 아직 정하지 않은 것
 
