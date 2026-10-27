@@ -36,7 +36,7 @@ _PHONE_RE = re.compile(
 )
 # 법인등록번호(6-7자리)는 모양이 주민등록번호와 같다. 아래 두 경우는 마스킹하지 않는다.
 #  1) 번호 바로 앞(같은 줄)에 "법인등록번호:" 라벨이 붙은 경우.
-#  2) 표 머리글에 "법인등록번호"가 있고, 아래 데이터 행에서 같은 열에 있는 경우.
+#  2) 표 머리글 셀이 "법인등록번호"와 정확히 일치하고, 아래 데이터 행에서 같은 열에 있는 경우.
 _CORP_LABEL_RE = re.compile(r"법인\s*(?:등록)?\s*번호\s*[:：]?\s*$")
 _CORP_HEADER_RE = re.compile(r"법인\s*(?:등록)?\s*번호")
 _RRN_HEADER_RE = re.compile(r"주민\s*(?:등록)?\s*번호")
@@ -63,7 +63,8 @@ _LANDLINE_RE = re.compile(r"0\d{1,2}-\d{3,4}-\d{4}|1[5-8]\d{2}-\d{4}")
 
 def _cell_index(line: str, pos: int) -> int:
     """`line` 의 `pos` 위치가 몇 번째 열(0부터)인지 앞쪽 셀 구분자 개수로 센다."""
-    return len(_CELL_SPLIT_RE.findall(line[:pos].strip()))
+    # 앞쪽 공백만 뗀다. 번호 바로 앞의 구분자("  ", " | ")도 열 경계로 세야 하기 때문이다.
+    return len(_CELL_SPLIT_RE.findall(line[:pos].lstrip()))
 
 
 def _mask_text(
@@ -89,10 +90,16 @@ def _mask_text(
         """번호가 없는 머리글 줄이면 법인등록번호 열 위치를 기억(또는 해제)한다."""
         if _RRN_RE.search(line):
             return
-        corp = _CORP_HEADER_RE.search(line)
-        if corp:
-            state["corp_col"] = _cell_index(line, corp.start())
-        elif _RRN_HEADER_RE.search(line):
+        cells = _CELL_SPLIT_RE.split(line.strip())
+        corp_col = next(
+            (i for i, cell in enumerate(cells) if _CORP_HEADER_RE.fullmatch(cell.strip())),
+            None,
+        )
+        if corp_col is not None:
+            state["corp_col"] = corp_col
+        elif _CORP_HEADER_RE.search(line) or _RRN_HEADER_RE.search(line):
+            # 본문 문장 속 "법인등록번호" 언급처럼 셀 전체가 라벨이 아니면 머리글로 보지 않는다.
+            # 이전 머리글 기억도 해제해, 다음 줄의 주민번호가 법인번호로 오인되지 않게 한다.
             state["corp_col"] = None
 
     def sub_with(pattern: re.Pattern[str], label: str, line: str) -> str:

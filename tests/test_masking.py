@@ -63,6 +63,20 @@ class MaskSensitiveDataTest(unittest.TestCase):
             text, "법인등록번호\n110111-1234567\n성명 | 주민등록번호\n홍길동 | [마스킹: 주민번호]"
         )
 
+    def test_sentence_mentioning_label_is_not_a_header(self):
+        sentence = "법인등록번호는 별도 표에 기재한다."
+        text, counts = _mask(f"{sentence}\n900101-1234567")
+        self.assertEqual(text, f"{sentence}\n[마스킹: 주민번호]")
+        self.assertEqual(counts["주민번호"], 1)
+
+    def test_sentence_after_corporate_header_releases_it(self):
+        text, counts = _mask("법인등록번호\n110111-1234567\n법인등록번호는 별도 표에 기재한다.\n900101-1234567")
+        self.assertEqual(
+            text,
+            "법인등록번호\n110111-1234567\n법인등록번호는 별도 표에 기재한다.\n[마스킹: 주민번호]",
+        )
+        self.assertEqual(counts["주민번호"], 1)
+
     def test_corporate_header_carries_over_table_blocks_only(self):
         table = {"text": "회사명 | 법인등록번호", "block_type": "table"}
         next_table = {"text": "A사 | 110111-1234567", "block_type": "table"}
