@@ -159,6 +159,15 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 - 긴 텍스트는 LangChain의 기본 길이 검사·분할·가중 평균 처리를 사용해 원본 청크당 벡터 하나를 유지한다. 요청 배치는 32개로 제한한다. [OpenAI 입력 제한](https://developers.openai.com/api/reference/resources/embeddings/methods/create)에 맞춰 길이 검사로 나뉜 최대 8,191토큰 입력 32개도 요청당 300,000토큰 이내로 유지한다.
 - 응답 개수·빈 벡터·차원 불일치·비유한 수는 오류로 알린다. API 오류도 그대로 호출자에게 전달하며 실패를 빈 성공 결과로 바꾸거나 부분 벡터를 반환하지 않는다.
 
+### Chroma 색인 저장 (I-02)
+
+`DocumentIndexer(chroma_config=None, collection_name=None)`는 연결 설정 `{"path": 경로}`와 컬렉션명을 받는다. 생략하면 공통 설정의 Chroma 경로·컬렉션명을 사용한다. 클라이언트와 컬렉션을 객체에 보관하며 `with DocumentIndexer(...) as indexer:` 또는 `close()`로 반드시 종료한다. 연결은 `core.chroma.open_chroma_client()`로만 연다. 벡터를 직접 전달하므로 Chroma 자동 임베딩은 사용하지 않는다.
+
+- `index_chunks(doc_id, chunks, embeddings)`는 입력 순서에 대응하는 청크·벡터를 저장하고 `{"doc_id": 문서 ID, "chunk_count": 저장 수, "index_status": "done"}`을 반환한다. MySQL 문서 상태 변경은 호출자가 수행한다.
+- 모든 입력을 먼저 검증한다. 청크 ID는 `{doc_id}#...` 형식이고 문서 메타데이터의 `doc_id`도 일치해야 한다. 중복 ID·빈 청크 목록·빈 텍스트·잘못된 권한 필드·중첩 메타데이터·개수 또는 차원이 다른 벡터·비유한 수는 거부한다. 빈 목록으로 기존 색인을 지우지 않는다.
+- [Chroma 클라이언트의 배치 상한](https://docs.trychroma.com/reference/python)을 따라 `upsert`하고, 새 청크 저장이 모두 끝난 뒤 해당 문서의 오래된 ID만 삭제한다. 다른 문서는 유지한다. 실패는 예외로 전달하며 성공 상태를 반환하지 않는다.
+- 여러 배치에 걸친 교체는 트랜잭션이 아니다. 중간 오류가 나면 일부 새 내용과 기존 내용이 함께 남을 수 있으므로 호출자는 문서를 실패로 기록하고 같은 입력으로 재시도해야 한다. 같은 문서에 대한 동시 재색인은 호출자가 직렬화해야 한다. DB 상태와 검색 노출의 연결은 적재 파이프라인에서 검증한다.
+
 ## 5. MySQL 테이블
 
 8개 테이블 모두 `db/schema.sql`에 있다. 컬럼 설명은 팀 「DB 스키마 정의서」(제출용 사본)와 `schema.sql`의 COMMENT에 있고, 둘이 다르면 `schema.sql`을 따른다.
