@@ -6,7 +6,9 @@
 """
 
 import logging
+import string
 
+from app.auth.session import get_current_user_id
 from core.database import get_connection
 from core.security import hash_password, verify_password
 
@@ -20,10 +22,16 @@ _MAX_PASSWORD_LENGTH = 20
 def get_user_info(user_id: int) -> dict | None:
     """M-02 로그인 사용자의 이름·사원번호·역할·소속 기업을 조회한다. 없으면 None.
 
+    본인 정보만 볼 수 있다. 요청한 user_id가 현재 로그인한 사용자와 다르면 None을 돌려준다.
     소속 기업 이름은 companies 테이블과 이어서(LEFT JOIN) 가져온다.
     (users 테이블에 email 컬럼이 아직 없어 email은 None으로 돌려준다. 스키마에 추가되면
      아래 SELECT에 u.email을 넣고 반환 dict의 email을 그 값으로 바꾸면 된다.)
     """
+    # 본인 정보만 조회하도록 제한한다. 남의 user_id를 넘겨도 열어 주지 않는다.
+    if user_id != get_current_user_id():
+        logger.info("내 정보 조회 거부: 본인이 아닌 user_id 요청")
+        return None
+
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -73,8 +81,9 @@ def validate_password(password: str) -> bool:
         return False
     if any(ch.isspace() for ch in password):  # 공백 포함 금지
         return False
-    has_letter = any(ch.isalpha() for ch in password)
-    has_digit = any(ch.isdigit() for ch in password)
+    # isalpha()·isdigit()는 한글·유니코드 숫자(²)도 참이라, ASCII 영문자·숫자로만 센다.
+    has_letter = any(ch in string.ascii_letters for ch in password)
+    has_digit = any(ch in string.digits for ch in password)
     return has_letter and has_digit
 
 
