@@ -33,10 +33,10 @@ def main() -> None:
             for employee_no, name, role, company_id in SEED_USERS:
                 cur.execute(
                     """
-                    INSERT INTO users (employee_no, password, name, role, company_id)
+                    INSERT INTO users (employee_no, password_hash, name, role, company_id)
                     VALUES (%s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
-                      password = VALUES(password), name = VALUES(name),
+                      password_hash = VALUES(password_hash), name = VALUES(name),
                       role = VALUES(role), company_id = VALUES(company_id)
                     """,
                     (employee_no, hash_password(password), name, role, company_id),

@@ -65,6 +65,7 @@ def update_email(user_id: int, email: str) -> bool:
 ## 5. DB (MySQL + PyMySQL)
 
 - 연결은 `core.database.get_connection()`으로만 연다.
+- Chroma는 `core.chroma.open_chroma_client()`로만 연다 (`with` 블록). `chromadb.PersistentClient`를 직접 만들지 않는다. 동시에 열고 닫을 때 생기는 Chroma 내부 참조 오류와 Windows 파일 잠금을 막는다.
 - SQL 값은 반드시 `%s` 바인딩으로 넘긴다.
 
 ```python
@@ -87,6 +88,14 @@ with get_connection() as conn, conn.cursor() as cur:
 
 - 모델 이름·top-k·청크 크기 같은 값은 `core/config.py`에 모은다.
 - 경로는 `pathlib.Path`로 만든다. OS마다 다른 구분자를 직접 쓰지 않는다.
+
+### 화면 (views)
+
+- 색·글꼴·둥글기는 `.streamlit/config.toml` 테마가 정한다. views에서 `<style>`·CSS를 넣지 않는다.
+- 문서 제목·파일명·청크 본문·회사명처럼 데이터에서 온 글자는 `st.markdown`·`st.caption`·`st.write`에 넣지 않는다. Markdown 링크·이미지가 그대로 그려진다. `app.common.ui.show_text()`를 쓴다.
+- 보안 등급 배지, 회사 태그, 각주 번호, 근거 하이라이트, 권한 없음 안내, 빈 결과는 `app/common/ui.py` 함수를 쓴다. 없는 요소가 필요하면 직접 만들지 말고 팀장에게 요청한다.
+- 페이지는 `page_header()` → 필터 → 본문 순서로 만든다. 주요 버튼만 `st.button(..., type="primary")`.
+- 화면 문구는 "~합니다"체. 입력칸 예시는 "현대무벡스 3분기 실적 보고서"처럼 구체적으로 쓴다.
 
 ## 8. 오류 처리
 
