@@ -33,6 +33,53 @@ class MaskSensitiveDataTest(unittest.TestCase):
         self.assertEqual(text, "법인등록번호 110111-1234567, 대표 [마스킹: 주민번호]")
         self.assertEqual(counts["주민번호"], 1)
 
+    def test_corporate_number_under_table_header_is_kept(self):
+        header = "회사명 | 법인등록번호 | 대표자 주민등록번호"
+        row = "A사 | 110111-1234567 | 900101-1234567"
+        text, counts = _mask(f"{header}\n{row}")
+        self.assertEqual(text, f"{header}\nA사 | 110111-1234567 | [마스킹: 주민번호]")
+        self.assertEqual(counts["주민번호"], 1)
+
+    def test_corporate_number_under_whitespace_separated_header(self):
+        original = "회사명  법인등록번호\nA사  110111-1234567\nB사  120111-7654321"
+        text, counts = _mask(original)
+        self.assertEqual(text, original)
+        self.assertEqual(counts["주민번호"], 0)
+
+    def test_header_only_cell_lists_corporate_numbers_vertically(self):
+        original = "법인등록번호\n110111-1234567\n120111-7654321"
+        text, counts = _mask(original)
+        self.assertEqual(text, original)
+        self.assertEqual(counts["주민번호"], 0)
+
+    def test_rrn_column_masked_when_header_is_rrn(self):
+        text, counts = _mask("성명 | 주민등록번호\n홍길동 | 900101-1234567")
+        self.assertEqual(text, "성명 | 주민등록번호\n홍길동 | [마스킹: 주민번호]")
+        self.assertEqual(counts["주민번호"], 1)
+
+    def test_new_rrn_header_replaces_corporate_header(self):
+        text, _ = _mask("법인등록번호\n110111-1234567\n성명 | 주민등록번호\n홍길동 | 900101-1234567")
+        self.assertEqual(
+            text, "법인등록번호\n110111-1234567\n성명 | 주민등록번호\n홍길동 | [마스킹: 주민번호]"
+        )
+
+    def test_corporate_header_carries_over_table_blocks_only(self):
+        table = {"text": "회사명 | 법인등록번호", "block_type": "table"}
+        next_table = {"text": "A사 | 110111-1234567", "block_type": "table"}
+        masked, _ = mask_sensitive_data([table, next_table])
+        self.assertEqual(masked[1]["text"], "A사 | 110111-1234567")
+
+        body = {"text": "A사 | 110111-1234567", "block_type": "text"}
+        masked, counts = mask_sensitive_data([table, body])
+        self.assertEqual(masked[1]["text"], "A사 | [마스킹: 주민번호]")
+        self.assertEqual(counts["주민번호"], 1)
+
+    def test_corporate_number_not_masked_as_account_on_keyword_line(self):
+        original = "법인등록번호 110111-0012345 (국민은행 거래)"
+        text, counts = _mask(original)
+        self.assertEqual(text, original)
+        self.assertEqual(sum(counts.values()), 0)
+
     def test_account_masked_only_with_keyword_on_same_line(self):
         text, counts = _mask("입금 계좌 110-123-456789\n참고 110-123-456789")
         self.assertEqual(text, "입금 계좌 [마스킹: 계좌]\n참고 110-123-456789")

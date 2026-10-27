@@ -34,8 +34,14 @@ _RRN_RE = re.compile(
 _PHONE_RE = re.compile(
     r"(?:(?<!\d)\+82[-.\s]?0?|(?<!\d)0)1[016-9][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)"
 )
-# 법인등록번호(6-7자리)는 모양이 주민등록번호와 같다. 앞에 이 단어가 붙어 있으면 마스킹하지 않는다.
+# 법인등록번호(6-7자리)는 모양이 주민등록번호와 같다. 아래 두 경우는 마스킹하지 않는다.
+#  1) 번호 바로 앞(같은 줄)에 "법인등록번호:" 라벨이 붙은 경우.
+#  2) 표 머리글에 "법인등록번호"가 있고, 아래 데이터 행에서 같은 열에 있는 경우.
 _CORP_LABEL_RE = re.compile(r"법인\s*(?:등록)?\s*번호\s*[:：]?\s*$")
+_CORP_HEADER_RE = re.compile(r"법인\s*(?:등록)?\s*번호")
+_RRN_HEADER_RE = re.compile(r"주민\s*(?:등록)?\s*번호")
+# 표 셀 구분: 파이프, 탭, 공백 2개 이상. 구분자 개수로 "몇 번째 열인지" 센다.
+_CELL_SPLIT_RE = re.compile(r"\s*\|\s*|	+|\s{2,}")
 
 # 이메일: 로컬파트@도메인(점 1개 이상). 엄밀한 RFC 검증이 아니라 문서 속 일반적인 형태만 잡는다.
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -55,11 +61,39 @@ _DATE_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}")
 _LANDLINE_RE = re.compile(r"0\d{1,2}-\d{3,4}-\d{4}|1[5-8]\d{2}-\d{4}")
 
 
-def _mask_text(text: str, counts: dict[str, int]) -> str:
+def _cell_index(line: str, pos: int) -> int:
+    """`line` 의 `pos` 위치가 몇 번째 열(0부터)인지 앞쪽 셀 구분자 개수로 센다."""
+    return len(_CELL_SPLIT_RE.findall(line[:pos].strip()))
+
+
+def _mask_text(
+    text: str, counts: dict[str, int], state: dict[str, int | None] | None = None
+) -> str:
     """텍스트 하나를 마스킹해 돌려주고, 치환한 건수를 `counts`에 누적한다.
 
     `counts`는 호출자가 넘긴 딕셔너리를 직접 갱신한다 (블록 여러 개의 합계를 내기 위함).
+    `state["corp_col"]` 은 가장 최근 표 머리글에서 찾은 "법인등록번호" 열 번호이며,
+    머리글과 데이터 행이 다른 줄·다른 블록에 있어도 법인등록번호를 유지하는 데 쓴다.
     """
+    if state is None:
+        state = {"corp_col": None}
+
+    def is_corp_number(line: str, start: int) -> bool:
+        """`line[start:]` 에서 시작하는 번호가 법인등록번호인지 판단한다."""
+        if _CORP_LABEL_RE.search(line[:start]):
+            return True
+        corp_col = state["corp_col"]
+        return corp_col is not None and _cell_index(line, start) == corp_col
+
+    def track_header(line: str) -> None:
+        """번호가 없는 머리글 줄이면 법인등록번호 열 위치를 기억(또는 해제)한다."""
+        if _RRN_RE.search(line):
+            return
+        corp = _CORP_HEADER_RE.search(line)
+        if corp:
+            state["corp_col"] = _cell_index(line, corp.start())
+        elif _RRN_HEADER_RE.search(line):
+            state["corp_col"] = None
 
     def sub_with(pattern: re.Pattern[str], label: str, line: str) -> str:
         """pattern 에 걸린 부분을 전부 `[마스킹: label]` 로 바꾸고 건수를 센다."""
@@ -72,6 +106,8 @@ def _mask_text(text: str, counts: dict[str, int]) -> str:
 
         def repl(match: re.Match[str]) -> str:
             value = match.group()
+            if is_corp_number(line, match.start()):
+                return value
             # 사업자번호·날짜·유선/대표번호는 원문 그대로 둔다 (건수에도 포함하지 않는다).
             if (
                 _BIZ_NO_RE.fullmatch(value)
@@ -85,10 +121,10 @@ def _mask_text(text: str, counts: dict[str, int]) -> str:
         return _ACCOUNT_RE.sub(repl, line)
 
     def sub_rrn(line: str) -> str:
-        """주민번호를 치환하되, "법인등록번호: " 라벨이 바로 앞에 붙은 번호는 그대로 둔다."""
+        """주민번호를 치환하되, 법인등록번호(라벨 뒤 또는 머리글 열 아래)는 그대로 둔다."""
 
         def repl(match: re.Match[str]) -> str:
-            if _CORP_LABEL_RE.search(line[: match.start()]):
+            if is_corp_number(line, match.start()):
                 return match.group()
             counts[RRN] += 1
             return f"[마스킹: {RRN}]"
@@ -102,6 +138,7 @@ def _mask_text(text: str, counts: dict[str, int]) -> str:
         # 적용 순서가 중요하다.
         #  1) 주민번호를 먼저: 13자리 숫자가 뒤의 휴대전화·계좌 패턴과 섞이지 않게 한다.
         #  2) 이미 치환된 "[마스킹: ...]" 안에는 숫자가 없으므로 이후 패턴과 충돌하지 않는다.
+        track_header(line)
         line = sub_rrn(line)
         line = sub_with(_PHONE_RE, PHONE, line)
         line = sub_with(_EMAIL_RE, EMAIL, line)
@@ -125,15 +162,19 @@ def mask_sensitive_data(
     # 항상 네 유형을 모두 담아 호출자가 키 존재 여부를 따로 확인하지 않게 한다.
     counts = {RRN: 0, PHONE: 0, EMAIL: 0, ACCOUNT: 0}
     masked_blocks: list[dict] = []
+    state: dict[str, int | None] = {"corp_col": None}
 
     for block in blocks:
+        # 표 머리글은 같은 표를 잇는 다음 블록까지만 유효하다. 표가 아닌 블록을 만나면 해제한다.
+        if block.get("block_type") != "table":
+            state["corp_col"] = None
         # 얕은 복사: 원본 dict 를 건드리지 않고 text 만 교체한다.
         # page·location·block_type 등 나머지 키는 그대로 유지된다.
         new_block = dict(block)
         text = block.get("text")
         # text 가 없거나 비어 있거나 문자열이 아닌 블록은 그대로 통과시킨다.
         if isinstance(text, str) and text:
-            new_block["text"] = _mask_text(text, counts)
+            new_block["text"] = _mask_text(text, counts, state)
         masked_blocks.append(new_block)
 
     total = sum(counts.values())
