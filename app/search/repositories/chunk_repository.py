@@ -2,10 +2,10 @@
 
 import logging
 
-import chromadb
 from chromadb.errors import NotFoundError
 
 from core import config
+from core.chroma import open_chroma_client
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +15,8 @@ def query_chunks(query_embedding: list[float], where: dict | None, n_results: in
 
     반환: [{"chunk_id", "text", "metadata", "distance"}, ...]  distance가 작을수록 가깝다.
     """
-    client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
-    # 검색이 끝나거나 예외가 나도 닫는다. 열어 둔 채면 SQLite 파일이 잠겨 Windows에서 폴더를 못 지운다.
-    try:
+    # 검색이 끝나거나 예외가 나도 닫는다 (core.chroma: 열고 닫기를 잠금으로 직렬화, Windows 파일 잠금 해제).
+    with open_chroma_client() as client:
         try:
             collection = client.get_collection(config.CHROMA_COLLECTION)
         except NotFoundError:
@@ -32,8 +31,6 @@ def query_chunks(query_embedding: list[float], where: dict | None, n_results: in
             where=where or None,
             include=["documents", "metadatas", "distances"],
         )
-    finally:
-        client.close()
     # 질문을 1개만 보냈으므로 결과 목록의 첫 번째 묶음만 쓴다.
     return [
         {"chunk_id": chunk_id, "text": text, "metadata": metadata, "distance": distance}
