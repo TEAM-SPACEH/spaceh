@@ -142,6 +142,8 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual(blocks[2]["text"].count("공통"), 1)
         self.assertEqual(blocks[3]["page"], 2)
         self.assertEqual(blocks[3]["section"], "")
+        self.assertEqual([b["location"] for b in blocks],
+                         ["슬라이드 1"] * 3 + ["슬라이드 2"])
         self.assert_common_blocks(blocks)
 
     def test_pptx_missing_coordinates_do_not_stop_loading(self):
@@ -212,18 +214,40 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         self.assertIn("| Motor | 42 |", blocks[1]["text"])
         self.assertEqual(sum(b["text"].count("Motor") for b in blocks), 1)
         self.assertEqual(blocks[-1]["page"], 2)
-        self.assertTrue(blocks[-1]["location"].startswith("p.2"))
+        self.assertEqual([b["location"] for b in blocks], ["p.1"] * 3 + ["p.2"])
         self.assert_common_blocks(blocks)
 
-    def test_scanned_pdf_is_reported_instead_of_silently_skipped(self):
-        """이미지뿐인 페이지를 조용히 누락시키지 않고 오류로 알린다."""
+    def test_scanned_cover_is_warned_and_text_pages_are_kept(self):
+        """이미지 표지를 경고하되 뒤 페이지의 실제 번호와 본문을 보존한다."""
         page = MagicMock()
         page.images = [{}]
         page.chars = []
+        text_page = MagicMock()
+        text_page.images = []
+        text_page.find_tables.return_value = []
+        text_page.filter.return_value.extract_text_lines.return_value = [
+            {"top": 50, "x0": 72, "text": "Second page"},
+        ]
+        with patch("app.ingestion.parsers.pdf.pdfplumber.open") as opened:
+            opened.return_value.__enter__.return_value.pages = [page, text_page]
+            with self.assertLogs("app.ingestion.parsers.pdf", level="WARNING") as logs:
+                blocks = parse_pdf("scanned.pdf")
+        self.assertIn("1페이지", logs.output[0])
+        self.assertIn("OCR", logs.output[0])
+        self.assertEqual(blocks, [{"block_type": "text", "text": "Second page",
+                                  "page": 2, "location": "p.2", "section": ""}])
+        page.find_tables.assert_not_called()
+
+    def test_all_scanned_pdf_still_fails_as_empty_document(self):
+        """모든 페이지가 이미지인 문서는 빈 색인 성공으로 처리하지 않는다."""
+        path = self.root / "scanned.pdf"
+        path.touch()
+        page = MagicMock(images=[{}], chars=[])
         with patch("app.ingestion.parsers.pdf.pdfplumber.open") as opened:
             opened.return_value.__enter__.return_value.pages = [page]
-            with self.assertRaisesRegex(ValueError, "OCR"):
-                parse_pdf("scanned.pdf")
+            with self.assertLogs("app.ingestion.parsers.pdf", level="WARNING"):
+                with self.assertRaisesRegex(ValueError, "추출 가능한"):
+                    load_document(path)
 
     def test_missing_unsupported_corrupt_and_empty_documents(self):
         """잘못된 파일을 성공한 빈 결과로 반환하지 않는지 확인한다."""

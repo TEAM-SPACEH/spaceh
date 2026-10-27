@@ -45,7 +45,7 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
                 continue
             blocks.append({
                 "block_type": kind, "text": text, "page": number,
-                "location": f"슬라이드 {number} · 개체 {shape.shape_id}",
+                "location": f"슬라이드 {number}",
                 "section": section,
             })
     return normalize_blocks(blocks)
