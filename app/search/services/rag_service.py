@@ -144,3 +144,29 @@ def _generate_with_openai(query: str, context: str) -> str:
     })
 
     return answer
+
+def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
+    """검색된 문서 청크를 기반으로 AI 답변을 생성합니다."""
+
+    # 1. 질문 유효성 검사
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("질문을 입력해 주세요.")
+
+    # 2. 문서 청크를 컨텍스트로 변환
+    context, sources = prepare_context(chunks)
+
+    # 3. 검색 결과가 없는 경우
+    if not sources:
+        return {
+            "answer": "찾을 수 없음",
+            "sources": [],
+        }
+
+    # 4. OpenAI를 통한 답변 생성
+    answer = _generate_with_openai(query.strip(), context)
+
+    # 5. 답변 및 출처 후보 반환
+    return {
+        "answer": answer.strip(),
+        "sources": sources,
+    }
