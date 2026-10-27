@@ -20,11 +20,13 @@ def parse_pdf(file_path: str | Path) -> list[dict]:
             tables = page.find_tables()
 
             def outside_tables(obj):
+                """I-01 중심점이 표 안에 있는 문자를 본문 추출에서 제외한다."""
                 x = (obj["x0"] + obj["x1"]) / 2
                 y = (obj["top"] + obj["bottom"]) / 2
                 return not any(t.bbox[0] <= x <= t.bbox[2]
                                and t.bbox[1] <= y <= t.bbox[3] for t in tables)
 
+            # 표는 별도 블록으로 넣으므로 본문에서 같은 문자를 이중 수집하지 않는다.
             items = [(line["top"], line["x0"], "text", line["text"])
                      for line in page.filter(outside_tables).extract_text_lines()]
             items.extend(

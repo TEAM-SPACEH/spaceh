@@ -12,6 +12,8 @@ from app.ingestion.preprocessing.normalizer import (
 
 
 def _iter_shapes(shapes):
+    """I-01 그룹 내부까지 재귀적으로 위→아래·왼쪽→오른쪽으로 순회한다."""
+    # 저장 순서는 화면의 읽기 순서가 아니라 겹침 순서이므로 좌표로 정렬한다.
     for shape in sorted(shapes, key=lambda item: (item.top, item.left)):
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             yield from _iter_shapes(shape.shapes)
@@ -28,6 +30,7 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
         for shape in _iter_shapes(slide.shapes):
             if shape.has_table:
                 kind = "table"
+                # 병합 시작 셀은 남기고 다른 셀은 비워 원래 열 수를 유지한다.
                 rows = [
                     ["" if cell.is_spanned else cell.text for cell in row.cells]
                     for row in shape.table.rows
