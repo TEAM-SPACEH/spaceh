@@ -49,13 +49,17 @@ class SearchDocumentsTest(unittest.TestCase):
 
     def _index_chunks(self):
         client = chromadb.PersistentClient(path=self.tmp.name)
-        collection = client.create_collection(config.CHROMA_COLLECTION)
-        collection.add(
-            ids=list(CHUNKS),
-            embeddings=[embedding for _, embedding in CHUNKS.values()],
-            metadatas=[metadata for metadata, _ in CHUNKS.values()],
-            documents=[f"{chunk_id} 본문" for chunk_id in CHUNKS],
-        )
+        # 임시 폴더를 지우기 전에 닫아야 Windows에서 SQLite 파일 잠금이 풀린다.
+        try:
+            collection = client.create_collection(config.CHROMA_COLLECTION)
+            collection.add(
+                ids=list(CHUNKS),
+                embeddings=[embedding for _, embedding in CHUNKS.values()],
+                metadatas=[metadata for metadata, _ in CHUNKS.values()],
+                documents=[f"{chunk_id} 본문" for chunk_id in CHUNKS],
+            )
+        finally:
+            client.close()
 
     def _search(self, query, user, filters=None):
         with patch(EMBED_PATH, return_value=QUERY_VECTOR), patch(APPROVED_PATH, return_value=[]):

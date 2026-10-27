@@ -16,20 +16,24 @@ def query_chunks(query_embedding: list[float], where: dict | None, n_results: in
     반환: [{"chunk_id", "text", "metadata", "distance"}, ...]  distance가 작을수록 가깝다.
     """
     client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
+    # 검색이 끝나거나 예외가 나도 닫는다. 열어 둔 채면 SQLite 파일이 잠겨 Windows에서 폴더를 못 지운다.
     try:
-        collection = client.get_collection(config.CHROMA_COLLECTION)
-    except NotFoundError:
-        # 여기서 컬렉션을 만들면 I-02가 정할 거리 방식(cosine 등)과 어긋날 수 있어 만들지 않는다.
-        logger.warning("Chroma 컬렉션 '%s'이 아직 없습니다. 색인(I-02) 후 검색할 수 있습니다.", config.CHROMA_COLLECTION)
-        return []
+        try:
+            collection = client.get_collection(config.CHROMA_COLLECTION)
+        except NotFoundError:
+            # 여기서 컬렉션을 만들면 I-02가 정할 거리 방식(cosine 등)과 어긋날 수 있어 만들지 않는다.
+            logger.warning("Chroma 컬렉션 '%s'이 아직 없습니다. 색인(I-02) 후 검색할 수 있습니다.", config.CHROMA_COLLECTION)
+            return []
 
-    # Chroma는 빈 where({})를 오류로 처리하므로 None으로 넘긴다.
-    result = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=n_results,
-        where=where or None,
-        include=["documents", "metadatas", "distances"],
-    )
+        # Chroma는 빈 where({})를 오류로 처리하므로 None으로 넘긴다.
+        result = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results,
+            where=where or None,
+            include=["documents", "metadatas", "distances"],
+        )
+    finally:
+        client.close()
     # 질문을 1개만 보냈으므로 결과 목록의 첫 번째 묶음만 쓴다.
     return [
         {"chunk_id": chunk_id, "text": text, "metadata": metadata, "distance": distance}
