@@ -1,3 +1,5 @@
+import unittest
+
 from app.ingestion.preprocessing.masking import mask_sensitive_data
 
 
@@ -6,33 +8,53 @@ def _mask(text: str) -> tuple[str, dict[str, int]]:
     return blocks[0]["text"], counts
 
 
-def test_masks_rrn_phone_email():
-    text, counts = _mask("900101-1234567 / 010-1234-5678 / a.b@x.co.kr")
-    assert text == "[마스킹: 주민번호] / [마스킹: 연락처] / [마스킹: 이메일]"
-    assert counts == {"주민번호": 1, "연락처": 1, "이메일": 1, "계좌": 0}
+class MaskSensitiveDataTest(unittest.TestCase):
+    def test_masks_rrn_phone_email(self):
+        text, counts = _mask("900101-1234567 / 010-1234-5678 / a.b@x.co.kr")
+        self.assertEqual(text, "[마스킹: 주민번호] / [마스킹: 연락처] / [마스킹: 이메일]")
+        self.assertEqual(counts, {"주민번호": 1, "연락처": 1, "이메일": 1, "계좌": 0})
+
+    def test_masks_international_phone(self):
+        for number in ("+8210-1234-5678", "+82 10-1234-5678", "+82-10-1234-5678", "+82 010-1234-5678"):
+            with self.subTest(number=number):
+                text, counts = _mask(f"연락처 {number}")
+                self.assertEqual(text, "연락처 [마스킹: 연락처]")
+                self.assertEqual(counts["연락처"], 1)
+
+    def test_corporate_registration_number_is_kept(self):
+        for original in ("법인등록번호 110111-1234567", "법인등록번호: 110111-1234567", "법인번호 110111-1234567"):
+            with self.subTest(original=original):
+                text, counts = _mask(original)
+                self.assertEqual(text, original)
+                self.assertEqual(counts["주민번호"], 0)
+
+    def test_rrn_still_masked_on_corporate_line(self):
+        text, counts = _mask("법인등록번호 110111-1234567, 대표 900101-1234567")
+        self.assertEqual(text, "법인등록번호 110111-1234567, 대표 [마스킹: 주민번호]")
+        self.assertEqual(counts["주민번호"], 1)
+
+    def test_account_masked_only_with_keyword_on_same_line(self):
+        text, counts = _mask("입금 계좌 110-123-456789\n참고 110-123-456789")
+        self.assertEqual(text, "입금 계좌 [마스킹: 계좌]\n참고 110-123-456789")
+        self.assertEqual(counts["계좌"], 1)
+
+    def test_company_numbers_are_kept_even_on_keyword_line(self):
+        original = "국민은행 대표 02-1234-5678, 1588-1234, 사업자 123-45-67890, 2024-03-12 입금"
+        text, counts = _mask(original)
+        self.assertEqual(text, original)
+        self.assertEqual(sum(counts.values()), 0)
+
+    def test_receipt_number_is_kept(self):
+        original = "접수번호 20240312000123"
+        self.assertEqual(_mask(original)[0], original)
+
+    def test_input_not_mutated_and_other_keys_kept(self):
+        blocks = [{"text": "010-1234-5678", "page": 3}, {"text": ""}]
+        masked, _ = mask_sensitive_data(blocks)
+        self.assertEqual(blocks[0]["text"], "010-1234-5678")
+        self.assertEqual(masked[0], {"text": "[마스킹: 연락처]", "page": 3})
+        self.assertEqual(masked[1], {"text": ""})
 
 
-def test_account_masked_only_with_keyword_on_same_line():
-    text, counts = _mask("입금 계좌 110-123-456789\n참고 110-123-456789")
-    assert text == "입금 계좌 [마스킹: 계좌]\n참고 110-123-456789"
-    assert counts["계좌"] == 1
-
-
-def test_company_numbers_are_kept_even_on_keyword_line():
-    original = "국민은행 대표 02-1234-5678, 1588-1234, 사업자 123-45-67890, 2024-03-12 입금"
-    text, counts = _mask(original)
-    assert text == original
-    assert sum(counts.values()) == 0
-
-
-def test_receipt_number_is_kept():
-    original = "접수번호 20240312000123"
-    assert _mask(original)[0] == original
-
-
-def test_input_not_mutated_and_other_keys_kept():
-    blocks = [{"text": "010-1234-5678", "page": 3}, {"text": ""}]
-    masked, _ = mask_sensitive_data(blocks)
-    assert blocks[0]["text"] == "010-1234-5678"
-    assert masked[0] == {"text": "[마스킹: 연락처]", "page": 3}
-    assert masked[1] == {"text": ""}
+if __name__ == "__main__":
+    unittest.main()

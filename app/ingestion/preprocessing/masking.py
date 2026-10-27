@@ -29,8 +29,13 @@ _RRN_RE = re.compile(
 )
 
 # 휴대전화: 010·011·016~019 로 시작, 중간 3~4자리, 끝 4자리. 구분자는 -, ., 공백 허용.
+# 국제 형식(+82 10-1234-5678, +8210-1234-5678, +82 010-1234-5678)도 잡는다.
 # 02·031 같은 유선과 1588 대표번호는 01x 로 시작하지 않으므로 걸리지 않는다.
-_PHONE_RE = re.compile(r"(?<!\d)01[016-9][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)")
+_PHONE_RE = re.compile(
+    r"(?:(?<!\d)\+82[-.\s]?0?|(?<!\d)0)1[016-9][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)"
+)
+# 법인등록번호(6-7자리)는 모양이 주민등록번호와 같다. 앞에 이 단어가 붙어 있으면 마스킹하지 않는다.
+_CORP_LABEL_RE = re.compile(r"법인\s*(?:등록)?\s*번호\s*[:：]?\s*$")
 
 # 이메일: 로컬파트@도메인(점 1개 이상). 엄밀한 RFC 검증이 아니라 문서 속 일반적인 형태만 잡는다.
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -79,6 +84,17 @@ def _mask_text(text: str, counts: dict[str, int]) -> str:
 
         return _ACCOUNT_RE.sub(repl, line)
 
+    def sub_rrn(line: str) -> str:
+        """주민번호를 치환하되, "법인등록번호: " 라벨이 바로 앞에 붙은 번호는 그대로 둔다."""
+
+        def repl(match: re.Match[str]) -> str:
+            if _CORP_LABEL_RE.search(line[: match.start()]):
+                return match.group()
+            counts[RRN] += 1
+            return f"[마스킹: {RRN}]"
+
+        return _RRN_RE.sub(repl, line)
+
     lines = []
     # 줄 단위로 처리해야 "계좌 키워드가 같은 줄에 있는지"를 판단할 수 있다.
     # split("\n") / join("\n") 은 줄바꿈 구조를 그대로 보존한다.
@@ -86,7 +102,7 @@ def _mask_text(text: str, counts: dict[str, int]) -> str:
         # 적용 순서가 중요하다.
         #  1) 주민번호를 먼저: 13자리 숫자가 뒤의 휴대전화·계좌 패턴과 섞이지 않게 한다.
         #  2) 이미 치환된 "[마스킹: ...]" 안에는 숫자가 없으므로 이후 패턴과 충돌하지 않는다.
-        line = sub_with(_RRN_RE, RRN, line)
+        line = sub_rrn(line)
         line = sub_with(_PHONE_RE, PHONE, line)
         line = sub_with(_EMAIL_RE, EMAIL, line)
         # 계좌는 키워드가 있는 줄에서만 (회사 번호·접수번호 등 오탐 방지).
