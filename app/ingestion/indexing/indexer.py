@@ -3,6 +3,7 @@
 from contextlib import ExitStack
 from math import isfinite
 from pathlib import Path
+import re
 
 from core import config
 from core.chroma import open_chroma_client
@@ -63,10 +64,15 @@ class DocumentIndexer:
                 raise ValueError("각 청크는 dict여야 합니다.")
             chunk_id, text = chunk.get("chunk_id"), chunk.get("text")
             metadata = chunk.get("metadata")
-            if (not isinstance(chunk_id, str) or not chunk_id.startswith(doc_id + "#")
-                    or len(chunk_id) <= len(doc_id) + 1
-                    or not isinstance(text, str) or not text.strip()):
-                raise ValueError("청크 ID는 문서 ID에 속해야 하며 본문이 필요합니다.")
+            if not isinstance(chunk_id, str):
+                raise ValueError("청크 ID는 문자열이어야 합니다.")
+            owner, _, number = chunk_id.rpartition("#")
+            # 마지막 # 앞은 문서 ID, 뒤는 청커의 양수 ASCII 순번으로 고정해 충돌을 막는다.
+            if (owner != doc_id or not re.fullmatch(r"(?:[0-9]{4}|[1-9][0-9]{4,})", number)
+                    or number == "0000"):
+                raise ValueError("청크 ID는 {doc_id}#{순번:04d} 형식이어야 합니다.")
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("청크 본문이 필요합니다.")
             if (not isinstance(metadata, dict) or metadata.get("doc_id") != doc_id
                     or not isinstance(metadata.get("company_id"), str)
                     or not metadata["company_id"].strip()
