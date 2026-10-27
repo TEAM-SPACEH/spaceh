@@ -1,6 +1,6 @@
 """I-02 공통 메타데이터 구성."""
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -44,7 +44,7 @@ def build_metadata(
         raise ValueError("그룹사 공유는 internal 문서만 가능합니다.")
     metadata["is_group_shared"] = bool(shared)
 
-    # 제목 누락은 사용자 합의대로 파일명으로 대체하고 작성일은 추측하지 않는다.
+    # 제목은 파일명으로 대체하되 작성일은 등록 정보의 날짜만 사용한다.
     title = document_info.get("title")
     if title is not None and not isinstance(title, str):
         raise ValueError("문서 제목은 문자열이어야 합니다.")
@@ -54,13 +54,17 @@ def build_metadata(
     metadata["title"] = title
     published = document_info.get("published_date")
     if published is None or published == "":
-        metadata["published_date"] = 0
-    else:
+        # 재색인한 오늘이 아니라 원래 업로드일을 써야 DB 날짜와 일치한다.
+        published = document_info.get("created_at")
         if isinstance(published, str):
-            published = date.fromisoformat(published)
-        if type(published) is not date:
-            raise ValueError("작성일은 date 또는 ISO 날짜 문자열이어야 합니다.")
-        metadata["published_date"] = int(published.strftime("%Y%m%d"))
+            published = datetime.fromisoformat(published)
+        if isinstance(published, datetime):
+            published = published.date()
+    if isinstance(published, str):
+        published = date.fromisoformat(published)
+    if type(published) is not date:
+        raise ValueError("작성일 또는 업로드일(created_at)이 필요합니다. 날짜 형식을 확인하세요.")
+    metadata["published_date"] = int(published.strftime("%Y%m%d"))
     url = document_info.get("source_url")
     if url is not None and not isinstance(url, str):
         raise ValueError("출처 주소는 문자열이어야 합니다.")
