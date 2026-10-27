@@ -194,10 +194,13 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
             "sources": [],
         }
 
-    # 8. 검증을 통과한 답변 반환
+    # 8. 실제 인용된 출처만 추출
+    cited_sources = extract_cited_sources(answer, sources)
+
+    # 9. 답변과 인용된 출처 반환
     return {
         "answer": answer.strip(),
-        "sources": sources,
+        "sources": cited_sources,
     }
 
 def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
@@ -303,3 +306,38 @@ def check_answer_grounding(
         return False
 
     return verdict.strip() == "SUPPORTED"
+
+def extract_cited_sources(
+        answer: str,
+        sources: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """AI 답변에서 실제 인용한 출처만 추출합니다."""
+
+    cited_sources = []
+    seen = set()
+
+    # 1. 답변에서 [1], [2] 형태의 출처 번호 추출
+    citations = re.findall(r"\[(\d+)\]", answer)
+
+    for citation in citations:
+        number = int(citation)
+
+        # 2. 유효하지 않은 출처 번호 제외
+        if number < 1 or number > len(sources):
+            continue
+
+        # 3. 중복 인용된 출처 제외
+        if number in seen:
+            continue
+
+        seen.add(number)
+
+        # 4. 원본 출처 정보 가져오기
+        source = sources[number - 1].copy()
+
+        # 5. 원래 출처 번호 유지
+        source["citation_number"] = number
+
+        cited_sources.append(source)
+
+    return cited_sources
