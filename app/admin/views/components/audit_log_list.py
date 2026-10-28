@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from app.common.ui import empty_state
+
 # 목록 표에 보여 줄 컬럼과 머리글. 상세 정보(필터·문서 목록 등)는 상세 화면에서 보여 준다.
 _COLUMNS = {
     "created_at": "시각",
@@ -22,7 +24,7 @@ def render_audit_log_list(logs: list[dict]) -> int | None:
     반환: 상세를 볼 로그의 log_id. 로그가 없으면 None
     """
     if not logs:
-        st.info("조건에 맞는 감사 로그가 없습니다.")
+        empty_state("조건에 맞는 감사 로그가 없습니다. 기간이나 필터를 바꿔 보세요.")
         return None
 
     st.dataframe(
