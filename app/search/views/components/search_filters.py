@@ -20,9 +20,28 @@ def render_search_filters(
             gap="small",
         )
 
-        company_box = company_col.popover("계열사 전체")
-        type_box = type_col.popover("문서 유형 전체")
-        date_box = date_col.popover("기간 전체")
+        # 현재 선택된 필터 상태
+        n_company = len(st.session_state.get(f"{key}_companies") or [])
+        n_type = len(st.session_state.get(f"{key}_doc_types") or [])
+
+        has_date = bool(
+            st.session_state.get(f"{key}_date_from")
+            or st.session_state.get(f"{key}_date_to")
+        )
+
+        # 선택 상태에 따라 팝오버 버튼 라벨 변경
+        company_box = company_col.popover(
+            f"계열사 {n_company}개" if n_company else "계열사 전체"
+        )
+
+        type_box = type_col.popover(
+            f"문서 유형 {n_type}개" if n_type else "문서 유형 전체"
+        )
+
+        date_box = date_col.popover(
+            "기간 지정" if has_date else "기간 전체"
+        )
+        
     else:
         st.subheader("검색 필터")
         company_box = nullcontext()
