@@ -6,11 +6,13 @@ from collections.abc import Callable
 import streamlit as st
 
 from app.admin.services.access_service import set_group_share
+from app.admin.services.access_service import INDEX_STATUS_DONE
 from core.constants import ACCESS_CONFIDENTIAL, ACCESS_INTERNAL
 
 logger = logging.getLogger(__name__)
 
 _CONFIDENTIAL_NOTICE = "🔒 기밀 공유 불가"
+_NOT_INDEXED_NOTICE = "색인이 끝난 뒤 바꿀 수 있습니다."
 
 
 def render_group_share_toggle(
@@ -46,6 +48,14 @@ def render_group_share_toggle(
         return
     if level != ACCESS_INTERNAL:
         st.caption("공유 설정 대상이 아닙니다.")
+        return
+
+    # 색인이 끝나지 않은 문서는 잠근다 (서비스도 거부한다). 색인 중에 바꾼 값은 나중에 색인되는 청크에 반영되지 않을 수 있다.
+    if doc.get("index_status") != INDEX_STATUS_DONE:
+        st.toggle(
+            "그룹사 공유", value=state, key=key, disabled=True, help=_NOT_INDEXED_NOTICE, label_visibility="collapsed"
+        )
+        st.caption(_NOT_INDEXED_NOTICE)
         return
 
     # 값이 바뀌면 화면을 다시 그리기 전에 _on_change 가 먼저 실행된다. 그래서 같은 실행에서

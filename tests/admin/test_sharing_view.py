@@ -106,6 +106,15 @@ class SharingViewTest(unittest.TestCase):
         self.assertIn("기밀 문서는 공유할 수 없습니다. 사내 문서만 켤 수 있어요.", _html(at))
         self.assertTrue(any("기밀 공유 불가" in caption.value for caption in at.caption))
 
+    def test_internal_document_not_indexed_yet_is_locked_with_notice(self):
+        """색인이 끝나지 않은 사내 문서는 표·패널 토글이 모두 잠기고 안내가 나온다."""
+        pending = _doc("d3", index_status="pending")
+        _, at = self._run(get_manageable_documents={"documents": [pending], "total_count": 1, "page": 1, "total_pages": 1})
+
+        self.assertTrue(at.toggle(key="group-share-d3-0").disabled)
+        self.assertTrue(at.toggle(key="share-panel-d3-0").disabled)
+        self.assertTrue(any("색인이 끝난 뒤 바꿀 수 있습니다." in caption.value for caption in at.caption))
+
     def test_turning_toggle_on_calls_service_and_shows_toast(self):
         """토글을 켜면 서비스가 호출되고 성공 토스트가 뜬다."""
         _, at = self._run()

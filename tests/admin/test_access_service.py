@@ -21,13 +21,14 @@ ELV_ADMIN = {"id": 3, "role": "company_admin", "company_id": "ELV"}
 MVX_EMPLOYEE = {"id": 4, "role": "employee", "company_id": "MVX"}
 
 
-def _doc(company_id="MVX", access_level="internal", is_group_shared=0):
+def _doc(company_id="MVX", access_level="internal", is_group_shared=0, index_status="done"):
     """저장소가 돌려주는 documents 행 모양."""
     return {
         "doc_id": "doc-1",
         "company_id": company_id,
         "access_level": access_level,
         "is_group_shared": is_group_shared,
+        "index_status": index_status,
     }
 
 
@@ -72,6 +73,26 @@ class SetGroupShareTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             access_service.set_group_share("doc-1", True, SUPER)
         repo.update_group_share.assert_not_called()
+
+    def test_document_that_is_not_indexed_yet_cannot_be_changed(self, repo, audit):
+        """색인이 끝나지 않은 문서(대기·색인 중·실패)는 거부되고 DB·Chroma 는 바뀌지 않으며, 막힌 시도로 기록된다."""
+        for status in ("pending", "indexing", "failed"):
+            with self.subTest(index_status=status):
+                repo.get_document.return_value = _doc(index_status=status)
+
+                with self.assertRaisesRegex(ValueError, "색인이 끝난 문서만"):
+                    access_service.set_group_share("doc-1", True, MVX_ADMIN)
+
+                args = audit.call_args.args
+                self.assertTrue(args[4])
+                self.assertIn("색인이 끝난 문서만", args[5])
+        repo.update_group_share.assert_not_called()
+
+    def test_confidential_message_wins_over_index_status(self, repo, audit):
+        """기밀 문서는 색인 상태와 관계없이 기밀 안내가 먼저다."""
+        repo.get_document.return_value = _doc(access_level="confidential", index_status="pending")
+        with self.assertRaisesRegex(ValueError, "기밀"):
+            access_service.set_group_share("doc-1", True, SUPER)
 
     def test_company_admin_of_other_company_is_denied(self, repo, audit):
         """타 계열사 관리자는 PermissionError 이고 DB 는 바뀌지 않는다."""

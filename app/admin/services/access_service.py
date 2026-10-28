@@ -30,6 +30,9 @@ from core.constants import (
 
 logger = logging.getLogger(__name__)
 
+# documents.index_status 값 중 색인이 끝난 상태. 이때만 공유를 바꿀 수 있다 (docs/architecture/data-model.md).
+INDEX_STATUS_DONE = "done"
+
 # audit_logs.action 값. 스키마 정의서의 행위 코드(share_change)를 그대로 쓴다.
 ACTION_SHARE_CHANGE = "share_change"
 
@@ -145,7 +148,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     user: 로그인 사용자 (관리자)
     반환: {"doc_id": ..., "is_group_shared": bool, "status": "success", "message": "공유 설정이 변경되었습니다."}
     PermissionError: 관리자가 아니거나, 계열사 관리자가 타사 문서를 바꾸려 할 때
-    ValueError: internal 이 아닌 문서(기밀 등)일 때
+    ValueError: internal 이 아닌 문서(기밀 등)이거나, 색인이 끝나지 않은 문서일 때
     LookupError: 없는 문서일 때
 
     권한·등급 때문에 막힌 시도도 감사 로그에 남긴다 (blocked=True).
@@ -210,6 +213,10 @@ def _check_can_change(document: dict, user: dict) -> None:
         raise ValueError("기밀(confidential) 문서는 그룹사에 공유할 수 없습니다.")
     if level != ACCESS_INTERNAL:
         raise ValueError("사내(internal) 문서만 그룹사에 공유할 수 있습니다.")
+    # 색인이 끝나지 않은 문서(대기·색인 중·실패)는 바꾸지 못하게 한다. 색인은 청크를 업로드 당시의 공유 값으로 저장하므로,
+    # 그 사이에 바꾼 값이 Chroma 에 반영되지 않거나 나중에 덮어써져 검색 권한이 MySQL 과 어긋날 수 있다.
+    if document["index_status"] != INDEX_STATUS_DONE:
+        raise ValueError("색인이 끝난 문서만 공유 설정을 바꿀 수 있습니다.")
 
 
 def _record(

@@ -101,10 +101,10 @@ def count_share_status(company_id: str | None) -> dict:
 
 
 def get_document(doc_id: str) -> dict | None:
-    """공유 변경 전 확인에 필요한 문서 1건(doc_id·company_id·access_level·is_group_shared)을 읽는다. 없으면 None."""
+    """공유 변경 전 확인에 필요한 문서 1건(doc_id·company_id·access_level·is_group_shared·index_status)을 읽는다. 없으면 None."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT doc_id, company_id, access_level, is_group_shared FROM documents WHERE doc_id = %s",
+            "SELECT doc_id, company_id, access_level, is_group_shared, index_status FROM documents WHERE doc_id = %s",
             (doc_id,),
         )
         return cur.fetchone()
