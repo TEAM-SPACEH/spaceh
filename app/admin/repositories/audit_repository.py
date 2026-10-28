@@ -146,19 +146,17 @@ def _where(
         (" WHERE ..." 문자열, %s 에 대응하는 값 리스트). 조건이 하나도 없으면 ("", []).
         company_code 가 None 이면 계열사 제한 없음 = 전체 조회(super_admin 용).
 
-    계열사 범위(company_code 를 준 경우)의 뜻: 행동한 사람의 소속이 그 계열사이거나,
-    결과·근거 문서(doc_companies)에 그 계열사 문서가 하나라도 들어 있는 로그.
-    예) 타사 직원이 MVX 대외비 문서를 열람하려다 차단된 기록도 MVX 관리자는 볼 수 있다.
+    계열사 범위(company_code 를 준 경우)의 뜻: 행동한 사람의 소속이 그 계열사인 로그만.
+    결과·근거 문서에 그 계열사 문서가 들어 있어도 행동한 사람이 타사 직원이면 포함하지 않는다
+    (타사 직원의 검색어·질문 원문이 노출되지 않게 한다). company_code 는 행동 당시 소속이다.
     """
     clauses: list[str] = []
     params: list = []
     if company_code is not None:
-        # 두 조건을 괄호로 묶어, 뒤에 AND 로 붙는 다른 조건(id 등)과 섞이지 않게 한다.
-        # doc_companies 는 JSON 배열(["MVX", "ELV"])이다. JSON_CONTAINS 의 두 번째 인자는
-        # JSON 값이어야 하므로 문자열을 따옴표 붙은 JSON 문자열(\"MVX\")로 바꿔 바인딩한다.
-        # doc_companies 가 NULL 이면 이 식은 거짓으로 취급되어 company_code 조건만 남는다.
-        clauses.append("(company_code = %s OR JSON_CONTAINS(doc_companies, %s))")
-        params.extend([company_code, json.dumps(company_code)])
+        # 소속을 알 수 없는 로그(로그인 실패 등, company_code 가 NULL)는 어느 계열사 것인지 알 수 없어
+        # 계열사 관리자 범위에 들어오지 않는다. 최종 어드민(company_code=None)만 본다.
+        clauses.append("company_code = %s")
+        params.append(company_code)
     if employee_no:
         clauses.append("employee_no = %s")
         params.append(employee_no)

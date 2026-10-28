@@ -109,14 +109,14 @@ class AuditRepositoryTest(unittest.TestCase):
             self.assert_bound(sql, params)
             self.assertNotIn("DROP TABLE", sql)
         # 악성 문자열도 SQL 이 아니라 바인딩 값으로만 전달되어야 한다.
-        # 계열사 조건은 바인딩 값이 2개다: 소속 코드, doc_companies 에서 찾을 JSON 문자열.
-        self.assertEqual(count_params, ["MVX", '"MVX"', injection, "login", start, end])
+        # 계열사 조건은 바인딩 값이 1개다: 행동한 사람의 소속 코드.
+        self.assertEqual(count_params, ["MVX", injection, "login", start, end])
         # 목록 쿼리는 조건 값 뒤에 limit, offset 이 붙는다.
         self.assertEqual(
-            list_params, ["MVX", '"MVX"', injection, "login", start, end, 20, 40]
+            list_params, ["MVX", injection, "login", start, end, 20, 40]
         )
         self.assertIn("company_code = %s", count_sql)
-        self.assertIn("JSON_CONTAINS(doc_companies, %s)", count_sql)
+        self.assertNotIn("doc_companies", count_sql)
         self.assertIn("employee_no = %s", count_sql)
         self.assertIn("action = %s", count_sql)
         self.assertIn("is_blocked = 1", count_sql)
@@ -136,7 +136,7 @@ class AuditRepositoryTest(unittest.TestCase):
             row = audit_repository.get_log(5, "MVX")
         sql, params = cursor.executed[0]
         self.assert_bound(sql, params)
-        self.assertEqual(params, ["MVX", '"MVX"', 5])
+        self.assertEqual(params, ["MVX", 5])
         self.assertEqual(row, {"id": 5})
 
     def test_get_log_without_company_filters_only_by_id(self):
@@ -256,21 +256,21 @@ class AuditRepositoryTest(unittest.TestCase):
         self.assertEqual((nos, actions), (["MVX-0001"], ["login"]))
         for sql, params in cursor.executed:
             self.assert_bound(sql, params)
-            self.assertEqual(params, ["MVX", '"MVX"'])
+            self.assertEqual(params, ["MVX"])
         self.assertIn("employee_no IS NOT NULL", cursor.executed[0][0])
 
 
-    def test_company_scope_includes_logs_that_touched_company_documents(self):
-        """계열사 범위는 '소속이 자사' 또는 '결과 문서에 자사 문서 포함'이며, 괄호로 묶여 id 조건을 우회하지 못한다."""
+    def test_company_scope_is_only_logs_of_own_employees(self):
+        """계열사 범위는 행동한 사람의 소속이 자사인 로그뿐이다. 자사 문서를 건드린 타사 직원의 로그는 조건에 없다."""
         cursor = FakeCursor(one=[{"id": 5}])
         with _patch_connection(cursor):
             audit_repository.get_log(5, "MVX")
         sql, params = cursor.executed[0]
-        self.assertIn(
-            "WHERE (company_code = %s OR JSON_CONTAINS(doc_companies, %s)) AND id = %s", sql
-        )
-        # 두 번째 값은 따옴표가 붙은 JSON 문자열이어야 JSON 배열 안의 원소와 비교된다.
-        self.assertEqual(json.loads(params[1]), "MVX")
+        self.assertIn("WHERE company_code = %s AND id = %s", sql)
+        # SELECT 컬럼에는 doc_companies 가 있으므로 WHERE 절만 본다.
+        self.assertNotIn("doc_companies", sql.split("WHERE", 1)[1])
+        self.assertNotIn("JSON_CONTAINS", sql)
+        self.assertEqual(params, ["MVX", 5])
 
 
 if __name__ == "__main__":
