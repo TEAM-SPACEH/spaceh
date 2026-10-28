@@ -104,7 +104,7 @@ class SharingViewTest(unittest.TestCase):
 
         self.assertTrue(at.toggle(key="share-panel-d2-0").disabled)
         self.assertIn("기밀 문서는 공유할 수 없습니다. 사내 문서만 켤 수 있어요.", _html(at))
-        self.assertTrue(any("대외비 공유 불가" in caption.value for caption in at.caption))
+        self.assertTrue(any("기밀 공유 불가" in caption.value for caption in at.caption))
 
     def test_turning_toggle_on_calls_service_and_shows_toast(self):
         """토글을 켜면 서비스가 호출되고 성공 토스트가 뜬다."""

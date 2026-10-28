@@ -10,7 +10,7 @@ from core.constants import ACCESS_CONFIDENTIAL, ACCESS_INTERNAL
 
 logger = logging.getLogger(__name__)
 
-_CONFIDENTIAL_NOTICE = "🔒 대외비 공유 불가"
+_CONFIDENTIAL_NOTICE = "🔒 기밀 공유 불가"
 
 
 def render_group_share_toggle(

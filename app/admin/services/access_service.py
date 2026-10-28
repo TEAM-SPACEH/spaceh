@@ -145,7 +145,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     user: 로그인 사용자 (관리자)
     반환: {"doc_id": ..., "is_group_shared": bool, "status": "success", "message": "공유 설정이 변경되었습니다."}
     PermissionError: 관리자가 아니거나, 계열사 관리자가 타사 문서를 바꾸려 할 때
-    ValueError: internal 이 아닌 문서(대외비 등)일 때
+    ValueError: internal 이 아닌 문서(기밀 등)일 때
     LookupError: 없는 문서일 때
 
     권한·등급 때문에 막힌 시도도 감사 로그에 남긴다 (blocked=True).
@@ -203,11 +203,11 @@ def _check_can_change(document: dict, user: dict) -> None:
         # 소속이 없으면 None == None 이 참이 되지 않도록 값이 있는지부터 본다.
         if not user.get("company_id") or document["company_id"] != user["company_id"]:
             raise PermissionError("자사 문서만 공유 설정을 변경할 수 있습니다.")
-    # 등급 검사는 역할과 무관하게 모두에게 적용한다. 최종 어드민도 대외비는 공유할 수 없다.
+    # 등급 검사는 역할과 무관하게 모두에게 적용한다. 최종 어드민도 기밀는 공유할 수 없다.
     # (DB 에도 ck_documents_shared_internal 제약이 있어 한 번 더 막히지만, 쉬운 안내 문구를 주려고 먼저 본다.)
     level = document["access_level"]
     if level == ACCESS_CONFIDENTIAL:
-        raise ValueError("대외비(confidential) 문서는 그룹사에 공유할 수 없습니다.")
+        raise ValueError("기밀(confidential) 문서는 그룹사에 공유할 수 없습니다.")
     if level != ACCESS_INTERNAL:
         raise ValueError("사내(internal) 문서만 그룹사에 공유할 수 있습니다.")
 

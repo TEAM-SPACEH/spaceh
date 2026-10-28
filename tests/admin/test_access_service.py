@@ -62,7 +62,7 @@ class SetGroupShareTest(unittest.TestCase):
         repo.get_document.return_value = _doc(access_level="confidential")
         for user in (MVX_ADMIN, SUPER):
             with self.subTest(role=user["role"]):
-                with self.assertRaisesRegex(ValueError, "대외비"):
+                with self.assertRaisesRegex(ValueError, "기밀"):
                     access_service.set_group_share("doc-1", True, user)
         repo.update_group_share.assert_not_called()
 
@@ -134,7 +134,7 @@ class SetGroupShareTest(unittest.TestCase):
 
         args = audit.call_args.args
         self.assertTrue(args[4])
-        self.assertIn("대외비", args[5])
+        self.assertIn("기밀", args[5])
 
     def test_audit_failure_does_not_hide_success(self, repo, audit):
         """감사 로그 기록이 실패해도 이미 바뀐 값에 대해 성공을 돌려준다 (실패는 로그로 남는다)."""
