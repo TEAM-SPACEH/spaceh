@@ -6,6 +6,8 @@
 일반 사원 거부, 차단 시 DB 미변경·감사 로그 기록, 목록 조회 범위.
 """
 
+import threading
+import time
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -94,6 +96,50 @@ class SetGroupShareTest(unittest.TestCase):
         repo.get_document.return_value = _doc(access_level="confidential", index_status="pending")
         with self.assertRaisesRegex(ValueError, "기밀"):
             access_service.set_group_share("doc-1", True, SUPER)
+
+    def test_concurrent_changes_to_same_document_are_serialized(self, repo, audit):
+        """같은 문서의 켜기·끄기 요청이 겹쳐도 한 번에 하나씩만 실행되고, 두 번째 요청은 첫 번째가 바꾼 값을 읽는다.
+
+        직렬화가 없으면 두 요청이 같은 옛 값을 읽고 MySQL·Chroma 를 서로 다른 순서로 갱신해,
+        끈 문서가 타사 직원 검색에 남을 수 있다 (실제 DB 로 재현한 문제).
+        """
+        state = {"shared": 0}
+        running = {"now": 0, "max": 0}
+        order = []  # 실행된 요청마다 (바꾼 값, 읽었던 이전 값)
+        errors = []
+
+        def get_document(doc_id):
+            return _doc(is_group_shared=state["shared"])
+
+        def update_group_share(doc_id, enabled, user_id, shared_at, previous):
+            running["now"] += 1
+            running["max"] = max(running["max"], running["now"])
+            order.append((enabled, previous["is_group_shared"]))
+            time.sleep(0.05)  # 다른 요청이 끼어들 틈을 만든다
+            state["shared"] = int(enabled)
+            running["now"] -= 1
+
+        repo.get_document.side_effect = get_document
+        repo.update_group_share.side_effect = update_group_share
+        barrier = threading.Barrier(2)
+
+        def run(enabled):
+            barrier.wait()
+            try:
+                access_service.set_group_share("doc-1", enabled, SUPER)
+            except Exception as exc:  # 스레드 안의 오류는 테스트가 보지 못하므로 모아서 확인한다
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run, args=(True,)), threading.Thread(target=run, args=(False,))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(errors, [])
+        self.assertEqual(running["max"], 1)  # 동시에 둘이 실행된 적이 없다
+        first_enabled = order[0][0]
+        self.assertEqual(order[1][1], int(first_enabled))  # 두 번째 요청이 읽은 이전 값 = 첫 번째 요청이 바꾼 값
 
     def test_company_admin_of_other_company_is_denied(self, repo, audit):
         """타 계열사 관리자는 PermissionError 이고 DB 는 바뀌지 않는다."""

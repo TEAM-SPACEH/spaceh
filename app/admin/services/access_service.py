@@ -21,6 +21,7 @@ A-03 그룹사 공유 = 한 계열사의 internal 문서를 다른 계열사 사
 
 import logging
 import math
+import threading
 from datetime import datetime
 
 from app.admin.paging import as_int, clamp
@@ -34,6 +35,12 @@ from core.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 공유 변경을 한 번에 하나씩만 실행하게 하는 잠금(lock = "지금 내가 쓰는 중"이라는 표시).
+# 같은 문서의 켜기·끄기 요청이 겹치면 두 요청이 각자 읽은 옛 값을 믿고 MySQL·Chroma 를 서로 다른 순서로 갱신해,
+# 끈 문서가 타사 직원 검색에 남을 수 있다 (실제 MySQL·Chroma 로 재현: 겹친 40번 중 38번 어긋남).
+# 이 잠금은 한 프로세스(서버) 안의 요청만 직렬화한다. 서버를 여러 개 띄우면 분산 잠금이 필요하다.
+_GROUP_SHARE_LOCK = threading.Lock()
 
 # documents.index_status 값 중 색인이 끝난 상태. 이때만 공유를 바꿀 수 있다 (docs/architecture/data-model.md).
 INDEX_STATUS_DONE = "done"
@@ -161,26 +168,30 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     share_enabled = bool(share_enabled)
     user = user or {}
 
-    # 1단계 검증: 바꾸기 전에 (1) 관리자인가 → (2) 문서가 있는가 → (3) 내 회사 문서이고 internal 인가 순으로 본다.
-    # 관리자 확인이 가장 먼저라서 일반 사원은 문서가 있는지조차 알 수 없다.
-    try:
-        _require_admin(user)
-        document = access_repository.get_document(doc_id)
-        if document is None:
-            raise LookupError(f"문서를 찾을 수 없습니다: {doc_id}")
-        _check_can_change(document, user)
-    except (PermissionError, ValueError) as exc:
-        # 감사 로그는 "막힌 시도"도 남긴다 (A-04). 누가 어떤 문서의 공유를 바꾸려다 막혔는지 관리자가 볼 수 있다.
-        # LookupError 는 존재하지 않는 문서라 남길 대상이 없어 기록하지 않는다.
-        _record(user, doc_id, blocked=True, reason=str(exc))
-        raise
+    # 문서를 읽는 순간부터 저장이 끝날 때까지 한 번에 하나만 실행한다. 읽은 값(document)이 저장할 때까지 유효해야
+    # 하고(이전 값으로 되돌리기), 두 저장소의 갱신 순서가 다른 요청과 섞이지 않아야 한다.
+    # 감사 로그 기록은 잠금 밖에서 한다 (잠금을 오래 쥐지 않으려고).
+    with _GROUP_SHARE_LOCK:
+        # 1단계 검증: 바꾸기 전에 (1) 관리자인가 → (2) 문서가 있는가 → (3) 내 회사 문서이고 internal 인가 순으로 본다.
+        # 관리자 확인이 가장 먼저라서 일반 사원은 문서가 있는지조차 알 수 없다.
+        try:
+            _require_admin(user)
+            document = access_repository.get_document(doc_id)
+            if document is None:
+                raise LookupError(f"문서를 찾을 수 없습니다: {doc_id}")
+            _check_can_change(document, user)
+        except (PermissionError, ValueError) as exc:
+            # 감사 로그는 "막힌 시도"도 남긴다 (A-04). 누가 어떤 문서의 공유를 바꾸려다 막혔는지 관리자가 볼 수 있다.
+            # LookupError 는 존재하지 않는 문서라 남길 대상이 없어 기록하지 않는다.
+            _record(user, doc_id, blocked=True, reason=str(exc))
+            raise
 
-    # 2단계: 실제 변경. MySQL 과 Chroma 를 함께 바꾸고(실패해도 검색이 더 넓게 열리지 않는 순서), 실패하면 예외가 그대로 올라간다.
-    # 시각은 감사 로그와 같은 기준(KST)으로 만든다. DATETIME 컬럼은 시간대를 저장하지 못해 tzinfo 를 뗀다.
-    # 앞에서 읽은 document 를 넘겨, 저장소가 중간에 실패했을 때 이전 값으로 되돌릴 수 있게 한다.
-    access_repository.update_group_share(
-        doc_id, share_enabled, user.get("id"), datetime.now(KST).replace(tzinfo=None), document
-    )
+        # 2단계: 실제 변경. MySQL 과 Chroma 를 함께 바꾸고(실패해도 검색이 더 넓게 열리지 않는 순서), 실패하면 예외가 그대로 올라간다.
+        # 시각은 감사 로그와 같은 기준(KST)으로 만든다. DATETIME 컬럼은 시간대를 저장하지 못해 tzinfo 를 뗀다.
+        # 앞에서 읽은 document 를 넘겨, 저장소가 중간에 실패했을 때 이전 값으로 되돌릴 수 있게 한다.
+        access_repository.update_group_share(
+            doc_id, share_enabled, user.get("id"), datetime.now(KST).replace(tzinfo=None), document
+        )
     # 공유 값은 이미 커밋됐다. 기록이 실패해도 바뀐 값을 되돌릴 수는 없으므로, 호출한 쪽에는 성공을 알리고
     # 실패는 로그에 남겨 운영자가 알 수 있게 한다.
     _record(
