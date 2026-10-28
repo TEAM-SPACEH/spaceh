@@ -68,6 +68,24 @@ class _Connection:
         return False
 
 
+class _EventCursor(FakeCursor):
+    """실행 순서를 공용 events 목록에 남기고, 지정한 번째 execute 에서 오류를 낸다 (순서·되돌리기 검증용)."""
+
+    def __init__(self, events, fail_on=()):
+        super().__init__()
+        self.events = events
+        self.fail_on = set(fail_on)
+
+    def execute(self, sql, params=()):
+        super().execute(sql, params)
+        self.events.append(("mysql", params))
+        if len(self.executed) in self.fail_on:
+            raise RuntimeError("mysql down")
+
+
+PREVIOUS = {"is_group_shared": 0, "shared_by": 5, "shared_at": datetime(2026, 10, 1, 9, 0, 0)}
+
+
 class UpdateGroupShareTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -98,6 +116,23 @@ class UpdateGroupShareTest(unittest.TestCase):
         finally:
             client.close()
 
+    def _run(self, share_enabled, events, *, mysql_fail_on=(), chroma_fail_on=(), previous=PREVIOUS):
+        """저장소 호출을 순서 기록과 함께 실행한다. Chroma 는 호출마다 events 에 ("chroma", 값)을 남기는 가짜로 바꾼다."""
+        cursor = _EventCursor(events, mysql_fail_on)
+        calls = []
+
+        def fake_sync(doc_id, enabled):
+            calls.append(enabled)
+            events.append(("chroma", enabled))
+            if len(calls) in chroma_fail_on:
+                raise RuntimeError("chroma down")
+
+        with patch.object(access_repository, "get_connection", _Connection(cursor)), patch.object(
+            access_repository, "_sync_chroma", side_effect=fake_sync
+        ):
+            access_repository.update_group_share("doc-1", share_enabled, 7, self.shared_at, previous)
+        return cursor
+
     def test_updates_mysql_and_only_that_documents_chunks(self):
         """MySQL 은 %s 바인딩으로 바뀌고, Chroma 는 그 문서의 청크 값만 바뀌며 다른 메타데이터는 그대로다."""
         self._seed_chroma()
@@ -105,7 +140,7 @@ class UpdateGroupShareTest(unittest.TestCase):
         connection = _Connection(cursor)
 
         with patch.object(access_repository, "get_connection", connection):
-            access_repository.update_group_share("doc-1", True, 7, self.shared_at)
+            access_repository.update_group_share("doc-1", True, 7, self.shared_at, PREVIOUS)
 
         sql, params = cursor.executed[0]
         self.assertIn("UPDATE documents SET is_group_shared = %s", sql)
@@ -118,17 +153,55 @@ class UpdateGroupShareTest(unittest.TestCase):
         self.assertEqual(stored["doc-1#0001"]["company_id"], "MVX")
         self.assertIs(stored["doc-2#0001"]["is_group_shared"], False)
 
-    def test_chroma_failure_rolls_back_mysql(self):
-        """Chroma 갱신이 실패하면 예외가 올라가 MySQL 이 롤백된다."""
-        connection = _Connection(FakeCursor())
+    def test_turning_on_commits_mysql_first_then_turns_chroma_on(self):
+        """켤 때는 MySQL 을 먼저 확정하고 그다음에 Chroma 를 켠다 (Chroma 가 먼저 열리는 순간이 없다)."""
+        events = []
+        self._run(True, events)
+        self.assertEqual([e[0] for e in events], ["mysql", "chroma"])
+        self.assertIs(events[1][1], True)
 
-        with patch.object(access_repository, "get_connection", connection), patch.object(
-            access_repository, "_sync_chroma", side_effect=RuntimeError("chroma down")
+    def test_turning_off_turns_chroma_off_first_then_commits_mysql(self):
+        """끌 때는 Chroma 를 먼저 끄고 MySQL 을 확정한다 (MySQL 이 실패해도 Chroma 는 이미 닫혀 있다)."""
+        events = []
+        self._run(False, events, previous={**PREVIOUS, "is_group_shared": 1})
+        self.assertEqual([e[0] for e in events], ["chroma", "mysql"])
+        self.assertIs(events[0][1], False)
+
+    def test_turning_on_restores_mysql_when_chroma_fails(self):
+        """켜는 중 Chroma 가 실패하면 MySQL 을 이전 값(공유 여부·변경자·시각)으로 되돌리고 원래 오류를 올린다."""
+        events = []
+        with self.assertRaisesRegex(RuntimeError, "chroma down"):
+            self._run(True, events, chroma_fail_on=(1,))
+
+        self.assertEqual([e[0] for e in events], ["mysql", "chroma", "mysql"])
+        self.assertEqual(events[0][1][0], 1)  # 먼저 켰다가
+        self.assertEqual(events[2][1], (0, 5, PREVIOUS["shared_at"], "doc-1"))  # 이전 값으로 복원
+
+    def test_turning_off_restores_chroma_when_mysql_fails(self):
+        """끄는 중 MySQL 이 실패하면 Chroma 를 이전 값(켜짐)으로 되돌리고 원래 오류를 올린다."""
+        events = []
+        with self.assertRaisesRegex(RuntimeError, "mysql down"):
+            self._run(False, events, mysql_fail_on=(1,), previous={**PREVIOUS, "is_group_shared": 1})
+
+        self.assertEqual(events[0], ("chroma", False))
+        self.assertEqual(events[-1], ("chroma", True))
+
+    def test_mysql_failure_before_anything_changed_leaves_chroma_alone_when_turning_on(self):
+        """켤 때 MySQL 자체가 실패하면 Chroma 는 건드리지 않는다 (둘 다 이전 상태)."""
+        events = []
+        with self.assertRaisesRegex(RuntimeError, "mysql down"):
+            self._run(True, events, mysql_fail_on=(1,))
+        self.assertEqual([e[0] for e in events], ["mysql"])
+
+    def test_failed_restore_is_logged_and_original_error_is_kept(self):
+        """되돌리기까지 실패해도 원래 오류가 올라가고, 수동 확인이 필요하다는 로그가 남는다 (Chroma 는 닫힌 쪽)."""
+        events = []
+        # 켜는 중: MySQL 쓰기(1번) 성공, Chroma 실패, 복원용 MySQL 쓰기(2번) 실패
+        with self.assertLogs(access_repository.logger, level="ERROR") as logs, self.assertRaisesRegex(
+            RuntimeError, "chroma down"
         ):
-            with self.assertRaises(RuntimeError):
-                access_repository.update_group_share("doc-1", True, 7, self.shared_at)
-
-        self.assertTrue(connection.rolled_back)
+            self._run(True, events, chroma_fail_on=(1,), mysql_fail_on=(2,))
+        self.assertTrue(any("수동 확인 필요" in line for line in logs.output))
 
     def test_missing_collection_is_skipped(self):
         """색인 전이라 컬렉션이 없으면 MySQL 만 바꾸고 오류 없이 끝난다."""
@@ -137,7 +210,7 @@ class UpdateGroupShareTest(unittest.TestCase):
         with patch.object(access_repository, "get_connection", connection), self.assertLogs(
             access_repository.logger, level="WARNING"
         ):
-            access_repository.update_group_share("doc-1", True, 7, self.shared_at)
+            access_repository.update_group_share("doc-1", True, 7, self.shared_at, PREVIOUS)
 
         self.assertTrue(connection.committed)
 

@@ -170,10 +170,11 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         _record(user, doc_id, blocked=True, reason=str(exc))
         raise
 
-    # 2단계: 실제 변경. MySQL 과 Chroma 를 함께 바꾸고, 둘 중 하나라도 실패하면 예외가 그대로 올라간다.
+    # 2단계: 실제 변경. MySQL 과 Chroma 를 함께 바꾸고(실패해도 검색이 더 넓게 열리지 않는 순서), 실패하면 예외가 그대로 올라간다.
     # 시각은 감사 로그와 같은 기준(KST)으로 만든다. DATETIME 컬럼은 시간대를 저장하지 못해 tzinfo 를 뗀다.
+    # 앞에서 읽은 document 를 넘겨, 저장소가 중간에 실패했을 때 이전 값으로 되돌릴 수 있게 한다.
     access_repository.update_group_share(
-        doc_id, share_enabled, user.get("id"), datetime.now(KST).replace(tzinfo=None)
+        doc_id, share_enabled, user.get("id"), datetime.now(KST).replace(tzinfo=None), document
     )
     # 공유 값은 이미 커밋됐다. 기록이 실패해도 바뀐 값을 되돌릴 수는 없으므로, 호출한 쪽에는 성공을 알리고
     # 실패는 로그에 남겨 운영자가 알 수 있게 한다.

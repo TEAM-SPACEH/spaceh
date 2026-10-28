@@ -57,6 +57,7 @@ class SetGroupShareTest(unittest.TestCase):
                 args = repo.update_group_share.call_args.args
                 self.assertEqual(args[:3], ("doc-1", enabled, MVX_ADMIN["id"]))
                 self.assertIsNone(args[3].tzinfo)  # DATETIME 컬럼에 그대로 들어가는 시각
+                self.assertIs(args[4], repo.get_document.return_value)  # 실패 시 되돌릴 이전 값
 
     def test_confidential_document_cannot_be_shared(self, repo, audit):
         """confidential 은 계열사 관리자·최종 어드민 모두 ValueError 이고 DB 는 바뀌지 않는다."""

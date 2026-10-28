@@ -101,10 +101,14 @@ def count_share_status(company_id: str | None) -> dict:
 
 
 def get_document(doc_id: str) -> dict | None:
-    """공유 변경 전 확인에 필요한 문서 1건(doc_id·company_id·access_level·is_group_shared·index_status)을 읽는다. 없으면 None."""
+    """공유 변경 전 확인과 실패 시 되돌리기에 필요한 문서 1건을 읽는다. 없으면 None.
+
+    doc_id·company_id·access_level·is_group_shared·index_status, 그리고 되돌릴 값인 shared_by·shared_at.
+    """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT doc_id, company_id, access_level, is_group_shared, index_status FROM documents WHERE doc_id = %s",
+            "SELECT doc_id, company_id, access_level, is_group_shared, index_status, shared_by, shared_at "
+            "FROM documents WHERE doc_id = %s",
             (doc_id,),
         )
         return cur.fetchone()
@@ -125,13 +129,41 @@ def list_company_ids() -> list[str]:
         return [row["company_id"] for row in cur.fetchall()]
 
 
-def update_group_share(doc_id: str, share_enabled: bool, user_id: int | None, shared_at: datetime) -> None:
+def update_group_share(
+    doc_id: str, share_enabled: bool, user_id: int | None, shared_at: datetime, previous: dict
+) -> None:
     """MySQL documents 와 Chroma 청크 메타데이터의 공유 값을 함께 바꾼다 (overview §2.3-5).
 
-    Chroma 갱신을 MySQL 커밋 전에 하므로, Chroma 가 실패하면 예외가 get_connection 까지 올라가
-    MySQL 도 롤백된다. 둘 중 하나만 바뀐 채로 남지 않게 하려는 것이다.
+    두 저장소는 하나의 트랜잭션으로 묶을 수 없다. 그래서 **중간에 실패해도 검색이 더 넓게 열리는 쪽으로는
+    어긋나지 않도록** 순서를 정했다. 검색(S-03)은 Chroma 메타데이터를 믿고 문서 본문을 돌려주므로, Chroma 가
+    "공유 켜짐"인데 MySQL 이 "꺼짐"인 상태가 가장 위험하다.
+
+    - 켤 때: 권한의 원본인 MySQL 을 먼저 커밋하고 Chroma 를 켠다. Chroma 가 실패하면 MySQL 을 이전 값으로 되돌리고,
+      되돌리기도 실패하면 Chroma 는 꺼진 채라 검색에는 나오지 않는다 (덜 공개된 쪽).
+    - 끌 때: Chroma 를 먼저 끈 뒤 MySQL 을 커밋한다. MySQL 이 실패하면 Chroma 를 이전 값으로 되돌리고,
+      되돌리기도 실패하면 Chroma 는 꺼진 채라 검색에는 나오지 않는다 (덜 공개된 쪽).
+
+    previous: 바꾸기 전 문서 행(get_document 결과: is_group_shared·shared_by·shared_at). 실패했을 때 되돌릴 값이다.
     shared_by·shared_at 은 "공유를 마지막으로 바꾼 사용자·시각"이다 (감사 로그와 별개로 문서에 남는다).
     """
+    if share_enabled:
+        _write_mysql(doc_id, True, user_id, shared_at)
+        try:
+            _sync_chroma(doc_id, True)
+        except Exception:
+            _restore_mysql(doc_id, previous)
+            raise
+    else:
+        _sync_chroma(doc_id, False)
+        try:
+            _write_mysql(doc_id, False, user_id, shared_at)
+        except Exception:
+            _restore_chroma(doc_id, previous)
+            raise
+
+
+def _write_mysql(doc_id: str, share_enabled: bool, user_id: int | None, shared_at: datetime) -> None:
+    """MySQL documents 의 공유 값을 바꾸고 커밋한다."""
     # 트랜잭션: get_connection 의 with 블록 안의 SQL 은 "한 묶음"이다. 블록이 정상 종료되면 commit(저장 확정),
     # 중간에 예외가 나면 rollback(없던 일로 되돌림)된다.
     with get_connection() as conn, conn.cursor() as cur:
@@ -140,9 +172,24 @@ def update_group_share(doc_id: str, share_enabled: bool, user_id: int | None, sh
             "UPDATE documents SET is_group_shared = %s, shared_by = %s, shared_at = %s WHERE doc_id = %s",
             (int(share_enabled), user_id, shared_at, doc_id),
         )
-        # 이 호출이 예외를 내면 위 UPDATE 도 rollback 된다. 순서를 바꿔 Chroma 를 먼저 바꾸면
-        # MySQL 이 실패했을 때 Chroma 를 되돌릴 방법이 없다.
-        _sync_chroma(doc_id, share_enabled)
+
+
+def _restore_mysql(doc_id: str, previous: dict) -> None:
+    """Chroma 갱신이 실패했을 때 MySQL 을 이전 값(공유 여부·변경자·변경 시각)으로 되돌린다. 되돌리기에 실패해도 원래 오류를 가리지 않는다."""
+    try:
+        _write_mysql(doc_id, bool(previous["is_group_shared"]), previous.get("shared_by"), previous.get("shared_at"))
+    except Exception:
+        # 이 경우 MySQL 은 "공유 켜짐", Chroma 는 "꺼짐"이라 검색에는 나오지 않는다 (덜 공개된 쪽). 운영자가 확인해야 한다.
+        logger.exception("공유 변경 보정 실패: MySQL 을 이전 값으로 되돌리지 못했습니다. 수동 확인 필요 doc_id=%s", doc_id)
+
+
+def _restore_chroma(doc_id: str, previous: dict) -> None:
+    """MySQL 갱신이 실패했을 때 Chroma 를 이전 값으로 되돌린다. 되돌리기에 실패해도 원래 오류를 가리지 않는다."""
+    try:
+        _sync_chroma(doc_id, bool(previous["is_group_shared"]))
+    except Exception:
+        # 이 경우 Chroma 는 "꺼짐", MySQL 은 "켜짐"이라 검색에는 나오지 않는다 (덜 공개된 쪽). 운영자가 확인해야 한다.
+        logger.exception("공유 변경 보정 실패: Chroma 를 이전 값으로 되돌리지 못했습니다. 수동 확인 필요 doc_id=%s", doc_id)
 
 
 def _sync_chroma(doc_id: str, share_enabled: bool) -> None:
