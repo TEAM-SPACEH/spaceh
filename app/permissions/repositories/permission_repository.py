@@ -56,16 +56,24 @@ def has_pending_request(user_id: int, doc_id: str) -> bool:
 
 
 def insert_access_request(user_id: int, doc_id: str, owner_company_code: str, reason: str) -> bool:
-    """M-03 열람 요청 1건을 '대기 중' 상태로 새로 저장한다. 잘 저장되면 True.
+    """M-03 열람 요청 1건을 '대기 중' 상태로 저장한다. 단, 같은 사람·문서의 대기 요청이 없을 때만.
 
-    status(처리 상태)는 적지 않는다 — 표에서 기본값이 'pending'(대기 중)으로 자동으로 들어간다.
+    왜 이렇게 하나: 사용자가 버튼을 '두 번 빠르게' 누르면 요청이 두 건 저장될 수 있다.
+    그래서 '확인(이미 대기 요청이 있나?)'과 '저장'을 SQL 한 문장으로 합쳐, 대기 요청이 없을
+    때만(WHERE NOT EXISTS) 넣는다. 이러면 동시에 눌러도 한 건만 저장된다.
+    status(처리 상태)는 적지 않는다 — 표의 기본값 'pending'(대기 중)이 자동으로 들어간다.
+    들어간 줄이 1이면 True, 0이면(이미 대기 요청이 있었음) False.
     """
     with get_connection() as conn, conn.cursor() as cur:
-        # access_requests 표에 새 줄 하나를 넣는다(누가·어떤 문서·어느 회사가 처리·사유).
+        # FROM DUAL은 MySQL에서 '값만 고를 때' 쓰는 가짜 표다(WHERE를 붙이려고 둔다).
         cur.execute(
             "INSERT INTO access_requests (user_id, doc_id, owner_company_code, reason) "
-            "VALUES (%s, %s, %s, %s)",
-            (user_id, doc_id, owner_company_code, reason),
+            "SELECT %s, %s, %s, %s FROM DUAL "
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM access_requests "
+            "  WHERE user_id = %s AND doc_id = %s AND status = 'pending'"
+            ")",
+            (user_id, doc_id, owner_company_code, reason, user_id, doc_id),
         )
-        # rowcount = 방금 바뀐(들어간) 줄 수. 1이면 한 줄이 잘 들어갔다는 뜻.
+        # rowcount = 방금 들어간 줄 수. 1이면 저장 성공, 0이면 이미 대기 요청이 있어 안 넣음.
         return cur.rowcount == 1

@@ -152,42 +152,46 @@ def _matches(condition: dict, document: dict) -> bool:
 # ─── M-03: "이 문서 봐도 돼요?" 확인과 "보게 해 주세요" 요청 ───
 #
 # 쉽게 말하면:
-#  - 문서마다 '이름표'(document_id = doc_id)가 붙어 있다. 그 이름표로 문서를 찾는다.
-#  - 볼 수 있는지 없는지는 아래 네 함수가 정한다. "봐도 되면 True, 안 되면 False".
+#  - 문서마다 '이름표'(doc_id)가 붙어 있다. 그 이름표로 문서를 찾는다.
+#  - 볼 수 있는지 없는지는 아래 함수들이 정한다. "봐도 되면 True, 안 되면 False".
 #  - 못 보는 문서는 "저 이거 보게 해 주세요"라고 요청을 남길 수 있다(관리자가 나중에 허락).
 #
-# 참고: document_id는 숫자가 아니라 글자(문자열)다. 문서 이름표가 'a3f9c0...' 같은 글자라서다.
-#       (기능명세서에는 숫자로 적혀 있지만, 실제 저장된 모양은 글자다.)
+# 참고: doc_id는 숫자가 아니라 글자(문자열)다. 문서 이름표가 'ELV-spec-1' 같은 글자라서다.
+
+# 요청 사유 글자 수 규칙 (validate_request_reason에서 쓴다). 팀 정책이 바뀌면 이 값만 고친다.
+_MIN_REASON_LEN = 5
+_MAX_REASON_LEN = 500
 
 
-def check_document_access(user_id: int, document_id: str) -> bool:
-    """M-03 이 사람(user_id)이 이 문서(document_id)를 볼 수 있는지 True/False로 알려준다.
+def check_document_access(user_id: int, doc_id: str) -> bool:
+    """M-03 이 사람(user_id)이 이 문서(doc_id)를 볼 수 있는지 True/False로 알려준다.
 
     누가 무엇을 볼 수 있는지는 역할(사원/관리자), 소속 회사, 문서의 보안 등급,
     그룹사 공유 여부, 그리고 '봐도 된다'고 허락(승인)받았는지로 정해진다.
-    그 판단은 이미 있는 check_search_permission 한 곳에 맡겨, 검색 화면과 규칙이 똑같게 한다.
+    그 판단은 이미 있는 check_search_permission 한 곳에 맡겨, 검색 화면과 규칙이 똑같게 한다
+    (권한 규칙을 여기서 새로 만들지 않는다).
     """
-    # 1) 사원번호로 사람 정보를, 이름표로 문서 정보를 데이터베이스에서 찾아온다.
+    # 1) 사원 번호로 사람 정보를, 이름표로 문서 정보를 데이터베이스에서 찾아온다.
     user = find_user(user_id)
-    document = find_document(document_id)
+    document = find_document(doc_id)
 
-    # 2) 사람이나 문서가 없으면 "볼 수 없음"으로 안전하게 답한다.
+    # 2) 사람이나 문서가 없으면 "볼 수 없음"으로 안전하게 답한다(오류로 멈추지 않는다).
     if user is None or document is None:
         return False
 
-    # 3) 실제 "볼 수 있나?" 판단은 기존 함수에 맡긴다.
+    # 3) 실제 "볼 수 있나?" 판단은 기존 함수에 그대로 맡기고, 결과를 그대로 돌려준다.
     return check_search_permission(user, document)
 
 
-def check_existing_request(user_id: int, document_id: str) -> bool:
+def check_existing_request(user_id: int, doc_id: str) -> bool:
     """M-03 이 사람이 이 문서에 대해 '아직 처리 안 된(대기 중) 요청'을 이미 냈는지 확인한다.
 
     (대기 중 = 관리자가 아직 허락도 거절도 안 한 상태. 같은 요청을 두 번 내지 않게 막는 데 쓴다.)
     """
-    return has_pending_request(user_id, document_id)
+    return has_pending_request(user_id, doc_id)
 
 
-def can_request_access(user_id: int, document_id: str) -> bool:
+def can_request_access(user_id: int, doc_id: str) -> bool:
     """M-03 이 사람이 이 문서에 '보게 해 주세요' 요청을 '새로' 낼 수 있는지 판단한다.
 
     다음 중 하나라도 해당하면 요청할 수 없다(False):
@@ -198,7 +202,7 @@ def can_request_access(user_id: int, document_id: str) -> bool:
     """
     # 1) 사람·문서 찾기. 둘 중 하나라도 없으면 요청 불가.
     user = find_user(user_id)
-    document = find_document(document_id)
+    document = find_document(doc_id)
     if user is None or document is None:
         return False
 
@@ -211,32 +215,44 @@ def can_request_access(user_id: int, document_id: str) -> bool:
         return False
 
     # 4) 이미 같은 요청이 대기 중이면 또 내지 않는다.
-    if has_pending_request(user_id, document_id):
+    if has_pending_request(user_id, doc_id):
         return False
 
     # 5) 여기까지 왔으면 "못 보는 문서 + 요청도 없음" → 요청할 수 있다.
     return True
 
 
-def request_document_access(user_id: int, document_id: str, reason: str) -> bool:
+def validate_request_reason(reason: str) -> bool:
+    """M-03 요청 사유가 쓸 만한지 검사한다. 앞뒤 공백을 떼고 5~500자면 True.
+
+    너무 짧으면(공백·'ㅇ' 등) 왜 보려는지 알 수 없고, 너무 길면(500자 초과) 받지 않는다.
+    """
+    if not isinstance(reason, str):
+        return False
+    trimmed = reason.strip()  # 앞뒤 공백 제거 후 길이로만 판단
+    return _MIN_REASON_LEN <= len(trimmed) <= _MAX_REASON_LEN
+
+
+def request_document_access(user_id: int, doc_id: str, reason: str) -> bool:
     """M-03 못 보는 문서에 대해 '이래서 보고 싶어요'(사유)를 적어 열람 요청을 남긴다.
 
     이 요청은 그 문서를 가진 회사의 관리자가 나중에 보고 허락/거절한다(A-05).
-    사유가 비었거나 요청할 수 없는 상황(관리자·이미 열람 가능·대기 중 요청 있음)이면
+    사유가 규칙에 안 맞거나 요청할 수 없는 상황(관리자·이미 열람 가능·대기 중 요청 있음)이면
     아무것도 저장하지 않고 False. 요청을 잘 남기면 True.
     """
-    # 1) 사유(reason)가 비어 있으면 요청을 받지 않는다.
-    if not reason or not reason.strip():
+    # 1) 사유가 규칙(5~500자)에 맞는지 먼저 본다.
+    if not validate_request_reason(reason):
         return False
 
-    # 2) 지금 요청해도 되는 상황인지 먼저 확인한다(위 can_request_access 규칙).
-    if not can_request_access(user_id, document_id):
+    # 2) 지금 요청해도 되는 상황인지 확인한다(위 can_request_access 규칙).
+    if not can_request_access(user_id, doc_id):
         return False
 
     # 3) 이 요청을 처리할 '주인 회사'는 문서를 가진 회사(company_id)다. 그 회사 관리자가 본다.
-    document = find_document(document_id)
+    document = find_document(doc_id)
     if document is None:
         return False
 
-    # 4) 요청을 데이터베이스에 '대기 중' 상태로 저장한다. 저장 성공이면 True.
-    return insert_access_request(user_id, document_id, document["company_id"], reason.strip())
+    # 4) 저장한다. 저장 함수가 '대기 중 요청이 없을 때만' 넣으므로, 두 번 동시에 눌러도
+    #    한 건만 저장된다. 못 넣으면(이미 대기 중) False가 돌아온다.
+    return insert_access_request(user_id, doc_id, document["company_id"], reason.strip())
