@@ -26,6 +26,8 @@ from datetime import datetime
 
 from app.admin.paging import as_int, clamp
 from app.admin.repositories import access_repository
+from app.admin.repositories import access_request_repository
+from app.admin.repositories.document_repository import find_active_admin
 from app.admin.services.audit_service import KST, record_audit_log
 from core.constants import (
     ACCESS_CONFIDENTIAL,
@@ -208,6 +210,95 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         "status": "success",
         "message": "공유 설정이 변경되었습니다.",
     }
+
+
+# A-05 권한 요청 승인·반려
+def get_access_request_list(user: dict, filters: dict, page: int, size: int) -> dict:
+    """A-05 활성 관리자의 문서 소유 범위와 상태로 열람 요청을 페이지 조회한다."""
+    reviewer = _review_require_admin(find_active_admin((user or {}).get("id")))
+    company_id = reviewer["company_id"] if reviewer["role"] == ROLE_COMPANY_ADMIN else None
+    status = (filters or {}).get("status") or None
+    if status not in (None, "pending", "approved", "rejected"):
+        raise ValueError("올바른 요청 상태를 선택해 주세요.")
+    size = clamp(size, 1, MAX_PAGE_SIZE)
+    page = max(as_int(page, 1), 1)
+    rows, total = access_request_repository.list_requests(company_id, status, size, (page - 1) * size)
+    total_pages = max(math.ceil(total / size), 1)
+    if page > total_pages:
+        page = total_pages
+        rows, total = access_request_repository.list_requests(company_id, status, size, (page - 1) * size)
+    return {"requests": rows, "total_count": total, "page": page, "total_pages": total_pages}
+
+
+def process_access_request(request_id: int, decision: str, user: dict,
+                           rejection_reason: str) -> dict:
+    """A-05 대기 요청을 승인하거나 사유와 함께 반려하고 감사 로그를 기록한다."""
+    if decision not in ("approved", "rejected"):
+        raise ValueError("승인 또는 반려를 선택해 주세요.")
+    if decision == "approved":
+        update_document_access(request_id, user)
+    else:
+        if not isinstance(rejection_reason, str) or not rejection_reason.strip():
+            raise ValueError("반려 사유를 입력해 주세요.")
+        if len(rejection_reason.encode("utf-8")) > 65535:
+            raise ValueError("반려 사유가 너무 깁니다.")
+        _review_request(request_id, decision, user, rejection_reason.strip())
+    return {"request_id": request_id, "status": decision}
+
+
+def update_document_access(request_id: int, reviewer: dict) -> bool:
+    """A-05 승인 권한을 재확인하고 권한 부여와 요청 승인을 함께 저장한다."""
+    _review_request(request_id, "approved", reviewer, None)
+    return True
+
+
+def _review_require_admin(reviewer: dict | None) -> dict:
+    if not reviewer or reviewer.get("role") not in (ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN):
+        raise PermissionError("활성 관리자만 열람 요청을 관리할 수 있습니다.")
+    if reviewer["role"] == ROLE_COMPANY_ADMIN and not reviewer.get("company_id"):
+        raise PermissionError("소속 계열사가 없는 관리자는 처리할 수 없습니다.")
+    return reviewer
+
+
+def _review_request(request_id: int, decision: str, user: dict, reason: str | None) -> None:
+    if type(request_id) is not int or request_id < 1:
+        raise ValueError("올바른 요청을 선택해 주세요.")
+    user = user or {}
+    request = None
+    try:
+        with access_request_repository.review_transaction() as cursor:
+            reviewer = _review_require_admin(access_request_repository.find_reviewer(cursor, user.get("id")))
+            request = access_request_repository.find_request(cursor, request_id)
+            if request is None:
+                raise LookupError("열람 요청을 찾을 수 없습니다.")
+            if reviewer["role"] == ROLE_COMPANY_ADMIN and request["company_id"] != reviewer["company_id"]:
+                raise PermissionError("자사 소유 문서의 열람 요청만 처리할 수 있습니다.")
+            if request["status"] != "pending":
+                raise ValueError("이미 처리된 요청입니다. 목록을 새로 확인해 주세요.")
+            if decision == "approved":
+                access_request_repository.insert_grant(cursor, request, reviewer["id"])
+            access_request_repository.save_review(
+                cursor, request_id, decision, reviewer["id"], reason,
+                datetime.now(KST).replace(tzinfo=None),
+            )
+    except PermissionError as exc:
+        _review_audit(user, request_id, decision, request, True, str(exc))
+        raise
+    _review_audit(reviewer, request_id, decision, request, False, None)
+
+
+def _review_audit(user: dict, request_id: int, decision: str, request: dict | None,
+                  blocked: bool, reason: str | None) -> None:
+    try:
+        record_audit_log(
+            user.get("id"), "access_review", str(request_id), None, blocked, reason,
+            target_type="access_request",
+            doc_ids=[request["doc_id"]] if request else None,
+            doc_companies=[request["company_id"]] if request else None,
+            context_detail={"decision": decision},
+        )
+    except Exception:
+        logger.exception("A-05 승인·반려 감사 로그 기록 실패")
 
 
 def _require_admin(user: dict) -> None:
