@@ -187,15 +187,20 @@ def upload_document(file, metadata: dict, user: dict) -> dict:
 # A-02 문서 목록 조회·삭제·재색인 (이 구역 아래는 A-02 전용이다. 위의 A-01 함수는 바꾸지 않는다)
 # ---------------------------------------------------------------------------
 
+# 한 화면에 보여 줄 문서 수와 한 번에 요청할 수 있는 최대 수. 화면에서 온 값이 이상해도 이 범위로 맞춘다.
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
 # 대기(pending)·처리 중(indexing)으로 이 시간(분) 넘게 멈춘 문서는 서버가 중간에 죽은 것으로 보고 삭제·재색인을 허용한다.
 STALE_MINUTES = 30
 
+# 문서 유형 코드와 화면 이름. 코드는 DB(documents.doc_type)와 Chroma 에 그대로 저장되는 값이고, 이름은 화면에만 쓴다.
+# 업로드 화면(A-01)의 선택지와 같은 값이다.
 DOC_TYPES = {"report": "보고서", "disclosure": "공시", "manual": "매뉴얼",
              "spec": "사양서", "intro": "소개자료", "memo": "메모"}
+# 보안 등급 코드와 화면 이름. 화면 용어는 "기밀"이다 ("대외비" 아님).
 SECURITY_LEVELS = {ACCESS_PUBLIC: "공개", ACCESS_INTERNAL: "사내", ACCESS_CONFIDENTIAL: "기밀"}
+# 색인 상태: 대기 → 색인 중 → 완료/실패. 화면에는 이름으로 보여 주고, 필터에도 이 값을 쓴다.
 INDEX_STATUS_LABELS = {"pending": "대기", "indexing": "색인 중", "done": "완료", "failed": "실패"}
 
 # audit_logs.action 값
@@ -207,8 +212,12 @@ logger = logging.getLogger(__name__)
 
 def _message(error: Exception, stage: str) -> str:
     """A-02 이 모듈이 직접 만든 안내 문구는 그대로, 그 밖의 예외는 원문 없이 단계·종류만 보여 준다."""
+    # PermissionError·ValueError·LookupError 는 이 파일이 직접 "사용자가 읽어도 되는 안내 문구"로 만들어 던진 오류다.
+    # 그래서 문구를 그대로 보여 준다.
     if isinstance(error, (PermissionError, ValueError, LookupError)):
         return str(error.args[0]) if error.args else f"{stage} 실패"
+    # 그 밖의 예외(DB·Chroma·임베딩 오류)는 원문에 경로·인증 정보·본문이 섞일 수 있어 화면·DB·감사 로그로 보내지 않는다.
+    # 어느 단계에서 어떤 종류가 났는지만 알려 준다.
     return f"{stage} 실패 ({type(error).__name__})"
 
 
@@ -216,6 +225,8 @@ def _record(user: dict, action: str, doc_id: str, document: dict | None,
             blocked: bool, reason: str | None, detail: dict | None = None) -> None:
     """A-02 감사 로그를 남긴다. 기록 실패가 삭제·재색인 결과를 가리지 않도록 로그만 남기고 넘어간다."""
     try:
+        # 4번째 인자(ip)는 명세 시그니처를 맞추려고 None 을 넘긴다 (audit_logs 에 IP 컬럼이 없어 저장되지 않는다).
+        # doc_companies 는 "어느 회사 문서였는지"로, 계열사 관리자가 감사 로그에서 자사 관련 기록만 볼 때 쓰인다.
         record_audit_log(
             user.get("id") if isinstance(user, dict) else None, action, doc_id, None, blocked, reason,
             target_type="document", doc_ids=[doc_id],
@@ -229,9 +240,12 @@ def _load_manageable(admin: dict, doc_id: str) -> dict:
     """A-02 문서를 조회하고 이 관리자가 관리할 수 있는지(자사 문서인지) 확인한다."""
     if not isinstance(doc_id, str) or not doc_id.strip() or len(doc_id) > 100:
         raise ValueError("문서를 선택해 주세요.")
+    # 문서를 먼저 조회해야 "어느 회사 문서인지" 알 수 있고, 그래야 이 관리자가 다룰 권한이 있는지 판단한다.
     document = repository.get_managed_document(doc_id)
     if document is None:
         raise LookupError("문서를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.")
+    # 계열사 관리자는 자사 문서만 가능하다 (최종 어드민은 통과). 타사 문서면 PermissionError 가 나서 아무것도 바뀌지 않는다.
+    # 화면에서 버튼을 숨기는 것은 안내일 뿐이라, 이 확인은 화면과 무관하게 항상 서비스가 한다.
     _check_company(admin, document["company_id"])
     return document
 
@@ -241,6 +255,7 @@ def _resolve_original(file_path: str | None) -> Path | None:
     if not file_path:
         return None
     upload_dir = config.UPLOAD_DIR.resolve()
+    # DB 의 file_path 가 "data/uploads/a.docx"(저장소 기준)인지 "a.docx"(업로드 폴더 기준)인지 둘 다 있을 수 있어 두 곳을 모두 찾아본다.
     for candidate in (config.ROOT_DIR / file_path, upload_dir / file_path):
         resolved = candidate.resolve()
         # "../../.env" 같은 값으로 업로드 폴더 밖 파일을 가리키지 못하게 한다.
@@ -251,11 +266,14 @@ def _resolve_original(file_path: str | None) -> Path | None:
 
 def _is_claimable(row: dict) -> bool:
     """A-02 삭제·재색인을 시작할 수 있는 상태인지 판단한다 (저장소 claim_document의 조건과 같다)."""
+    # 끝난 문서이거나, 대기·색인 중이라도 오래(STALE_MINUTES) 멈춘 문서만 건드릴 수 있다.
+    # 화면은 이 값으로 버튼을 켜고 끄지만, 실제 판단은 저장소의 claim_document 가 DB 에서 한 번 더 한다.
     return row["index_status"] in ("done", "failed") or bool(row.get("is_stale"))
 
 
 def _filter_value(value, allowed) -> str:
     """A-02 허용된 값만 통과시키고 나머지는 "전체"(빈 문자열)로 본다."""
+    # 화면 값은 사용자가 바꿀 수 있으므로, 허용된 코드(DOC_TYPES·보안 등급·색인 상태)가 아니면 "전체"로 취급한다.
     return value if isinstance(value, str) and value in allowed else ""
 
 
@@ -279,7 +297,11 @@ def get_document_list(user: dict, filters: dict | None, page: int = 1,
     PermissionError: 관리자가 아니거나 소속 없는 계열사 관리자
     """
     admin = _admin(user)
+    # 1단계: 권한. _admin 이 세션이 아니라 DB 에서 현재 역할·활성 상태를 다시 읽는다 (그 사이 강등·비활성화됐을 수 있다).
+    # 필터 입력이 dict 가 아니어도 안전하게 빈 필터로 본다.
     filters = filters if isinstance(filters, dict) else {}
+    # 2단계: 조회 범위. 계열사 관리자는 화면에서 무엇을 골랐든 자사로 고정한다 (타사 문서 목록을 볼 수 없다).
+    # 최종 어드민은 고른 회사만, 안 골랐으면 전체(None)를 본다.
     if admin["role"] == ROLE_COMPANY_ADMIN:
         if not admin["company_id"]:
             # None(전체)으로 처리하면 권한이 넓어지므로 소속 없는 관리자는 거부한다.
@@ -288,23 +310,30 @@ def get_document_list(user: dict, filters: dict | None, page: int = 1,
     else:
         raw = filters.get("company_id")
         company_id = raw.strip() if isinstance(raw, str) and raw.strip() else None
+    # 3단계: 입력 보정. 검색어는 앞뒤 공백을 떼고 100자로 자르며, 글자가 아니면 빈 검색어로 본다.
     keyword = filters.get("keyword")
     keyword = keyword.strip()[:100] if isinstance(keyword, str) else ""
+    # 페이지 번호와 크기가 0·음수·너무 큰 수·글자여도 안전한 범위(1~100, 페이지 1 이상)로 맞춘다.
     size = clamp(size, 1, MAX_PAGE_SIZE)
     page = clamp(page, 1, 10 ** 6)
+    # 저장소에 넘길 조건. 허용되지 않는 필터 값은 여기서 "전체"(빈 문자열)가 된다.
     args = (company_id,
             _filter_value(filters.get("doc_type"), DOC_TYPES),
             _filter_value(filters.get("access_level"), ACCESS_LEVELS),
             _filter_value(filters.get("index_status"), INDEX_STATUS_LABELS),
             keyword)
     rows, total = repository.list_managed_documents(*args, size, (page - 1) * size, STALE_MINUTES)
+    # 마지막 페이지 번호. 문서가 0건이어도 1페이지로 센다.
+    # 필터를 좁히는 사이 건수가 줄어 요청한 페이지가 범위를 넘으면, 마지막 페이지로 맞춰 다시 읽는다 (빈 화면 방지).
     total_pages = max(1, math.ceil(total / size))
     if page > total_pages:
         # 필터를 좁히는 사이 건수가 줄어 페이지가 범위를 벗어났으면 마지막 페이지로 맞춘다.
         page = total_pages
         rows, total = repository.list_managed_documents(*args, size, (page - 1) * size, STALE_MINUTES)
+    # 화면이 권한·상태를 직접 판단하지 않도록, 서비스가 각 문서에 "삭제 가능?"·"재색인 가능?"을 계산해서 붙인다.
     documents = []
     for row in rows:
+        # 처리할 수 있는 상태인지(끝났거나 멈춘 문서). 삭제·재색인 모두 이 조건을 먼저 통과해야 한다.
         claimable = _is_claimable(row)
         documents.append(dict(
             row,
@@ -320,6 +349,7 @@ def get_document_list(user: dict, filters: dict | None, page: int = 1,
 
 def _remove_original(document: dict) -> str:
     """A-02 원본 파일을 지우고, 못 지웠으면 안내 문구를 반환한다. 이미 없거나 DART 문서면 빈 문자열."""
+    # 원본이 없거나(DART 공시) 업로드 폴더 밖을 가리키면 None 이라 아무것도 지우지 않는다. 폴더 밖 파일은 절대 지우지 않는다.
     path = _resolve_original(document.get("file_path"))
     if path is None:
         return ""
@@ -334,6 +364,7 @@ def _restore_status(doc_id: str, previous: dict) -> None:
     """A-02 선점해 둔 처리 중 표시를 이전 상태로 되돌린다. 되돌리지 못해도 오래되면 다시 시도할 수 있다."""
     try:
         repository.update_index_status(
+            # 선점하기 전의 상태·청크 수·오류 문구로 되돌린다. 삭제 단계가 실패해 "처리 중"으로 남는 문서가 생기지 않게 한다.
             doc_id, previous["index_status"], previous["chunk_count"], previous["error_message"] or "")
     except Exception:
         logger.exception("A-02 처리 중 표시를 되돌리지 못했습니다: doc_id=%s", doc_id)
@@ -351,11 +382,15 @@ def delete_document(doc_id: str, user: dict) -> dict:
     반환: {"doc_id", "status": "deleted"|"failed", "error_message", "warning"}
     """
     document = None
+    # 1단계: 권한 확인 → 문서 조회 → 선점(처리 중 표시). 여기서 하나라도 막히면 아무것도 지우지 않고 실패 결과만 돌려준다.
+    # stage 는 실패했을 때 "어느 단계에서" 났는지 사용자에게 알리려는 이름표다.
     stage = "삭제 준비"
     try:
         admin = _admin(user)
         document = _load_manageable(admin, doc_id)
+        # 선점: 지금 색인 중이거나 다른 삭제가 진행 중이면 None 이다. 그러면 지우지 않는다 (색인 도중에 청크를 지우면 되살아날 수 있다).
         previous = repository.claim_document(doc_id, STALE_MINUTES)
+        # None = 선점 실패(이미 다른 작업이 처리 중). 안내 문구를 띄우고 중단한다.
         if previous is None:
             raise ValueError("색인 중이거나 처리 중인 문서는 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.")
     except Exception as error:
@@ -364,6 +399,9 @@ def delete_document(doc_id: str, user: dict) -> dict:
                 isinstance(error, PermissionError), message, {"result": "failed", "stage": stage})
         return {"doc_id": doc_id, "status": "failed", "error_message": message, "warning": ""}
 
+    # 2~3단계: 검색에서 먼저 사라지게 한다 (Chroma 청크 → MySQL 행).
+    # 순서가 중요한 이유: MySQL 행을 먼저 지우고 Chroma 삭제가 실패하면, 주인 없는 청크가 검색에 계속 노출된다.
+    # Chroma 를 먼저 지우면 실패해도 문서 행이 남아 있어 다시 시도할 수 있다.
     stage = "검색 색인 삭제"
     try:
         repository.delete_document_chunks(doc_id)
@@ -371,6 +409,8 @@ def delete_document(doc_id: str, user: dict) -> dict:
         repository.delete_document_row(doc_id)
     except Exception as error:
         message = _message(error, stage)
+        # Chroma 삭제 단계에서 실패 → 아무것도 지워지지 않았으므로 선점하기 전 상태로 되돌린다.
+        # MySQL 삭제 단계에서 실패 → 청크는 이미 지워졌다. 이때는 되돌릴 수 없으니 "실패"·청크 0 으로 표시해 재색인이나 재시도를 할 수 있게 한다.
         if stage == "검색 색인 삭제":
             _restore_status(doc_id, previous)
         else:
@@ -383,6 +423,8 @@ def delete_document(doc_id: str, user: dict) -> dict:
                 {"result": "failed", "stage": stage})
         return {"doc_id": doc_id, "status": "failed", "error_message": message, "warning": ""}
 
+    # 4단계: 원본 파일. 문서 행은 이미 지워졌으므로 파일 삭제가 실패해도 삭제 자체는 성공으로 보고, 경고 문구만 돌려준다.
+    # 5단계: 감사 로그. 기록이 실패해도 삭제 결과를 뒤집지 않는다 (_record 가 오류를 삼키고 로그만 남긴다).
     warning = _remove_original(document)
     _record(user, ACTION_DOCUMENT_DELETE, doc_id, document, False, None,
             {"result": "success", "title": document["title"][:100], "chunk_count": previous["chunk_count"]})
@@ -399,32 +441,44 @@ def request_reindex(doc_id: str, user: dict) -> dict:
     반환: {"doc_id", "index_status", "chunk_count", "error_message"} (ingest_document와 같은 모양)
     """
     document = None
+    # 재색인 순서: 권한 → 재색인 가능한 문서인지 → 원본 파일 확인 → 선점 → 색인 → 결과 저장 → 감사 로그.
+    # 선점은 마지막 확인 뒤에 한다. 그래야 "원본 없음" 같은 이유로 거부할 때 문서가 "처리 중"으로 잘못 남지 않는다.
     stage = "재색인 준비"
     claimed = None
     try:
         admin = _admin(user)
         document = _load_manageable(admin, doc_id)
+        # DART 공시는 원본 파일이 없고 I-05 가 다시 수집한다. 다시 색인할 원본이 없으므로 거부한다 (삭제는 가능).
         if document["source_type"] != "internal" or not document["file_path"]:
             raise ValueError("원본 파일이 없는 문서(DART 공시)는 재색인할 수 없습니다.")
+        # 원본이 지워졌거나 업로드 폴더 밖을 가리키면 재색인할 수 없다. 안내대로 삭제 후 다시 올리게 한다.
         path = _resolve_original(document["file_path"])
         if path is None:
             raise ValueError("원본 파일을 찾을 수 없습니다. 문서를 삭제한 뒤 다시 올려 주세요.")
+        # 선점. 같은 문서를 두 사람이 동시에 재색인하면 한쪽만 통과하고 다른 쪽은 "이미 처리 중"을 받는다 (청크가 두 번 쌓이는 것 방지).
+        # 선점하면 A-03 공유 변경도 막힌다 (색인이 끝난 문서만 공유를 바꿀 수 있다).
         claimed = repository.claim_document(doc_id, STALE_MINUTES)
         if claimed is None:
             raise ValueError("이미 색인 중이거나 처리 중인 문서입니다. 잠시 후 다시 시도해 주세요.")
         stage = "색인"
+        # ingest_document 에 넘길 등록 정보. A-01 업로드는 공유를 항상 OFF 로 시작하지만, 재색인은 이미 올라간 문서다.
+        # 그래서 DB 의 현재 값(회사·보안 등급·공유 상태·제목·작성일)을 그대로 쓴다. 이 값이 Chroma 메타데이터가 되고,
+        # 검색 권한 필터(S-03)가 그 값을 본다. 공유 상태를 틀리게 실으면 타사 검색에 노출되거나 사라진다.
         info = {
             "company_id": document["company_id"], "company_name": document["company_name"],
             "doc_type": document["doc_type"], "title": document["title"],
             "file_name": document["file_name"], "file_format": document["file_format"],
             "source_type": document["source_type"], "source_url": document["source_url"] or "",
             "published_date": document["published_date"], "access_level": document["access_level"],
+            # MySQL 의 TINYINT(0/1)을 bool 로 바꾼다 (메타데이터 검증이 bool 또는 0·1 만 허용한다).
             "is_group_shared": bool(document["is_group_shared"]),
         }
         with DocumentIndexer() as indexer:
             result = ingest_document(path, doc_id, info, {}, DocumentEmbedder(), indexer)
     except Exception as error:
         message = _message(error, stage)
+        # 선점한 뒤에 난 오류(예: 임베딩 객체 준비 실패)다. 그냥 돌려보내면 문서가 "처리 중"으로 남으니,
+        # 실패 결과로 만들어 아래의 상태 저장·청크 정리를 같이 타게 한다. 선점 전에 난 오류(권한·원본 없음)는 여기서 바로 돌려준다.
         if claimed is not None:
             # 선점한 뒤에 난 오류(임베더 준비 실패 등): 청크 상태를 알 수 없으니 실패로 기록하고 정리한다.
             result = {"doc_id": doc_id, "index_status": "failed", "chunk_count": 0,
@@ -435,6 +489,9 @@ def request_reindex(doc_id: str, user: dict) -> dict:
             return {"doc_id": doc_id, "index_status": "failed", "chunk_count": 0, "error_message": message}
 
     try:
+        # 색인 결과(완료/실패·청크 수·오류 문구)를 문서 행에 저장한다. "처리 중"을 풀어 주는 단계이기도 하다.
+        # 여기서 DB 오류가 나면 상태가 "처리 중"으로 남지만, STALE_MINUTES 가 지나면 다시 시도할 수 있다.
+        # 새 색인이 실패한 경우에는 저장 후에 청크를 지운다(새 내용과 옛 내용이 섞여 검색되는 것을 막는다).
         repository.update_index_status(doc_id, result["index_status"], result["chunk_count"],
                                        result["error_message"])
     except Exception:
@@ -444,6 +501,7 @@ def request_reindex(doc_id: str, user: dict) -> dict:
     else:
         if result["index_status"] == "failed":
             result["error_message"] = _cleanup_failed_chunks(doc_id, result["error_message"])
+    # 결과(성공/실패)를 감사 로그에 남긴다. blocked 는 "권한 때문에 막힘"이라는 뜻이라 색인 실패는 False 로 두고 detail 에 결과를 적는다.
     _record(user, ACTION_DOCUMENT_REINDEX, doc_id, document, False, None,
             {"result": "success" if result["index_status"] == "done" else "failed",
              "chunk_count": result["chunk_count"], "error": result["error_message"][:200]})
