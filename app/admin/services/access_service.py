@@ -18,6 +18,7 @@ import logging
 import math
 from datetime import datetime
 
+from app.admin.paging import as_int, clamp
 from app.admin.repositories import access_repository
 from app.admin.services.audit_service import KST, record_audit_log
 from core.constants import (
@@ -68,8 +69,8 @@ def get_manageable_documents(
     # 여기서 user 정보로 정한다. 화면 값을 믿으면 값을 조작해 타사 문서를 볼 수 있기 때문이다.
     scope_company = _resolve_scope(user, company_filter)
     # 화면에서 온 값이 이상해도(0, 음수, 너무 큰 수, 글자) 안전한 범위로 보정한다.
-    size = _clamp(size, 1, MAX_PAGE_SIZE)
-    page = max(_as_int(page, 1), 1)
+    size = clamp(size, 1, MAX_PAGE_SIZE)
+    page = max(as_int(page, 1), 1)
     keyword = (keyword or "").strip()
 
     # 첫 조회와 "마지막 페이지로 보정 후 재조회"가 같은 조건을 쓰도록 한 번만 만든다.
@@ -255,19 +256,6 @@ def _resolve_scope(user: dict | None, company_filter: str) -> str | None:
             raise PermissionError("소속 계열사가 없는 관리자는 공유 설정을 볼 수 없습니다.")
         return company_id
     raise PermissionError("관리자만 공유 설정을 볼 수 있습니다.")
-
-
-def _clamp(value, low: int, high: int) -> int:
-    """정수로 바꿔 low~high 범위로 맞춘다. 숫자로 바꿀 수 없으면 low 로 본다."""
-    return min(max(_as_int(value, low), low), high)
-
-
-def _as_int(value, default: int) -> int:
-    """정수로 바꾼다. 바꿀 수 없으면 default."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _to_document(row: dict) -> dict:
