@@ -24,6 +24,8 @@ from core.chroma import open_chroma_client
 EMBED_PATH = "app.search.services.search_service._embed_query"
 APPROVED_PATH = "app.permissions.services.permission_service.get_approved_doc_ids"
 GET_CHUNKS_PATH = "app.search.services.search_service.get_chunks"
+VECTOR_PATH = "app.search.services.search_service.vector_search"
+BM25_PATH = "app.search.services.search_service.bm25_search"
 QUERY_VECTOR = [1.0, 0.0]
 QUERY = "WBST-500 점검 주기"
 
@@ -129,6 +131,29 @@ class HybridSearchTest(unittest.TestCase):
         chunks = [{"chunk_id": "a", "text": "", "metadata": {}}, {"chunk_id": "b", "text": "...", "metadata": {}}]
         with patch(GET_CHUNKS_PATH, return_value=chunks):
             self.assertEqual(bm25_search("WBST-500", {}), [])
+
+    def test_bm25_only_top_wins_tie(self):
+        """두 결과가 겹치지 않고 각각 1등이면 점수가 같다. 이때 BM25 쪽 1등이 앞에 온다."""
+        vector_only = {"chunk_id": "vector-top", "doc_id": "A", "text": "", "score": 0.9, "metadata": {}}
+        bm25_only = {"chunk_id": "bm25-top", "doc_id": "B", "text": "", "score": 3.0, "metadata": {}}
+        with patch(VECTOR_PATH, return_value=[vector_only]), patch(BM25_PATH, return_value=[bm25_only]):
+            results = self._hybrid(QUERY, MVX_EMPLOYEE)
+        self.assertEqual([result["chunk_id"] for result in results], ["bm25-top", "vector-top"])
+        self.assertEqual(results[0]["score"], results[1]["score"])
+
+    def test_candidates_cut_only_after_merge(self):
+        """두 검색은 최종 결과 수보다 많은 후보를 가져오고, 결합한 뒤에만 SEARCH_TOP_K개로 자른다."""
+        vector = [{"chunk_id": f"v{i}", "doc_id": "", "text": "", "score": 0.0, "metadata": {}} for i in range(5)]
+        bm25 = [{"chunk_id": f"b{i}", "doc_id": "", "text": "", "score": 0.0, "metadata": {}} for i in range(5)]
+        # 양쪽 모두 3등인 청크. 후보를 2개씩만 가져왔다면 결과에서 빠졌을 것이다.
+        vector[2]["chunk_id"] = bm25[2]["chunk_id"] = "both"
+        with patch.object(config, "SEARCH_TOP_K", 2), \
+                patch(VECTOR_PATH, return_value=vector) as vector_mock, patch(BM25_PATH, return_value=bm25) as bm25_mock:
+            results = self._hybrid(QUERY, MVX_EMPLOYEE)
+        self.assertEqual(results[0]["chunk_id"], "both")
+        self.assertEqual(len(results), 2)
+        self.assertGreater(vector_mock.call_args.args[2], 2)
+        self.assertGreater(bm25_mock.call_args.args[2], 2)
 
     def test_s02_filters_are_applied(self):
         """S-02 필터(ELV만)를 걸면 BM25 쪽에서도 MVX 청크가 나오지 않는다."""
