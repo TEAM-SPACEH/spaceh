@@ -6,6 +6,7 @@ from app.auth import session
 from app.auth.views.login_page import render_login
 from app.common.layout import company_label, render_header, render_sidebar
 from app.common.ui import apply_theme, empty_state, page_header
+from app.history.views.history_page import render_history
 from app.search.views.search_page import render_search
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_EMPLOYEE, ROLE_SUPER_ADMIN
 
@@ -29,6 +30,7 @@ def build_pages(user: dict) -> dict:
         "": [
             st.Page(render_search, title="통합 검색", icon=":material/search:", default=True),
             coming_soon_page("보고서", "reports", ":material/show_chart:"),
+            st.Page(render_history, title="내 사용 히스토리", url_path="history", icon=":material/history:"),
         ],
     }
     # UI v4는 일반 사원에게만 내 정보 메뉴를 두고, 관리자는 위쪽 헤더의 계정 메뉴를 쓴다.
