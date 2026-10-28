@@ -9,6 +9,8 @@ from app.auth.session import get_current_user
 from app.common.ui import show_text
 from app.search.services.search_service import apply_metadata_filters, search_documents
 from app.search.views.components.search_filters import render_search_filters
+from app.search.services.rag_service import RAGServiceError, answer_question
+from app.search.views.components.rag_answer_card import render_rag_answer_card
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +108,39 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                     where,
                     user,
                 )
+            
+            # S-04 AI 답변 생성
+            rag_result = None
+            rag_error = None
 
-            # 검색 결과 저장
+            if chunks:
+                try:
+                    with st.spinner("AI 답변을 생성하고 있습니다..."):
+                        rag_result = answer_question(
+                            search_query.strip(),
+                            where,
+                            user,
+                        )
+
+                except PermissionError:
+                    logger.exception("S-04 답변 생성 권한 오류")
+                    rag_error = "AI 답변에 사용할 문서의 접근 권한을 확인할 수 없습니다."
+
+                except RAGServiceError:
+                    logger.exception("S-04 AI 서비스 오류")
+                    rag_error = "AI 답변 서비스에 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
+
+                except Exception:
+                    logger.exception("S-04 답변 생성 실패")
+                    rag_error = "AI 답변 생성 중 문제가 발생했습니다."
+
+            # 검색 결과와 AI 답변을 함께 저장
             st.session_state[state_key] = {
                 "user_key": user_key,
                 "query": search_query.strip(),
                 "chunks": chunks,
+                "rag_result": rag_result,
+                "rag_error": rag_error,
             }
 
         except ValueError:
@@ -139,11 +168,19 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         return
 
     chunks = saved["chunks"]
-
+    
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
         return
 
+    # S-04 AI 답변 표시
+    if saved.get("rag_error"):
+        st.error(saved["rag_error"])
+
+    elif saved.get("rag_result") is not None:
+        render_rag_answer_card(saved["rag_result"])
+
+    # 기존 S-01 검색 결과 표시
     documents = _group_by_document(chunks)
     doc_tab, chunk_tab = st.tabs([f"문서 {len(documents)}건", f"청크 {len(chunks)}건"])
     with doc_tab:
