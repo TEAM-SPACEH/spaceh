@@ -1,6 +1,7 @@
 """감사 로그 화면 컴포넌트 테스트. Streamlit AppTest 로 실제 렌더링 결과를 확인한다."""
 
 import unittest
+from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
@@ -31,6 +32,33 @@ def _detail_app():
             "context_detail": None,
         }
     )
+
+
+def _page_app():
+    from app.admin.views.audit_logs import render_admin_audit_logs
+
+    render_admin_audit_logs({"id": 1, "role": "company_admin", "company_id": "MVX"})
+
+
+class AuditLogPageViewTest(unittest.TestCase):
+    OPTIONS = {"users": ["MVX-0001", "MVX-0002"], "action_types": ["login", "search"]}
+    RESULT = {"logs": [], "total_count": 0, "page": 1, "total_pages": 5}
+
+    def test_changing_a_filter_returns_to_first_page(self):
+        """3페이지를 보다가 필터를 바꾸면 1페이지부터 다시 조회한다."""
+        with patch("app.admin.views.audit_logs.get_audit_filter_options", return_value=self.OPTIONS), patch(
+            "app.admin.views.audit_logs.search_audit_logs", return_value=self.RESULT
+        ) as search:
+            at = AppTest.from_function(_page_app).run(timeout=20)
+            self.assertFalse(at.exception)
+            self.assertEqual(at.title[0].value, "감사 로그")  # page_header 가 제목을 그린다
+
+            at.number_input[0].set_value(3).run(timeout=20)
+            self.assertEqual(search.call_args.args[2], 3)  # 필터가 그대로면 고른 페이지를 유지한다
+
+            at.selectbox[0].select("MVX-0001").run(timeout=20)
+            self.assertEqual(search.call_args.args[1], {"employee_no": "MVX-0001"})
+            self.assertEqual(search.call_args.args[2], 1)
 
 
 class AuditLogDetailViewTest(unittest.TestCase):
