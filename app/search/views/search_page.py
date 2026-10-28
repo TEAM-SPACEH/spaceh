@@ -16,6 +16,10 @@ from app.search.views.components.search_result_list import render_search_result_
 from app.search.views.components.followup_questions import render_followup_questions
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.documents.views.components.document_viewer import render_selected_source
+from app.search.services.search_access_service import (
+    get_fresh_search_user,
+    inspect_search_access,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,12 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.warning("로그인 후 검색할 수 있습니다.")
         return
 
+    # 권한 변경으로 검색 결과를 다시 생성해야 하는 경우
+    refresh_request = st.session_state.pop("s61_refresh_request", None)
+
+    if refresh_request is not None:
+        st.session_state["s61_query_input"] = refresh_request["query"]
+    
     # 공통 UI 헤더 사용
     page_header("통합 검색")
 
@@ -107,14 +117,24 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     previous_saved = st.session_state.get(state_key)
 
     # 4. 검색 실행
-    if submitted or pending:
-        current_query = search_query.strip()
-        base_query = current_query
+    if submitted or pending or refresh_request:
+        current_query = (
+            refresh_request["query"]
+            if refresh_request
+            else search_query.strip()
+        )
+
+        base_query = (
+            refresh_request["base_query"]
+            if refresh_request
+            else current_query
+        )
 
         # 후속 질문일 때 최초 검색어 유지
         if (
             pending
             and not submitted
+            and not refresh_request
             and previous_saved
             and previous_saved.get("user_key") == user_key
         ):
@@ -134,14 +154,26 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
         try:
             # S-02 필터 변환
-            where = apply_metadata_filters(selection)
+            where = (
+                refresh_request["where"]
+                if refresh_request
+                else apply_metadata_filters(selection)
+            )
+
+            fresh_user = get_fresh_search_user(user)
 
             # S-01 문서 검색
             with st.spinner("문서를 검색하고 있습니다..."):
                 chunks = search_documents(
                     current_query,
                     where,
-                    user,
+                    fresh_user,
+                )
+
+                # 최신 DB 권한으로 청크 재검증
+                chunks, access_snapshot = inspect_search_access(
+                    fresh_user,
+                    chunks,
                 )
 
             rag_result = None
@@ -182,6 +214,8 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 "chunks": chunks,
                 "rag_result": rag_result,
                 "rag_error": rag_error,
+                "where": where,
+                "access_snapshot": access_snapshot,
             }
 
         except ValueError:
@@ -208,6 +242,43 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.session_state.pop(state_key, None)
         st.session_state.pop(SELECTED_SOURCE_KEY, None)
         return
+
+    
+    # 기존 검색 결과를 표시하기 전에 최신 권한을 재검증
+    try:
+        fresh_user = get_fresh_search_user(user)
+
+        authorized_chunks, current_snapshot = inspect_search_access(
+            fresh_user,
+            saved["chunks"],
+        )
+
+    except Exception:
+        logger.exception("검색 결과 권한 재검증 실패")
+        st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
+        st.error("문서 접근 권한을 확인할 수 없습니다.")
+        return
+
+    # 사용자 권한, 승인 내역, 문서 상태 변경 감지
+    access_changed = (
+        current_snapshot != saved.get("access_snapshot")
+        or len(authorized_chunks) != len(saved["chunks"])
+    )
+
+    if access_changed:
+        # 이전 문서·답변·출처를 화면에 표시하지 않는다.
+        st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
+
+        # 최신 권한을 적용해 기존 질문으로 다시 검색
+        st.session_state["s61_refresh_request"] = {
+            "query": saved["query"],
+            "base_query": saved.get("base_query") or saved["query"],
+            "where": saved.get("where") or {},
+        }
+
+        st.rerun()
 
     chunks = saved["chunks"]
 
@@ -256,4 +327,4 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 "선택한 문서 원문",
                 expanded=True,
             ):
-                render_selected_source(user)
+                render_selected_source(fresh_user)
