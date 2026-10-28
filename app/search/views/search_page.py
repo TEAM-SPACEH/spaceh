@@ -17,6 +17,7 @@ from app.documents.views.components.source_badge import (
 )
 from app.documents.views.components.document_viewer import render_selected_source
 from app.search.views.components.rag_source_panel import render_rag_source_panel
+from app.search.views.components.search_result_list import render_search_result_list
 
 logger = logging.getLogger(__name__)
 
@@ -206,49 +207,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             render_rag_answer_card(saved["rag_result"])
 
         # 2. 기존 S-01 검색 결과
-        documents = _group_by_document(chunks)
-
-        doc_tab, chunk_tab = st.tabs([
-            f"문서 {len(documents)}건",
-            f"청크 {len(chunks)}건",
-        ])
-
-        with doc_tab:
-            for doc in documents:
-                meta = doc["metadata"]
-
-                show_text(
-                    meta.get("title") or meta.get("file_name", ""),
-                    bold=True,
-                )
-
-                show_text(
-                    f"{meta.get('company_name', '')} · "
-                    f"{meta.get('file_name', '')} · "
-                    f"관련 청크 {doc['chunk_count']}개 · "
-                    f"관련도 {doc['score']:.2f}",
-                    muted=True,
-                )
-
-        with chunk_tab:
-            for chunk in chunks:
-                meta = chunk["metadata"]
-
-                show_text(
-                    f"{meta.get('title', '')} — "
-                    f"{meta.get('location', '')}",
-                    bold=True,
-                )
-
-                show_text(
-                    f"{meta.get('company_name', '')} · "
-                    f"{meta.get('file_name', '')} · "
-                    f"관련도 {chunk['score']:.2f}",
-                    muted=True,
-                )
-
-                show_text(chunk["text"][:PREVIEW_CHARS])
-                st.divider()
+        render_search_result_list(chunks)
 
         with source_col:
             rag_result = saved.get("rag_result")
