@@ -7,7 +7,7 @@ import streamlit as st
 
 from app.auth.session import get_current_user
 from app.common.ui import show_text
-from app.search.services.search_service import apply_metadata_filters, search_documents
+from app.search.services.search_service import apply_metadata_filters, hybrid_search
 from app.search.views.components.search_filters import render_search_filters
 
 logger = logging.getLogger(__name__)
@@ -70,12 +70,12 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         return
 
     try:
-        chunks = search_documents(query, where, user)
+        chunks = hybrid_search(query, where, user)
     except PermissionError:
         st.error("검색 권한을 확인할 수 없습니다. 다시 로그인해 주세요.")
         return
     except Exception:
-        logger.exception("S-01 검색 실패")
+        logger.exception("S-06 하이브리드 검색 실패")
         st.error("검색 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
         return
 

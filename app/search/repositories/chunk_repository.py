@@ -1,4 +1,4 @@
-"""S-01 Chroma 청크 조회."""
+"""S-01·S-06 Chroma 청크 조회."""
 
 import logging
 
@@ -37,4 +37,24 @@ def query_chunks(query_embedding: list[float], where: dict | None, n_results: in
         for chunk_id, text, metadata, distance in zip(
             result["ids"][0], result["documents"][0], result["metadatas"][0], result["distances"][0]
         )
+    ]
+
+
+def get_chunks(where: dict | None) -> list[dict]:
+    """S-06 where 조건을 통과한 청크를 모두 돌려준다. BM25 인덱스를 만들 때 쓴다.
+
+    반환: [{"chunk_id", "text", "metadata"}, ...]  순서는 의미 없다.
+    """
+    with open_chroma_client() as client:
+        try:
+            collection = client.get_collection(config.CHROMA_COLLECTION)
+        except NotFoundError:
+            logger.warning("Chroma 컬렉션 '%s'이 아직 없습니다. 색인(I-02) 후 검색할 수 있습니다.", config.CHROMA_COLLECTION)
+            return []
+
+        # query와 달리 get은 거리 계산 없이 조건에 맞는 청크를 그대로 꺼낸다.
+        result = collection.get(where=where or None, include=["documents", "metadatas"])
+    return [
+        {"chunk_id": chunk_id, "text": text, "metadata": metadata}
+        for chunk_id, text, metadata in zip(result["ids"], result["documents"], result["metadatas"])
     ]
