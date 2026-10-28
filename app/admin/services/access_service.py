@@ -12,6 +12,11 @@ A-03 그룹사 공유 = 한 계열사의 internal 문서를 다른 계열사 사
 - 계열사 관리자: 자사 internal 문서만.
 - 최종 어드민: 전체 internal 문서.
 - confidential 은 공유할 수 없다 (계약 단가 등). 열람 승인(A-05)으로만 연다.
+
+이 파일을 A-03(이승준)과 A-05(정재연)가 함께 쓴다. 충돌을 줄이려고 구역을 나눈다.
+- A-03: 이 파일의 공개 함수(get_manageable_documents·get_share_summary·set_group_share 등)와 "_" 보조 함수.
+- A-05: 권한 승인·반려 함수는 set_group_share 아래의 "A-05" 구역에 추가하고, 보조 함수는 이름을 구분해서 둔다
+  (예: _review_*). A-03 함수의 시그니처와 동작은 바꾸지 않는다. 바꿔야 하면 먼저 알린다.
 """
 
 import logging
