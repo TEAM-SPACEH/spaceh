@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.admin.paging import clamp
 from app.admin.repositories import document_repository as repository
+from app.admin.services import access_service
 from app.admin.services.audit_service import record_audit_log
 from app.ingestion.indexing.embedder import DocumentEmbedder
 from app.ingestion.indexing.indexer import DocumentIndexer
@@ -457,9 +458,15 @@ def request_reindex(doc_id: str, user: dict) -> dict:
             raise ValueError("원본 파일을 찾을 수 없습니다. 문서를 삭제한 뒤 다시 올려 주세요.")
         # 선점. 같은 문서를 두 사람이 동시에 재색인하면 한쪽만 통과하고 다른 쪽은 "이미 처리 중"을 받는다 (청크가 두 번 쌓이는 것 방지).
         # 선점하면 A-03 공유 변경도 막힌다 (색인이 끝난 문서만 공유를 바꿀 수 있다).
-        claimed = repository.claim_document(doc_id, STALE_MINUTES)
-        if claimed is None:
-            raise ValueError("이미 색인 중이거나 처리 중인 문서입니다. 잠시 후 다시 시도해 주세요.")
+        # A-03 공유 변경과 같은 잠금 안에서 "선점 → 문서 다시 읽기"를 한다. 그러지 않으면 위에서 읽은 뒤 선점하기 전에
+        # 공유가 바뀌었을 때 옛 공유 값이 Chroma 에 실려 MySQL 과 어긋난다 (공유를 껐는데 타사 검색에 남는 방향).
+        # 선점한 뒤에는 A-03 이 이 문서를 못 바꾸므로, 이때 다시 읽은 값이 색인이 끝날 때까지 유효하다.
+        # (이 잠금은 한 프로세스 안의 요청만 직렬화한다. 서버를 여러 개 띄우면 분산 잠금이 필요하다.)
+        with access_service._GROUP_SHARE_LOCK:
+            claimed = repository.claim_document(doc_id, STALE_MINUTES)
+            if claimed is None:
+                raise ValueError("이미 색인 중이거나 처리 중인 문서입니다. 잠시 후 다시 시도해 주세요.")
+            document = repository.get_managed_document(doc_id)
         stage = "색인"
         # ingest_document 에 넘길 등록 정보. A-01 업로드는 공유를 항상 OFF 로 시작하지만, 재색인은 이미 올라간 문서다.
         # 그래서 DB 의 현재 값(회사·보안 등급·공유 상태·제목·작성일)을 그대로 쓴다. 이 값이 Chroma 메타데이터가 되고,

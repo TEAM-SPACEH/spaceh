@@ -246,6 +246,19 @@ class DocumentReindexTests(_Base):
         self.assertEqual(info["company_name"], "현대무벡스")
         self.assertEqual(self.ingest.call_args.args[1], "doc-1")
 
+    def test_document_is_read_again_after_claim_inside_share_lock(self):
+        """선점 전에 A-03 이 공유를 바꿔도, 선점 뒤 다시 읽은 값이 Chroma 에 실린다 (옛 값이면 껐는데 타사에 노출된다)."""
+        from app.admin.services import access_service
+
+        held = []
+        self.repo.get_managed_document.side_effect = [_document(is_group_shared=1), _document(is_group_shared=0)]
+        self.repo.claim_document.side_effect = lambda *a: held.append(access_service._GROUP_SHARE_LOCK.locked()) or {
+            "index_status": "done", "chunk_count": 5, "error_message": None}
+        service.request_reindex("doc-1", SUPER)
+        self.assertIs(self.ingest.call_args.args[2]["is_group_shared"], False)
+        self.assertEqual(held, [True])  # 선점은 A-03 과 같은 잠금 안에서 이뤄진다
+        self.assertFalse(access_service._GROUP_SHARE_LOCK.locked())  # 끝난 뒤에는 풀려 있다
+
     def test_failure_cleans_chunks_and_marks_failed(self):
         self.ingest.return_value = {"doc_id": "doc-1", "index_status": "failed", "chunk_count": 0,
                                     "error_message": "임베딩 단계 실패 (RuntimeError)"}
