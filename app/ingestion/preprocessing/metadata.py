@@ -3,6 +3,9 @@
 from datetime import date, datetime
 from pathlib import Path
 
+from app.ingestion.preprocessing.masking import mask_sensitive_data
+from app.ingestion.preprocessing.normalizer import normalize_text
+
 
 def build_metadata(
     doc_id: str, document_info: dict, extracted_info: dict,
@@ -36,6 +39,11 @@ def build_metadata(
             raise ValueError(f"지원하지 않는 {key} 값입니다.")
         metadata[key] = value
 
+    filename = Path(metadata["file_name"])
+    extension = ".xml" if metadata["file_format"] == "dart_xml" else "." + metadata["file_format"]
+    if filename.suffix.lower() != extension:
+        raise ValueError("등록 파일명의 확장자와 file_format이 일치해야 합니다.")
+
     shared = document_info.get("is_group_shared")
     # PyMySQL의 TINYINT(1)는 정수로 반환될 수 있지만 문자열 '0'은 허용하지 않는다.
     if type(shared) not in (bool, int) or shared not in (0, 1):
@@ -48,7 +56,9 @@ def build_metadata(
     title = document_info.get("title")
     if title is not None and not isinstance(title, str):
         raise ValueError("문서 제목은 문자열이어야 합니다.")
-    title = (title or "").strip() or Path(metadata["file_name"]).stem
+    title = (title or "").strip()
+    uses_filename_title = not title
+    title = title or filename.stem
     if not title or len(title) > 500:
         raise ValueError("문서 제목은 1~500자여야 합니다.")
     metadata["title"] = title
@@ -82,4 +92,15 @@ def build_metadata(
         metadata[key] = value
     if metadata["block_type"] not in {"", "text", "table", "title"}:
         raise ValueError("지원하지 않는 블록 유형입니다.")
+    # 확장자까지 포함된 이메일도 먼저 치환한 뒤 검증된 확장자만 보존한다.
+    display, _ = mask_sensitive_data([
+        {"text": normalize_text(metadata["title"])},
+        {"text": normalize_text(metadata["file_name"])},
+    ])
+    masked_filename = display[1]["text"]
+    if not masked_filename.endswith(filename.suffix):
+        masked_filename += filename.suffix
+    metadata["file_name"] = masked_filename
+    # 확장자를 제거하면서 이메일 일부만 남는 경우도 안전한 파일명에서 제목을 만든다.
+    metadata["title"] = Path(masked_filename).stem if uses_filename_title else display[0]["text"]
     return metadata

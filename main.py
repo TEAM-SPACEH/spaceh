@@ -2,16 +2,45 @@
 
 import streamlit as st
 
-from app.common.ui import apply_theme
+from app.auth import session
+from app.auth.services import auth_service
+from app.auth.views.login_page import render_login
+from app.common.ui import apply_theme, empty_state, page_header
+from app.search.views.search_page import render_search
+from core.constants import ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN
 
 st.set_page_config(page_title="spaceH", layout="wide")
 apply_theme()
 
-
-def home() -> None:
-    st.title("spaceH")
-    st.caption("계열사 통합 문서 검색 플랫폼 — 화면은 각 패키지의 views에서 추가한다.")
+ADMIN_ROLES = (ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN)
 
 
-# 로그인 확인·역할별 메뉴는 M-01 구현 때 여기에 붙인다
-st.navigation([st.Page(home, title="홈")]).run()
+def coming_soon_page(title: str, url_path: str) -> st.Page:
+    """아직 구현 전인 화면의 메뉴 자리. 각 기능을 구현할 때 실제 render 함수로 바꾼다."""
+
+    def render() -> None:
+        page_header(title)
+        empty_state("준비 중인 화면입니다.")
+
+    return st.Page(render, title=title, url_path=url_path)
+
+
+# 로그인 전에는 로그인 화면만, 로그인 후에는 역할에 맞는 메뉴만 노출한다 (overview.md §4).
+if not session.is_authenticated():
+    st.navigation([st.Page(render_login, title="로그인")], position="hidden").run()
+else:
+    pages = {
+        "": [
+            st.Page(render_search, title="통합 검색", default=True),
+            coming_soon_page("보고서", "reports"),
+            coming_soon_page("마이페이지", "mypage"),
+        ],
+    }
+    if session.get_current_user()["role"] in ADMIN_ROLES:
+        pages["관리자"] = [
+            coming_soon_page("대시보드", "admin-dashboard"),
+            coming_soon_page("문서·권한 관리", "admin-manage"),
+        ]
+    # 마이페이지(M-02) 전까지 로그아웃은 사이드바 버튼으로 둔다.
+    st.sidebar.button("로그아웃", on_click=auth_service.logout)
+    st.navigation(pages).run()
