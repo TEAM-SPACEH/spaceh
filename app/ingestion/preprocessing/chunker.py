@@ -65,6 +65,8 @@ def split_into_chunks(
     recent = []
     unit = None
     context_key = None
+    # DOCX의 page는 실제 페이지가 아닌 문단·표 순번이므로 경계로 사용하지 않는다.
+    is_docx = metadata["file_format"] == "docx"
 
     def append_chunk(text, sources, kind, section):
         """본문 범위의 시작·끝 위치와 공통 권한을 새 메타데이터에 복사한다."""
@@ -122,13 +124,14 @@ def split_into_chunks(
         if not block["text"].strip():
             continue
         section = block["section"]
-        if (block["page"], section) != context_key:
+        current_context = (None if is_docx else block["page"], section)
+        if current_context != context_key:
             recent, unit = [], None
-            context_key = (block["page"], section)
+            context_key = current_context
 
         if block["block_type"] == "table":
             flush_text()
-            # 제목을 추측하지 않고 직전 같은 페이지의 두 블록을 문맥으로 보존한다.
+            # 직전 두 블록의 문맥을 보존한다. DOCX는 같은 절, PDF·PPTX는 같은 페이지 기준이다.
             context = [section] if section else []
             context.extend(item["text"] for item in recent)
             if unit is not None:
@@ -140,7 +143,7 @@ def split_into_chunks(
             recent = []
             continue
 
-        by_page = metadata["doc_type"] == "intro" or not section
+        by_page = not is_docx and (metadata["doc_type"] == "intro" or not section)
         key = ("page", block["page"]) if by_page else ("section", section)
         new_title = block["block_type"] == "title"
         if group and (key != group_key or (new_title and not by_page)):

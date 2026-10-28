@@ -3,6 +3,13 @@
 import re
 
 
+def normalize_text(text: str) -> str:
+    """I-01·I-03 줄바꿈을 보존하면서 마스킹에 쓰일 공백을 동일하게 정리한다."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(re.sub(r"[^\S\n]+", " ", line).strip()
+                     for line in text.split("\n")).strip()
+
+
 def normalize_blocks(blocks: list[dict]) -> list[dict]:
     """I-01 블록을 검증하고 위치·줄바꿈·표 구조를 유지해 정리한다."""
     normalized = []
@@ -17,16 +24,14 @@ def normalize_blocks(blocks: list[dict]) -> list[dict]:
         if not block["location"].strip():
             raise ValueError("블록의 원문 위치가 필요합니다.")
         # 마스킹의 같은 줄 판정에 쓰이므로 줄바꿈은 합치지 않는다.
-        text = block["text"].replace("\r\n", "\n").replace("\r", "\n")
-        text = "\n".join(re.sub(r"[^\S\n]+", " ", line).strip()
-                         for line in text.split("\n")).strip()
+        text = normalize_text(block["text"])
         if text:
             normalized.append({
                 "block_type": block["block_type"],
                 "text": text,
                 "page": block["page"],
                 "location": block["location"].strip(),
-                "section": block["section"].strip(),
+                "section": normalize_text(block["section"]),
             })
     return normalized
 

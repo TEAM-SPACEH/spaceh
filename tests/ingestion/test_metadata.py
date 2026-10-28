@@ -52,6 +52,58 @@ class MetadataTest(unittest.TestCase):
         self.assertEqual(build_metadata(self.doc_id, info, {})["title"],
                          "[현대무벡스]반기보고서(2026.08.14)")
 
+    def test_registered_title_and_filename_are_masked_only_in_output(self):
+        """검색용 표시 정보만 마스킹하고 DB 등록에 쓰는 입력과 확장자는 유지한다."""
+        info = {**self.info, "title": "문의 test@example.com 010  1234  5678",
+                "file_name": "문의_test@example.com.PDF"}
+        before = copy.deepcopy(info)
+        result = build_metadata(self.doc_id, info, {})
+        self.assertNotIn("test@example.com", result["title"])
+        self.assertNotIn("010", result["title"])
+        self.assertNotIn("test@example.com", result["file_name"])
+        self.assertTrue(result["file_name"].endswith(".PDF"))
+        self.assertIn("[마스킹: 연락처]", result["title"])
+        self.assertEqual(info, before)
+
+    def test_filename_title_fallback_is_also_masked(self):
+        """파일명에서 대체한 제목도 API 접두어로 쓰기 전에 같은 규칙으로 치환한다."""
+        info = {**self.info, "title": "", "file_name": "문의_010-1234-5678.pdf"}
+        result = build_metadata(self.doc_id, info, {})
+        self.assertEqual(result["title"], "문의_[마스킹: 연락처]")
+        self.assertEqual(result["file_name"], "문의_[마스킹: 연락처].pdf")
+
+    def test_filename_extension_must_match_registered_format(self):
+        """이메일 주소·확장자 없음·형식 불일치·위장 확장자를 등록 파일명으로 허용하지 않는다."""
+        for name in ("test@example.com", "report", "report.docx", "report.pdf.exe", ".pdf"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "확장자"):
+                    build_metadata(self.doc_id, {**self.info, "file_name": name}, {})
+
+    def test_matching_extensions_keep_case_and_dart_xml_mapping(self):
+        """허용 형식의 확장자는 대소문자를 구분하지 않고 검증하되 표시 값은 보존한다."""
+        for file_format, suffix in (("pdf", "PDF"), ("docx", "DOCX"), ("pptx", "PPTX"),
+                                    ("xlsx", "XLSX"), ("hwp", "HWP"), ("dart_xml", "XML")):
+            with self.subTest(file_format=file_format):
+                name = "report." + suffix
+                result = build_metadata(self.doc_id,
+                                        {**self.info, "file_name": name,
+                                         "file_format": file_format}, {})
+                self.assertEqual(result["file_name"], name)
+
+    def test_email_covering_valid_extension_is_masked_before_suffix_restoration(self):
+        """이메일 도메인이 유효 확장자여도 원래 이메일을 복원하지 않는다."""
+        for name, file_format in (("test@example.pdf", "pdf"),
+                                  ("test@example.docx", "docx"),
+                                  ("test@example.com.PDF", "pdf")):
+            with self.subTest(name=name):
+                result = build_metadata(self.doc_id,
+                                        {**self.info, "file_name": name,
+                                         "file_format": file_format, "title": ""}, {})
+                self.assertNotIn("@", result["file_name"])
+                self.assertEqual(result["title"], "[마스킹: 이메일]")
+                self.assertEqual(result["file_name"],
+                                 "[마스킹: 이메일]" + name[name.rfind("."):])
+
     def test_dates_are_mapped_without_guessing_from_filename(self):
         """작성일을 우선하고 미확인 날짜는 파일명 대신 원래 업로드일로 대체한다."""
         for value, expected in [("2026-08-14", 20260814),

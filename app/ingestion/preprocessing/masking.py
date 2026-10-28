@@ -9,6 +9,8 @@
 import logging
 import re
 
+from app.ingestion.preprocessing.normalizer import normalize_text
+
 logger = logging.getLogger(__name__)
 
 # 마스킹 유형 이름. 치환 문자열 `[마스킹: {유형}]`과 반환 건수 딕셔너리의 키로 함께 쓴다.
@@ -145,8 +147,9 @@ def mask_sensitive_data(
     공통 형식 블록 목록을 입력받아 민감 개인정보를 정규식으로 탐지하고
     [마스킹: 유형] 형태로 치환한 블록 목록과 유형별 처리 건수를 반환한다.
 
-    입력 블록은 수정하지 않고 복사본을 돌려준다. 건수 키는
-    연락처·이메일·계좌이며, 탐지되지 않은 유형은 0이다.
+    입력 블록은 수정하지 않고 text·section을 치환한 복사본을 돌려준다.
+    건수는 원본 text 기준이며, 복사된 section은 중복 집계하지 않는다.
+    건수 키는 연락처·이메일·계좌이며, 탐지되지 않은 유형은 0이다.
     """
     # 항상 세 유형을 모두 담아 호출자가 키 존재 여부를 따로 확인하지 않게 한다.
     counts = {PHONE: 0, EMAIL: 0, ACCOUNT: 0}
@@ -157,13 +160,17 @@ def mask_sensitive_data(
         # 표 머리글은 같은 표를 잇는 다음 블록까지만 유효하다. 표가 아닌 블록을 만나면 해제한다.
         if block.get("block_type") != "table":
             state["corp_col"] = None
-        # 얕은 복사: 원본 dict 를 건드리지 않고 text 만 교체한다.
+        # 얕은 복사: 원본 dict 를 건드리지 않고 text·section만 교체한다.
         # page·location·block_type 등 나머지 키는 그대로 유지된다.
         new_block = dict(block)
         text = block.get("text")
         # text 가 없거나 비어 있거나 문자열이 아닌 블록은 그대로 통과시킨다.
         if isinstance(text, str) and text:
             new_block["text"] = _mask_text(text, counts, state)
+        section = block.get("section")
+        if isinstance(section, str) and section:
+            # 제목 복사본은 중복 집계하지 않고 본문의 표 머리글 상태도 공유하지 않는다.
+            new_block["section"] = _mask_text(normalize_text(section), dict.fromkeys(counts, 0))
         masked_blocks.append(new_block)
 
     total = sum(counts.values())
