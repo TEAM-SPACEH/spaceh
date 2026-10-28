@@ -32,12 +32,12 @@ _CSS = """
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stMarkdownContainer"]{font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) button [data-testid="stMarkdownContainer"]{color:inherit}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) h2{font-size:18px;line-height:1.4;font-weight:600}
-[data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stCaptionContainer"]{font-size:12px;line-height:1.5;color:#868E96}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stCaptionContainer"]{font-size:12px;line-height:1.5;color:#626B73}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button{border-radius:4px;font-weight:600;padding:8px 16px;transition:background-color .2s}
-[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]{background:#009944;color:#FFFFFF;border:1px solid transparent}
-[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:hover:not(:disabled){background:#007A36}
-[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:active:not(:disabled){background:#005C29}
-[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]{background:#FFFFFF;color:#009944;border:1px solid #009944}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]{background:#007A36;color:#FFFFFF;border:1px solid transparent}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:hover:not(:disabled){background:#005C29}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:active:not(:disabled){background:#00451F}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]{background:#FFFFFF;color:#007A36;border:1px solid #009944}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]:hover:not(:disabled){background:#F0FDF4}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="tertiary"]{background:transparent;color:#004098;border:none}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="tertiary"]:hover:not(:disabled){text-decoration:underline}
@@ -72,7 +72,7 @@ _CSS = """
 [class*="st-key-upload-document-card-"] .stButton>button{min-width:24px;min-height:24px;padding:0;line-height:20px}
 .st-key-upload-footer{position:sticky;bottom:0;z-index:2;background:#FFFFFF;padding:8px 0 0}
 .st-key-upload-footer hr{margin:0 0 8px}
-.st-key-upload-footer .sh-muted{font-size:12px}
+.st-key-upload-footer .sh-muted{font-size:12px;color:#626B73}
 .st-key-upload-picker [data-testid="stFileUploaderDropzone"]{background:#F8F9FA;border:1px dashed #009944;
   border-radius:6px;padding:8px 12px;min-height:104px;min-width:0;width:100%;box-sizing:border-box;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
@@ -98,9 +98,9 @@ _CSS = """
   padding:8px 12px;border-radius:4px;font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:13px;line-height:20px}
 .sh-upload-status>span{display:block;margin:0;padding:0;line-height:20px;overflow-wrap:anywhere}
 .sh-upload-status-busy{background:#F8F9FA;color:#495057}
-.sh-upload-status-done{background:#EBFBEE;color:#2B8A3E}
+.sh-upload-status-done{background:#EBFBEE;color:#237032}
 .sh-upload-status-duplicate{background:#FFF9DB;color:#7A5A00}
-.sh-upload-status-failed{background:#FFF5F5;color:#E03131}
+.sh-upload-status-failed{background:#FFF5F5;color:#C92A2A}
 .sh-upload-status .sh-upload-spinner{flex:0 0 14px;width:14px;height:14px;box-sizing:border-box;
   border:2px solid #CED4DA;border-top-color:#009944;border-radius:50%;animation:sh-upload-spin .8s linear infinite}
 @keyframes sh-upload-spin{to{transform:rotate(360deg)}}

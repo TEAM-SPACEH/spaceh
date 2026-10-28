@@ -18,9 +18,11 @@ _CONTROLS = """
 <div class="stApp">
 <div data-testid="stDialog"><div role="dialog"><span class="sh-upload-dialog-marker" hidden></span>
   <div class="stButton"><button kind="primary" data-color="rgb(255, 255, 255)"><div data-testid="stMarkdownContainer">업로드</div></button></div>
-  <div class="stButton"><button kind="secondary" data-color="rgb(0, 153, 68)"><div data-testid="stMarkdownContainer">닫기</div></button></div>
+  <div class="stButton"><button kind="secondary" data-color="rgb(0, 122, 54)"><div data-testid="stMarkdownContainer">닫기</div></button></div>
   <div class="stButton"><button kind="tertiary" data-color="rgb(0, 64, 152)"><div data-testid="stMarkdownContainer">전체 지우기</div></button></div>
   <div data-testid="stMarkdownContainer" id="body-text">본문</div>
+  <div data-testid="stCaptionContainer" id="caption-text">파일 크기 안내</div>
+  <div class="st-key-upload-footer"><span class="sh-muted" id="footer-text">파일 요약</span></div>
   <div class="st-key-upload-picker"><div data-testid="stFileUploaderDropzone">
     <span><button id="choose"><span>Upload</span></button></span>
   </div></div>
@@ -38,6 +40,19 @@ _CONTROLS = """
 _MEASURE = """
 <script>
 document.fonts.ready.then(() => {
+  function contrast(element) {
+    const rgb = value => value.match(/[0-9.]+/g).map(Number);
+    const luminance = channels => channels.slice(0, 3).map(value => {
+      const c = value / 255;
+      return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4;
+    }).reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
+    let background = element;
+    while (background && rgb(getComputedStyle(background).backgroundColor)[3] === 0)
+      background = background.parentElement;
+    const a = luminance(rgb(getComputedStyle(element).color));
+    const b = luminance(background ? rgb(getComputedStyle(background).backgroundColor) : [255, 255, 255]);
+    return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+  }
   const rows = [...document.querySelectorAll('section')].map(section => {
     const box = section.querySelector('.sh-upload-status');
     const text = box.querySelector('span:last-child');
@@ -47,6 +62,7 @@ document.fonts.ready.then(() => {
     return {
       width: +section.dataset.width, zoom: +section.dataset.zoom,
       status: section.dataset.status,
+      contrast: contrast(text),
       textDelta: Math.abs((a.top + a.bottom - b.top - b.bottom) / 2),
       spinnerDelta: c ? Math.abs((a.top + a.bottom - c.top - c.bottom) / 2) : 0,
       fits: a.height > 0 && b.height > 0 && b.left >= a.left - .5 &&
@@ -66,7 +82,8 @@ document.fonts.ready.then(() => {
     getComputedStyle(document.querySelector('#outside-button [data-testid="stMarkdownContainer"]')).color === 'rgb(128, 0, 128)';
   report.textContent = JSON.stringify({
     fontLoaded: [...document.fonts].some(f => f.family === 'NeoHyundai' && f.status === 'loaded') &&
-      document.fonts.check('13px NeoHyundai'), rows, controlsOk
+      document.fonts.check('13px NeoHyundai'), rows, controlsOk,
+    controlContrast: [...document.querySelectorAll('button[data-color] [data-testid="stMarkdownContainer"], #caption-text, #footer-text')].map(contrast)
   });
   document.body.append(report);
 });
@@ -80,7 +97,12 @@ def validate_report(report: dict) -> None:
         raise ValueError("네오현대 폰트 로딩 또는 16개 검사 조건을 확인하지 못했습니다.")
     if not report.get("controlsOk"):
         raise ValueError("버튼 글자 색상 또는 파일 선택·취소·제거 라벨 검사에 실패했습니다.")
+    contrasts = report.get("controlContrast", [])
+    if len(contrasts) != 5 or not all(value >= 4.5 for value in contrasts):
+        raise ValueError(f"버튼·안내 문구 대비 검사 실패: {contrasts}")
     for row in report["rows"]:
+        if not row.get("contrast", 0) >= 4.5:
+            raise ValueError(f"상태 문구 대비 검사 실패: {row}")
         if not row["fits"] or row["textDelta"] > 0.5 or row["spinnerDelta"] > 0.5:
             raise ValueError(f"정렬 검사 실패: {row}")
 
@@ -128,7 +150,7 @@ def main() -> None:
         if match is None:
             raise ValueError("Chrome 측정 결과가 없습니다. 브라우저 실행 환경을 확인하세요.")
         validate_report(json.loads(html.unescape(match[1])))
-    print("PASS: 상태 행 16조건 + 모달 버튼·본문 색상 + 선택·취소·제거 라벨 + 모달 외부 색상 보존")
+    print("PASS: 상태 행 16조건 + 버튼·안내·상태 대비 4.5:1 + 모달 버튼·본문 색상 + 선택·취소·제거 라벨 + 모달 외부 색상 보존")
 
 
 if __name__ == "__main__":
