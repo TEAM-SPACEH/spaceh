@@ -16,6 +16,7 @@ from app.documents.views.components.source_badge import (
     render_source_badge,
 )
 from app.documents.views.components.document_viewer import render_selected_source
+from app.search.views.components.rag_source_panel import render_rag_source_panel
 
 logger = logging.getLogger(__name__)
 
@@ -249,15 +250,13 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 show_text(chunk["text"][:PREVIEW_CHARS])
                 st.divider()
 
-    with source_col:
-        # 3. S-05 출처 패널
-        st.markdown("**출처**")
+        with source_col:
+            rag_result = saved.get("rag_result")
 
-        rag_result = saved.get("rag_result")
-
-        if rag_result is not None:
-            render_source_badge(
+            render_rag_source_panel(
                 rag_result.get("sources") or []
+                if rag_result is not None
+                else []
             )
 
         # 4. 선택된 문서 원문

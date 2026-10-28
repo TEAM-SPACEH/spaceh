@@ -35,6 +35,12 @@ _CSS = """
 .sh-rag-footer{margin-top: 14px; font-size: 12px; color: #868E96;}
 .sh-rag-copy{margin-left: auto; padding: 5px 10px; border: 1px solid #DEE2E6; border-radius: 4px; background: #FFFFFF; color: #343A40; font-size: 12px; font-weight: 600;mcursor: pointer;}
 .sh-rag-copy:hover{background: #F8F9FA; border-color: #ADB5BD;}
+.sh-s61-source-title{font-size: 15px; font-weight: 700; color: #111111; margin: 0 0 12px;}
+.sh-s61-source-header{display: flex; align-items: center; gap: 7px; font-size: 12px; color: #212529;}
+.sh-s61-source-count{margin-left: auto; font-size: 11px; color: #868E96;}
+.sh-s61-source-entry{display: flex; align-items: center; gap: 7px; margin-top: 14px;}
+.sh-s61-source-file{font-size: 13px; font-weight: 600; color: #212529; overflow-wrap: anywhere;}
+.sh-s61-source-location{margin: 5px 0 8px 27px; font-size: 12px; color: #868E96;}
 </style>
 """
 
