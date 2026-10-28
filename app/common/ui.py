@@ -23,6 +23,8 @@ _CSS = """
 :root{--sh-font:"NeoHyundai","Segoe UI",sans-serif}
 .stApp,.stApp [data-testid="stMarkdownContainer"],.stApp input,.stApp textarea,.stApp button,
 [data-testid="stDialog"]{font-family:var(--sh-font);font-size:14px;line-height:1.6;color:#111111}
+.stApp button [data-testid="stMarkdownContainer"],
+[data-testid="stDialog"] button [data-testid="stMarkdownContainer"]{color:inherit}
 h1,h2,h3,h4{font-family:var(--sh-font)!important;color:#111111}
 .stApp h1{font-size:22px;line-height:1.35;font-weight:700}
 .stApp h2,[data-testid="stDialog"] h2{font-size:18px;line-height:1.4;font-weight:600}
@@ -75,9 +77,9 @@ h1,h2,h3,h4{font-family:var(--sh-font)!important;color:#111111}
 .st-key-upload-picker [data-testid="stFileUploaderDropzone"]::before{content:"↑";display:grid;place-items:center;
   width:28px;height:28px;border-radius:50%;background:#E6F4EA;color:#009944;font-size:20px;font-weight:700}
 .st-key-upload-picker [data-testid="stFileUploaderDropzoneInstructions"]{display:none}
-.st-key-upload-picker [data-testid="stFileUploaderDropzone"] button{background:transparent;border:none;color:#004098}
-.st-key-upload-picker [data-testid="stFileUploaderDropzone"] button>*{display:none}
-.st-key-upload-picker [data-testid="stFileUploaderDropzone"] button::after{content:"내 컴퓨터에서 파일 선택";font-size:14px;font-weight:600}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span>button{background:transparent;border:none;color:#004098}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span>button>*{display:none}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span>button::after{content:"내 컴퓨터에서 파일 선택";font-size:14px;font-weight:600}
 .st-key-upload-picker [data-testid="stFileUploaderDropzone"]::after{content:"파일을 여기로 끌어 놓으세요";order:1;text-align:center;font-size:14px;font-weight:700}
 .st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span{order:2}
 .st-key-upload-file-heading{margin:4px 0 0;padding:0}
