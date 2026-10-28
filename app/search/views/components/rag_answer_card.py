@@ -7,6 +7,7 @@ import re
 import streamlit as st
 
 from app.common.ui import citation_html, empty_state
+from app.search.services.rag_service import is_no_answer
 
 
 def render_rag_answer_card(result: dict) -> None:
@@ -21,7 +22,7 @@ def render_rag_answer_card(result: dict) -> None:
             return
 
         # 문서에 답변 근거가 없는 경우
-        if answer.strip() == "찾을 수 없음":
+        if is_no_answer(answer):
             empty_state("검색된 문서에서 충분한 답변 근거를 찾지 못했습니다.")
             return
 
