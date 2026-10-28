@@ -35,27 +35,54 @@ def render_rag_answer_card(result: dict) -> None:
             safe_answer,
         )
 
-        # 답변 헤더
+        
+        # 클립보드에 복사할 원본 답변
+        # HTML 속성에 넣기 전에 특수문자 이스케이프
+        copy_payload = html.escape(answer.strip(), quote=True)
+
         header_html = (
             '<div class="sh-rag-header">'
             '<span class="sh-rag-title">답변</span>'
             f'<span class="sh-rag-meta">근거 문서 {len(sources)}건</span>'
+            f'<button type="button" id="s61-copy-answer" '
+            f'class="sh-rag-copy" data-copy="{copy_payload}">'
+            '⧉ 복사'
+            '</button>'
             '</div>'
         )
 
-        # 답변 본문
         body_html = (
             f'<div class="sh-rag-body">{formatted_answer}</div>'
         )
 
-        # 답변 하단 근거 안내
         footer_html = (
             '<div class="sh-rag-footer">'
             '✓ 검색된 문서를 기반으로 생성된 답변입니다.'
             '</div>'
         )
 
-        # 하나의 HTML 블록으로 표시해 불필요한 여백 방지
+        # 사용자 브라우저에서 클립보드 복사
+        copy_script = """
+        <script>
+        (() => {
+            const button = document.getElementById("s61-copy-answer");
+            if (!button) return;
+
+            button.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(
+                        button.dataset.copy || ""
+                    );
+                    button.textContent = "✓ 복사됨";
+                } catch (error) {
+                    button.textContent = "복사 실패";
+                }
+            });
+        })();
+        </script>
+        """
+
         st.html(
-            header_html + body_html + footer_html
+            header_html + body_html + footer_html + copy_script,
+            unsafe_allow_javascript=True,
         )

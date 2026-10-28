@@ -33,6 +33,8 @@ _CSS = """
 .sh-rag-meta{font-size: 12px; color: #868E96;}
 .sh-rag-body{font-size: 14px; line-height: 1.75; color: #212529; white-space: pre-wrap; overflow-wrap: anywhere;}
 .sh-rag-footer{margin-top: 14px; font-size: 12px; color: #868E96;}
+.sh-rag-copy{margin-left: auto; padding: 5px 10px; border: 1px solid #DEE2E6; border-radius: 4px; background: #FFFFFF; color: #343A40; font-size: 12px; font-weight: 600;mcursor: pointer;}
+.sh-rag-copy:hover{background: #F8F9FA; border-color: #ADB5BD;}
 </style>
 """
 
