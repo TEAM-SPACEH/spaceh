@@ -27,6 +27,30 @@ _CSS = """
 .sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
 .sh-muted{color:#868E96;font-size:13px}
 .sh-text{white-space:pre-wrap;line-height:1.6}
+.st-key-s61_rag_card{border-left: 3px solid #009944 !important;}
+.sh-rag-header{display: flex; align-items: center; gap: 10px; margin-bottom: 12px;}
+.sh-rag-title{font-size: 15px; font-weight: 700; color: #111111;}
+.sh-rag-meta{font-size: 12px; color: #868E96;}
+.sh-rag-body{font-size: 14px; line-height: 1.75; color: #212529; white-space: pre-wrap; overflow-wrap: anywhere;}
+.sh-rag-footer{margin-top: 14px; font-size: 12px; color: #868E96;}
+.sh-rag-copy{margin-left: auto; padding: 5px 10px; border: 1px solid #DEE2E6; border-radius: 4px; background: #FFFFFF; color: #343A40; font-size: 12px; font-weight: 600; cursor: pointer;}
+.sh-rag-copy:hover{background: #F8F9FA; border-color: #ADB5BD;}
+.sh-s61-source-title{font-size: 15px; font-weight: 700; color: #111111; margin: 0 0 12px;}
+.sh-s61-source-header{display: flex; align-items: center; gap: 7px; font-size: 12px; color: #212529;}
+.sh-s61-source-count{margin-left: auto; font-size: 11px; color: #868E96;}
+.sh-s61-source-entry{display: flex; align-items: center; gap: 7px; margin-top: 14px;}
+.sh-s61-source-file{font-size: 13px; font-weight: 600; color: #212529; overflow-wrap: anywhere;}
+.sh-s61-source-location{margin: 5px 0 8px 27px; font-size: 12px; color: #868E96;}
+.sh-s61-results{background:#FFFFFF;border:1px solid #E9ECEF;border-radius:6px;overflow:hidden;}
+.sh-s61-results-header{display:flex;align-items:center;gap:8px;padding:14px 16px;font-size:14px;border-bottom:1px solid #E9ECEF;}
+.sh-s61-results-header span{font-size:12px;color:#868E96;}
+.sh-s61-results-sort{margin-left:auto;}
+.sh-s61-result-row{display:grid;grid-template-columns:42px minmax(0,1fr) 80px;gap:10px;padding:14px 12px;border-bottom:1px solid #F1F3F5;align-items:start;}
+.sh-s61-result-row:last-child{border-bottom:none;}
+.sh-s61-result-type{background:#F1F3F5;color:#495057;border-radius:4px;padding:4px;font-size:10px;font-weight:700;text-align:center;}
+.sh-s61-result-name{font-size:13px;font-weight:600;color:#212529;overflow-wrap:anywhere;}
+.sh-s61-result-preview{font-size:12px;line-height:1.5;color:#868E96;margin-top:6px;overflow-wrap:anywhere;}
+.sh-s61-result-date{font-size:11px;color:#868E96;text-align:right;}
 </style>
 """
 
