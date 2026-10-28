@@ -6,18 +6,16 @@ from datetime import date
 import streamlit as st
 
 from app.auth.session import get_current_user
-from app.common.ui import no_permission_notice, show_text
+from app.common.ui import no_permission_notice, page_header
+from app.documents.views.components.document_viewer import render_selected_source
+from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.permissions.services.permission_service import request_document_access
+from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
 from app.search.services.search_service import (
     apply_metadata_filters,
     hybrid_search,
     search_requestable_documents,
 )
-from app.common.ui import page_header
-from app.documents.views.components.document_viewer import render_selected_source
-from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
-from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
-from app.search.services.search_service import apply_metadata_filters, hybrid_search
 from app.search.views.components.followup_questions import render_followup_questions
 from app.search.views.components.rag_answer_card import render_rag_answer_card
 from app.search.views.components.rag_source_panel import render_rag_source_panel
@@ -162,7 +160,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             rag_result = None
             rag_error = None
 
-            # S-04 기존 청크를 활용한 AI 답변 생성
+            # S-04 검색된 청크를 활용한 AI 답변 생성
             if chunks:
                 try:
                     with st.spinner("AI 답변을 생성하고 있습니다..."):
@@ -228,27 +226,56 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
+        # 결과가 없어도, 권한 때문에 가려졌을 수 있는 문서는 제목만 보여 주고 요청을 받는다 (M-03).
+        _render_requestable_documents(saved["query"], user)
         return
 
-    documents = _group_by_document(chunks)
-    doc_tab, chunk_tab = st.tabs([f"문서 {len(documents)}건", f"청크 {len(chunks)}건"])
-    with doc_tab:
-        for doc in documents:
-            meta = doc["metadata"]
-            # 제목·파일명은 업로드한 사람이 정하므로 Markdown으로 해석하지 않는다 (show_text).
-            show_text(meta.get("title") or meta.get("file_name", ""), bold=True)
-            show_text(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련 청크 {doc['chunk_count']}개 · 관련도 {doc['score']:.2f}", muted=True)
-    with chunk_tab:
-        for chunk in chunks:
-            meta = chunk["metadata"]
-            show_text(f"{meta.get('title', '')} — {meta.get('location', '')}", bold=True)
-            show_text(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련도 {chunk['score']:.2f}", muted=True)
-            # 청크 본문은 업로드 문서 내용 그대로라 st.write(Markdown 해석)로 보여 주지 않는다.
-            show_text(chunk["text"][:PREVIEW_CHARS])
-            st.divider()
+    # 6. AI 답변 및 출처 2열 레이아웃
+    content_col, source_col = st.columns(
+        [2.2, 1],
+        gap="medium",
+        vertical_alignment="top",
+    )
 
-    # 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
-    _render_requestable_documents(query, user)
+    # 왼쪽: AI 답변, 이어서 묻기, 검색 결과
+    with content_col:
+        if saved.get("rag_error"):
+            st.error(saved["rag_error"])
+
+        elif saved.get("rag_result") is not None:
+            render_rag_answer_card(saved["rag_result"])
+
+        # 후속 질문은 최초 질문을 기준으로 생성
+        if (
+            saved.get("rag_result") is not None
+            and not is_no_answer(saved["rag_result"].get("answer") or "")
+        ):
+            render_followup_questions(
+                saved.get("base_query") or saved["query"]
+            )
+
+        render_search_result_list(chunks)
+
+        # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
+        _render_requestable_documents(saved["query"], user)
+
+    # 오른쪽: AI 인용 출처 및 원문 뷰어
+    with source_col:
+        rag_result = saved.get("rag_result")
+
+        render_rag_source_panel(
+            rag_result.get("sources") or []
+            if rag_result is not None
+            else []
+        )
+
+        if st.session_state.get(SELECTED_SOURCE_KEY):
+            with st.expander(
+                "선택한 문서 원문",
+                expanded=True,
+            ):
+                # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
+                render_selected_source(user)
 
 
 def _render_requestable_documents(query: str, user: dict) -> None:
@@ -296,55 +323,3 @@ def _render_request_form(user: dict, document: dict) -> None:
         st.session_state.pop("request_open_doc", None)
     else:
         st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")
-
-
-def _group_by_document(chunks: list[dict]) -> list[dict]:
-    """청크를 문서(doc_id)별로 묶는다. 문서 순서는 가장 관련도 높은 청크 기준."""
-    documents: dict[str, dict] = {}
-    # chunks가 이미 관련도 순이라, 문서마다 처음 만난 청크가 그 문서의 최고 점수다.
-    for chunk in chunks:
-        doc = documents.setdefault(
-            chunk["doc_id"], {"metadata": chunk["metadata"], "score": chunk["score"], "chunk_count": 0}
-    # 6. AI 답변 및 출처 2열 레이아웃
-    content_col, source_col = st.columns(
-        [2.2, 1],
-        gap="medium",
-        vertical_alignment="top",
-    )
-
-    # 왼쪽: AI 답변, 이어서 묻기, 검색 결과
-    with content_col:
-        if saved.get("rag_error"):
-            st.error(saved["rag_error"])
-
-        elif saved.get("rag_result") is not None:
-            render_rag_answer_card(saved["rag_result"])
-
-        # 후속 질문은 최초 질문을 기준으로 생성
-        if (
-            saved.get("rag_result") is not None
-            and not is_no_answer(saved["rag_result"].get("answer") or "")
-        ):
-            render_followup_questions(
-                saved.get("base_query") or saved["query"]
-            )
-
-        render_search_result_list(chunks)
-
-    # 오른쪽: AI 인용 출처 및 원문 뷰어
-    with source_col:
-        rag_result = saved.get("rag_result")
-
-        render_rag_source_panel(
-            rag_result.get("sources") or []
-            if rag_result is not None
-            else []
-        )
-
-        if st.session_state.get(SELECTED_SOURCE_KEY):
-            with st.expander(
-                "선택한 문서 원문",
-                expanded=True,
-            ):
-                # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
-                render_selected_source(user)
