@@ -96,3 +96,16 @@ def list_access_requests_by_user(user_id: int) -> list[dict]:
             (user_id,),
         )
         return cur.fetchall()
+
+
+def get_pending_doc_ids(user_id: int) -> list[str]:
+    """M-03 이 사용자가 아직 처리 대기 중(pending)인 요청의 문서 id 목록.
+
+    후보 문서마다 has_pending_request를 따로 부르지 않고, 한 번에 받아 배치로 쓰기 위한 함수다.
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT doc_id FROM access_requests WHERE user_id = %s AND status = 'pending'",
+            (user_id,),
+        )
+        return [row["doc_id"] for row in cur.fetchall()]

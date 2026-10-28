@@ -15,9 +15,13 @@ import re
 from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25L
 
-from app.permissions.services.permission_service import apply_rbac_filter, can_request_access
+from app.permissions.services.permission_service import apply_rbac_filter, filter_requestable_documents
 from app.search.repositories.chunk_repository import get_chunks, query_chunks
 from core import config
+
+# 요청 가능 문서를 찾을 때 가져올 후보 청크 수. 접근 가능한 문서가 상위를 채워도 그 아래
+# 순위의 '요청 가능한' 문서까지 보이도록, 일반 검색(SEARCH_TOP_K)보다 넉넉히 가져온다.
+_REQUESTABLE_CANDIDATE_POOL = 50
 
 # 하이브리드 검색에서 결합 전에 각 검색이 가져올 후보 수 = 최종 결과 수(SEARCH_TOP_K) × 이 값.
 # 최종 수만큼만 가져오면 양쪽에서 11위인 청크처럼 합치면 위로 올라올 청크가 결합 전에 잘린다.
@@ -224,22 +228,27 @@ def apply_metadata_filters(filters: dict) -> dict:
     return {"$and": conditions}
 
 
-def search_requestable_documents(query: str, user: dict) -> list[dict]:
-    """S-05·M-03 검색어에 맞지만 '권한이 없어 요청하면 볼 수 있는' 문서의 제목만 찾는다.
+def search_requestable_documents(query: str, filters: dict | None, user: dict) -> list[dict]:
+    """S-05·M-03 검색어·필터에 맞지만 '권한이 없어 요청하면 볼 수 있는' 문서의 제목만 찾는다.
 
     본문 검색(search_documents)은 권한 사전 필터로 권한 밖 문서를 아예 제외하고, 그 내용은
-    LLM에 넣지 않는다. 이 함수는 '제목 발견' 용도로만, 권한 필터 없이 검색해 후보 문서를 모은 뒤
-    can_request_access가 True인 문서(= 아직 못 보지만 요청하면 열 수 있는 문서)의 제목·회사만 돌려준다.
-    여기서 꺼낸 본문·청크는 화면이나 LLM에 쓰지 않는다(제목·회사명만 쓴다).
+    LLM에 넣지 않는다. 이 함수는 '제목 발견' 용도로만 쓴다.
+    - filters(S-02 회사·문서 유형·기간)는 그대로 적용한다 → 필터 밖 문서가 섞이지 않는다.
+    - 권한 사전 필터는 걸지 않는다(권한 밖 문서를 '제목만' 찾아야 하므로).
+    - 접근 가능한 문서가 상위를 채워도 그 아래 요청 가능 문서까지 보이도록 후보를 넉넉히 가져온다.
+    - 권한 판정은 permission_service.filter_requestable_documents에 맡겨, 사용자·승인·대기 요청을
+      각각 한 번만 조회한다(후보마다 DB를 다시 열지 않는다).
+    돌려주는 건 제목·회사뿐이다. 본문·청크는 화면이나 LLM에 쓰지 않는다.
     """
     query = (query or "").strip()
     if not query or not isinstance(user, dict) or "id" not in user:
         return []
 
-    # 권한 필터 없이(where=None) 검색해 검색어에 맞는 문서 후보를 찾는다.
-    chunks = query_chunks(_embed_query(query), None, config.SEARCH_TOP_K)
+    # 권한 필터는 걸지 않고, S-02 필터만 걸어 넉넉한 후보를 가져온다(빈 필터는 None으로 넘긴다).
+    chunks = query_chunks(_embed_query(query), filters or None, _REQUESTABLE_CANDIDATE_POOL)
 
-    results: list[dict] = []
+    # 문서별로 권한 판정에 필요한 메타데이터만 모은다(본문 미사용).
+    documents: list[dict] = []
     seen: set[str] = set()
     for chunk in chunks:
         metadata = chunk.get("metadata", {})
@@ -247,20 +256,28 @@ def search_requestable_documents(query: str, user: dict) -> list[dict]:
         if not doc_id or doc_id in seen:
             continue
         seen.add(doc_id)
-
-        # 요청 가능한 문서만 남긴다. 이미 볼 수 있거나, 대기 중 요청이 있거나, 최종 어드민이면 False.
-        if not can_request_access(user["id"], doc_id):
-            continue
-
-        results.append(
+        documents.append(
             {
                 "doc_id": doc_id,
                 "title": metadata.get("title", ""),
                 "company_id": metadata.get("company_id", ""),
                 "company_name": metadata.get("company_name", ""),
+                "access_level": metadata.get("access_level", ""),
+                "is_group_shared": metadata.get("is_group_shared", False),
             }
         )
-    return results
+
+    # 요청 가능한 문서만 배치로 추린 뒤, 화면에는 제목·회사만 돌려준다.
+    requestable = filter_requestable_documents(user, documents)
+    return [
+        {
+            "doc_id": document["doc_id"],
+            "title": document["title"],
+            "company_id": document["company_id"],
+            "company_name": document["company_name"],
+        }
+        for document in requestable
+    ]
 
 
 def _match_any(field: str, values: list) -> dict:

@@ -187,11 +187,12 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                     logger.exception("S-04 답변 생성 실패")
                     rag_error = "AI 답변 생성 중 문제가 발생했습니다."
 
-            # 검색 결과 및 최초 질문 저장
+            # 검색 결과 및 최초 질문 저장. where(S-02 필터)는 '요청 가능 문서' 검색에도 같은 조건을 쓰려고 저장한다.
             st.session_state[state_key] = {
                 "user_key": user_key,
                 "query": current_query,
                 "base_query": base_query,
+                "where": where,
                 "chunks": chunks,
                 "rag_result": rag_result,
                 "rag_error": rag_error,
@@ -227,7 +228,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
         # 결과가 없어도, 권한 때문에 가려졌을 수 있는 문서는 제목만 보여 주고 요청을 받는다 (M-03).
-        _render_requestable_documents(saved["query"], user)
+        _render_requestable_documents(saved["query"], saved.get("where"), user)
         return
 
     # 6. AI 답변 및 출처 2열 레이아웃
@@ -257,7 +258,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         render_search_result_list(chunks)
 
         # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
-        _render_requestable_documents(saved["query"], user)
+        _render_requestable_documents(saved["query"], saved.get("where"), user)
 
     # 오른쪽: AI 인용 출처 및 원문 뷰어
     with source_col:
@@ -278,13 +279,13 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 render_selected_source(user)
 
 
-def _render_requestable_documents(query: str, user: dict) -> None:
+def _render_requestable_documents(query: str, filters: dict | None, user: dict) -> None:
     """검색어에 맞지만 권한 없는 문서를 '제목만' 보여 주고, 사유 입력 → 열람 권한 요청까지 연결한다.
 
     본문·청크는 쓰지 않는다(제목·회사명만). overview.md §2.3-6 규칙.
     """
     try:
-        documents = search_requestable_documents(query, user)
+        documents = search_requestable_documents(query, filters, user)
     except Exception:
         logger.exception("요청 가능 문서 검색 실패")
         return

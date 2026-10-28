@@ -19,6 +19,7 @@ from app.permissions.repositories.permission_repository import (
     find_document,
     find_user,
     get_approved_doc_ids,
+    get_pending_doc_ids,
     has_pending_request,
     insert_access_request,
     list_access_requests_by_user,
@@ -89,8 +90,11 @@ def check_search_permission(user: dict, document: dict) -> bool:
     return any(_matches(condition, document) for condition in conditions)
 
 
-def _allowed_conditions(user: dict) -> list[dict] | None:
+def _allowed_conditions(user: dict, approved_doc_ids: list | None = None) -> list[dict] | None:
     """열람 매트릭스(overview §2.1)를 "허용 조건 목록"으로 만든다. None이면 제한 없음(super_admin).
+
+    approved_doc_ids를 넘기면 승인 문서 조회(get_approved_doc_ids)를 생략한다. 여러 문서를
+    한꺼번에 판정하는 배치 호출에서 같은 조회를 반복하지 않으려고 쓴다(안 넘기면 여기서 한 번 조회).
 
     목록의 조건 하나는 "이 필드들이 모두 이 값이면 볼 수 있다"는 뜻이다.
     예) {"company_id": "MVX", "access_level": "internal"} → 현대무벡스의 내부 문서는 볼 수 있다.
@@ -125,7 +129,9 @@ def _allowed_conditions(user: dict) -> list[dict] | None:
         conditions.append({"company_id": company_id, "access_level": ACCESS_CONFIDENTIAL})
 
     # 5) 열람 권한 요청(M-03)이 승인(A-05)된 문서는 등급·회사와 관계없이 본다.
-    approved_doc_ids = get_approved_doc_ids(user["id"])
+    #    배치 호출이 미리 넘겨 준 승인 목록이 있으면 그걸 쓰고, 없으면 여기서 한 번 조회한다.
+    if approved_doc_ids is None:
+        approved_doc_ids = get_approved_doc_ids(user["id"])
     # Chroma는 빈 목록으로 $in 검색을 하면 오류가 나서, 승인 문서가 있을 때만 조건을 넣는다.
     if approved_doc_ids:
         conditions.append({"doc_id": {"$in": approved_doc_ids}})
@@ -223,6 +229,42 @@ def _can_request(user: dict | None, document: dict | None, user_id: int, doc_id:
     if has_pending_request(user_id, doc_id):  # 이미 대기 중 → 중복 금지
         return False
     return True
+
+
+def filter_requestable_documents(user: dict, documents: list[dict]) -> list[dict]:
+    """M-03 문서 목록에서 '아직 못 보지만 요청하면 볼 수 있는' 것만 골라 돌려준다 (배치).
+
+    검색 결과처럼 문서가 여러 개일 때, 후보마다 can_request_access를 부르면 문서마다 사용자·승인·
+    대기 요청을 다시 조회해 DB 연결이 수십 번 생긴다. 그래서 사용자 승인 내역과 대기 요청을 각각
+    '한 번만' 읽고, 각 문서에 열람 매트릭스를 적용한다. 권한 규칙은 여전히 여기(permission_service)
+    한 곳에서만 판정한다. documents는 Chroma 메타데이터 모양이어야 한다
+    ({doc_id, company_id, access_level, is_group_shared, ...}).
+    """
+    # 요청 대상이 아닌 경우(어드민은 전부 열람 가능, 알 수 없는 사용자)엔 요청할 문서가 없다.
+    if not user or user.get("role") not in ROLES or user["role"] == ROLE_SUPER_ADMIN:
+        return []
+
+    user_id = user["id"]
+    try:
+        approved = get_approved_doc_ids(user_id)      # 승인 문서: 한 번만
+        pending = set(get_pending_doc_ids(user_id))   # 대기 요청: 한 번만
+        conditions = _allowed_conditions(user, approved_doc_ids=approved)  # DB 재조회 없음
+    except PermissionError:
+        return []
+
+    requestable: list[dict] = []
+    seen: set = set()
+    for document in documents:
+        doc_id = document.get("doc_id")
+        if not doc_id or doc_id in seen:
+            continue
+        seen.add(doc_id)
+        if doc_id in pending:  # 이미 대기 중인 요청이 있으면 제외
+            continue
+        if any(_matches(condition, document) for condition in conditions):  # 이미 볼 수 있으면 제외
+            continue
+        requestable.append(document)
+    return requestable
 
 
 def request_document_access(user_id: int, doc_id: str, reason: str) -> bool:
