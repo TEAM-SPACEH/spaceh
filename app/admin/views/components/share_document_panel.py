@@ -36,7 +36,7 @@ def render_share_document_panel(doc: dict | None, user: dict) -> None:
         with text_col:
             show_text("그룹사 공유", bold=True)
             if doc["access_level"] == ACCESS_CONFIDENTIAL:
-                show_text("기밀 문서는 공유할 수 없습니다. 사내 문서만 켤 수 있어요.", muted=True)
+                show_text("기밀 문서는 공유할 수 없습니다. 사내 문서만 켤 수 있습니다.", muted=True)
             else:
                 state = "켜짐: 다른 계열사 사용자도 볼 수 있습니다." if doc["is_group_shared"] else "꺼짐: 우리 회사에서만 볼 수 있습니다."
                 show_text(state, muted=True)

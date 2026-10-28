@@ -103,7 +103,7 @@ class SharingViewTest(unittest.TestCase):
         selector.select("d2").run(timeout=30)
 
         self.assertTrue(at.toggle(key="share-panel-d2-0").disabled)
-        self.assertIn("기밀 문서는 공유할 수 없습니다. 사내 문서만 켤 수 있어요.", _html(at))
+        self.assertIn("기밀 문서는 공유할 수 없습니다. 사내 문서만 켤 수 있습니다.", _html(at))
         self.assertTrue(any("기밀 공유 불가" in caption.value for caption in at.caption))
 
     def test_internal_document_not_indexed_yet_is_locked_with_notice(self):
