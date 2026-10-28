@@ -5,6 +5,7 @@
 """
 
 import logging
+from pathlib import Path
 
 import streamlit as st
 
@@ -16,7 +17,8 @@ logger = logging.getLogger(__name__)
 # 미등록·비활성·비밀번호 불일치를 구분해 알리면 어떤 사원번호가 있는지 드러나므로 한 문구만 쓴다.
 LOGIN_FAILED_MESSAGE = "사원번호 또는 비밀번호가 올바르지 않습니다."
 FORM_WIDTH = 360
-HEADLINE_WIDTH = 420
+HEADLINE_WIDTH = 460
+LOGO_PATH = Path(__file__).resolve().parents[3] / "static" / "logo.svg"
 
 
 def render_login() -> None:
@@ -31,7 +33,10 @@ def render_login() -> None:
 
 def _render_intro() -> None:
     """시안 왼쪽 영역. 실제 검색은 하지 않는 예시 화면이다."""
-    st.markdown(":green-background[**S**] **spaceH**")
+    # :green-background[]는 테마 초록을 10% 투명도로 칠해 현대 그린이 안 나오므로 로고는 이미지로 둔다.
+    with st.container(horizontal=True, vertical_alignment="center", gap="xsmall"):
+        st.image(LOGO_PATH, width=26)
+        st.markdown("**spaceH**")
     # 제목 한 줄을 좁은 폭에 넣어 시안처럼 "찾고" 뒤에서 줄이 바뀌게 한다.
     with st.container(width=HEADLINE_WIDTH):
         st.header("세 계열사 문서에서 답을 찾고 근거까지 함께 봅니다")
