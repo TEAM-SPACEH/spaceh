@@ -85,6 +85,7 @@ def _normalize_chunk(chunk: Any) -> dict | None:
     return {
         "text": text.strip(),
         "company": str(company),
+        "company_id": field("company_id"),
         "filename": filename,
         "location": str(location) if location is not None else "위치 정보 없음",
         "doc_id": field("doc_id", "document_id"),
@@ -165,6 +166,9 @@ def _is_no_answer(answer: str) -> bool:
 
     return normalized == NO_ANSWER
 
+def is_no_answer(answer: str) -> bool:
+    """UI 등 외부 모듈에서 AI 답변의 근거 없음 상태를 판정합니다."""
+    return _is_no_answer(answer)
 
 def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
     """검색된 문서 청크를 기반으로 AI 답변을 생성합니다."""
