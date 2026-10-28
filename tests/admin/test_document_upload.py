@@ -13,6 +13,12 @@ def upload_page():
     render_document_upload({"id": 1})
 
 
+def documents_page():
+    """A-01 이전 관리자 역할이 남아 있는 세션으로 문서 페이지를 연다."""
+    from app.admin.views.documents import render_admin_documents
+    render_admin_documents({"id": 1, "role": "company_admin", "company_id": "MVX"})
+
+
 class DocumentUploadViewTest(unittest.TestCase):
     """A-01 실제 API 호출 없이 모달의 제출 흐름을 확인한다."""
 
@@ -42,6 +48,8 @@ class DocumentUploadViewTest(unittest.TestCase):
             render_admin_documents({"id": 1})
 
         with patch("app.admin.views.components.document_upload.get_upload_companies",
+                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]), \
+             patch("app.admin.views.documents.get_upload_companies",
                    return_value=[{"company_id": "MVX", "name": "현대무벡스"}]):
             app = AppTest.from_function(page).run()
             app.button[0].click().run()
@@ -51,6 +59,32 @@ class DocumentUploadViewTest(unittest.TestCase):
             next(b for b in app.button if b.label == "닫기").click().run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.radio), 0)
+
+    def test_inactive_or_demoted_admin_cannot_open_upload(self):
+        """A-01 DB에서 비활성화·강등되면 오래된 관리자 세션에도 업로드 버튼을 숨긴다."""
+        for current in (None, {"id": 1, "role": "employee", "company_id": "MVX"}):
+            with self.subTest(current=current), \
+                 patch("app.admin.services.document_service.repository.find_active_admin",
+                       return_value=current) as find_admin, \
+                 patch("app.admin.services.document_service.repository.list_active_companies") as companies:
+                app = AppTest.from_function(documents_page).run()
+                self.assertFalse(app.exception)
+                self.assertEqual(len(app.warning), 1)
+                self.assertNotIn("문서 올리기", [b.label for b in app.button])
+                self.assertEqual(len(app.get("file_uploader")), 0)
+                find_admin.assert_called_once_with(1)
+                companies.assert_not_called()
+
+    def test_database_error_does_not_look_like_permission_revocation(self):
+        """A-01 DB 오류는 권한 변경 안내와 구분하며 버튼을 제공하지 않는다."""
+        with patch("app.admin.services.document_service.repository.find_active_admin",
+                   side_effect=RuntimeError("private connection details")):
+            app = AppTest.from_function(documents_page).run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.error), 1)
+            self.assertEqual(len(app.warning), 0)
+            self.assertNotIn("문서 올리기", [b.label for b in app.button])
+            self.assertNotIn("private", app.error[0].value)
 
     def test_multiple_files_keep_individual_results(self):
         """A-01 일부 실패해도 다음 파일을 처리하고 재실행 시 중복 제출하지 않는다."""
