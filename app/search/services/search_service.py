@@ -1,17 +1,26 @@
-"""S-01 자연어 통합 검색: search_documents().
+"""S-01 자연어 통합 검색: search_documents(), S-06 하이브리드 검색: hybrid_search().
 
 검색 순서
 1) S-03 apply_rbac_filter()로 권한 조건(Chroma where)을 먼저 만든다.
 2) 질문을 임베딩(문장을 숫자 벡터로 바꾸는 것)한다. 색인(I-02)과 같은 모델을 써야 비교가 된다.
 3) 권한 조건을 건 채로 Chroma에서 질문과 가까운 청크를 찾는다.
    권한 밖 청크는 검색 후보에 아예 들어오지 않는다 (사후 필터 아님).
+
+S-06은 3)의 벡터 검색에 BM25 키워드 검색을 더한다. BM25 인덱스도 같은 권한 조건을
+통과한 청크만으로 만든다 (docs/architecture/overview.md §2.3).
 """
 
+import re
+
 from langchain_openai import OpenAIEmbeddings
+from rank_bm25 import BM25L
 
 from app.permissions.services.permission_service import apply_rbac_filter
-from app.search.repositories.chunk_repository import query_chunks
+from app.search.repositories.chunk_repository import get_chunks, query_chunks
 from core import config
+
+# 영문·숫자 묶음(모델명 "WBST-500", "HD2000" 등)과 한글 묶음을 토큰으로 뽑는다.
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:[-_.][a-z0-9]+)*|[가-힣]+")
 
 
 def search_documents(query: str, filters: dict | None, user: dict) -> list[dict]:
@@ -32,7 +41,46 @@ def search_documents(query: str, filters: dict | None, user: dict) -> list[dict]
     if not query:
         return []
 
-    chunks = query_chunks(_embed_query(query), where, config.SEARCH_TOP_K)
+    return vector_search(query, where)
+
+
+def hybrid_search(query: str, filters: dict | None, user: dict) -> list[dict]:
+    """S-06 BM25 및 벡터 검색 결과를 결합하고 중복 제거 후 관련도 순으로 정렬한다.
+
+    입력·반환·오류는 search_documents()와 같다. score는 0~1로, 두 검색 모두에서 1등이면 1이다.
+    """
+    where = apply_rbac_filter(user, filters)
+
+    query = (query or "").strip()
+    if not query:
+        return []
+
+    # BM25 점수와 벡터 점수는 범위가 달라 그대로 더할 수 없다.
+    # 그래서 각 검색의 '순위'만 보고 1/(k+순위)를 더한다 (RRF, Reciprocal Rank Fusion).
+    # 같은 청크가 양쪽에 나오면 chunk_id 하나로 합쳐지고 점수가 더해진다.
+    rrf_k = config.HYBRID_RRF_K
+    merged: dict[str, dict] = {}
+    for results in (vector_search(query, where), bm25_search(query, where)):
+        for rank, result in enumerate(results, start=1):
+            entry = merged.setdefault(result["chunk_id"], {**result, "score": 0.0})
+            entry["score"] += 1 / (rrf_k + rank)
+
+    # 양쪽 모두 1등일 때의 점수로 나눠 0~1로 맞춘다 (화면의 관련도 표시와 같은 범위).
+    best = 2 / (rrf_k + 1)
+    for entry in merged.values():
+        entry["score"] /= best
+    ranked = sorted(merged.values(), key=lambda result: result["score"], reverse=True)
+    return ranked[: config.SEARCH_TOP_K]
+
+
+def vector_search(query: str, filters: dict | None) -> list[dict]:
+    """S-06 권한이 허용된 문서 청크를 대상으로 임베딩 기반 의미 유사도 검색을 한다.
+
+    filters: apply_rbac_filter()가 만든 권한 포함 where. 권한 조건이 없는 where를 넘기지 않는다.
+    반환 모양은 search_documents()와 같다.
+    명세상 user를 받지 않아 권한을 직접 확인하지 않는다. 다른 기능은 이 함수 대신 hybrid_search()를 부른다.
+    """
+    chunks = query_chunks(_embed_query(query), filters, config.SEARCH_TOP_K)
     results = [
         {
             "chunk_id": chunk["chunk_id"],
@@ -46,6 +94,63 @@ def search_documents(query: str, filters: dict | None, user: dict) -> list[dict]
         for chunk in chunks
     ]
     return sorted(results, key=lambda result: result["score"], reverse=True)
+
+
+def bm25_search(query: str, filters: dict | None) -> list[dict]:
+    """S-06 권한이 허용된 문서에서 키워드·모델명·고유명사 기반으로 검색한다.
+
+    filters: apply_rbac_filter()가 만든 권한 포함 where. 이 조건을 통과한 청크만으로 인덱스를 만든다.
+    반환 모양은 search_documents()와 같다. score는 BM25 점수(클수록 관련, 상한 없음).
+    검색어 토큰이 하나도 들어 있지 않은 청크는 돌려주지 않는다.
+    명세상 user를 받지 않아 권한을 직접 확인하지 않는다. 다른 기능은 이 함수 대신 hybrid_search()를 부른다.
+    """
+    query_tokens = _tokenize(query)
+    if not query_tokens:
+        return []
+
+    chunks = get_chunks(filters)
+    if not chunks:
+        return []
+
+    # 검색할 때마다 허용 청크로 인덱스를 새로 만든다. 사용자마다 허용 범위가 달라 미리 만들어 둘 수 없다.
+    corpus = [_tokenize(chunk["text"]) for chunk in chunks]
+    # 토큰이 하나도 없으면 rank_bm25가 0으로 나누다 실패한다. 벡터 검색 결과는 살리도록 빈 목록으로 끝낸다.
+    if not any(corpus):
+        return []
+    # BM25Okapi는 청크가 적으면(필터를 좁게 건 경우) 단어 희귀도(IDF)가 0·음수가 되어
+    # 검색어가 더 많이 든 청크가 오히려 아래로 간다. BM25L은 IDF가 항상 양수라 순위가 뒤집히지 않는다.
+    scores = BM25L(corpus).get_scores(query_tokens)
+
+    query_token_set = set(query_tokens)
+    results = [
+        {
+            "chunk_id": chunk["chunk_id"],
+            "doc_id": chunk["metadata"].get("doc_id", ""),
+            "text": chunk["text"],
+            "score": float(score),
+            "metadata": chunk["metadata"],
+        }
+        for chunk, tokens, score in zip(chunks, corpus, scores)
+        if query_token_set.intersection(tokens)
+    ]
+    results.sort(key=lambda result: result["score"], reverse=True)
+    return results[: config.SEARCH_TOP_K]
+
+
+def _tokenize(text: str) -> list[str]:
+    """BM25용 토큰 목록을 만든다. 형태소 분석기 없이 쓰는 단순 방식이다.
+
+    - 영문·숫자 묶음은 소문자로 통째로 쓴다. 모델명이 쪼개지면 키워드 검색 장점이 사라진다.
+    - 한글 묶음은 두 글자씩 겹쳐 자른다(바이그램). "엘리베이터의"와 "엘리베이터"처럼
+      조사가 붙어도 "엘리", "리베" 같은 조각이 겹쳐 서로 찾을 수 있다.
+    """
+    tokens: list[str] = []
+    for word in _TOKEN_PATTERN.findall((text or "").lower()):
+        if word[0] >= "가" and len(word) >= 2:
+            tokens.extend(word[i : i + 2] for i in range(len(word) - 1))
+        else:
+            tokens.append(word)
+    return tokens
 
 
 def _embed_query(query: str) -> list[float]:
