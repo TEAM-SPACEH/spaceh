@@ -45,6 +45,9 @@ header[data-testid="stHeader"]{background:transparent}
 /* 계정 메뉴(로그아웃) 버튼을 헤더 바 오른쪽 끝에 올린다 */
 .st-key-sh_account{position:fixed;top:11px;right:16px;z-index:999995;width:auto}
 .st-key-sh_account button{border:none;background:transparent;padding:0 6px;min-height:34px}
+/* 버튼 글자 "계정 메뉴"는 눈에는 숨기고 화면 읽기 프로그램에는 남긴다 (v4는 화살표만 보인다) */
+.st-key-sh_account button [data-testid="stMarkdownContainer"]{position:absolute;width:1px;height:1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* 본문은 헤더 아래에서 시작 (v4 본문 여백 22px 28px) */
 .stMainBlockContainer{padding-top:78px;padding-left:28px;padding-right:28px}
 /* 화면에 안 보이는 요소(테마 CSS·헤더 바·계정 메뉴 자리)가 요소 사이 간격(1rem)만 차지하지 않게 한다 */
@@ -53,7 +56,10 @@ header[data-testid="stHeader"]{background:transparent}
 /* 사이드바: 폭 232, 흰 바탕, 오른쪽 테두리, 헤더 아래부터 */
 section[data-testid="stSidebar"]{width:232px !important;min-width:232px !important;top:56px !important;
   height:calc(100vh - 56px) !important;background:#FFFFFF;border-right:1px solid #E9ECEF}
-[data-testid="stSidebarHeader"]{display:none}
+/* 넓은 화면에서는 사이드바 닫기 버튼을 두지 않는다 (UI v4, 팀장 결정). 사이드바 머리에는 닫기 버튼만 있어 머리째 숨긴다.
+   좁은 화면에서는 Streamlit이 사이드바를 접고 열기 버튼을 주는데, 열린 사이드바가 본문을 덮으므로 닫기 버튼을 남긴다. */
+@media (min-width: 768px){[data-testid="stSidebarHeader"]{display:none}}
+@media (max-width: 767px){[data-testid="stSidebarHeader"]{position:absolute;top:2px;right:2px;height:auto;padding:0;z-index:1}}
 [data-testid="stSidebarContent"]{display:flex;flex-direction:column;padding:14px 10px}
 [data-testid="stSidebarNav"]{padding:0}
 [data-testid="stSidebarNavItems"]{padding:0}
@@ -114,8 +120,9 @@ def render_header(user: dict) -> None:
     """모든 페이지 맨 위 공통 헤더. 오른쪽 끝 계정 메뉴에서 로그아웃(계정 전환)한다."""
     st.html(_LAYOUT_CSS + header_html(user))
     with st.container(key="sh_account"):
-        # 제목 없이 기본 화살표만 보이게 한다 (popover 제목은 Markdown으로 해석되므로 이름을 넣지 않는다).
-        with st.popover(""):
+        # 제목은 대화상자 이름(aria-label)으로도 쓰여 비우지 않는다. 화면에는 CSS로 화살표만 보인다.
+        # Markdown으로 해석되므로 사용자 이름 대신 고정 문구를 쓴다.
+        with st.popover("계정 메뉴"):
             show_text(f"사원번호 {user.get('employee_no') or '-'}", muted=True)
             if st.button("로그아웃 · 계정 전환", key="m01_logout", width="stretch"):
                 logout()

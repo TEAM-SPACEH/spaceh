@@ -21,6 +21,22 @@ class CommonLayoutTest(unittest.TestCase):
         self.assertIn(">현대무벡스 관리자<", header_html(COMPANY_ADMIN))
         self.assertIn("<span>최종 어드민</span>", header_html(SUPER_ADMIN))
 
+    def test_real_login_session_shows_company_name(self):
+        """auth_service.login()이 세션에 넣는 모양 그대로: 회사 이름이 헤더·메뉴 섹션·범위 안내에 나온다."""
+        session_user = {
+            "id": 4,
+            "employee_no": "MVX-0002",
+            "name": "최관리",
+            "role": "company_admin",
+            "company_id": "MVX",
+            "company_name": "현대무벡스",
+        }
+        self.assertEqual(company_label(session_user), "현대무벡스")
+        self.assertIn(">현대무벡스 관리자<", header_html(session_user))
+        self.assertIn("현대무벡스 문서와 사용자", scope_html(session_user))
+        # 최종 어드민은 소속이 없어 회사 이름도 None이다.
+        self.assertEqual(company_label({**SUPER_ADMIN, "company_name": None}), "전 계열사")
+
     def test_header_escapes_db_values(self):
         out = header_html({"name": "<b>[x](http://e)</b>", "role": "employee", "company_id": "<i>"})
         self.assertNotIn("<i>", out)
