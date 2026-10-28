@@ -54,19 +54,25 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.warning("로그인 후 검색할 수 있습니다.")
         return
 
-    st.title("통합 검색")
+    st.caption("02 · 통합 검색 / 근거 답변")
+    st.markdown("#### 통합 검색")
 
     # 1. 검색창과 필터를 하나의 Form으로 묶는다.
     date_range = (_EARLIEST_DOC_DATE, date.today())
 
-    with st.form("s61_search_form"):
-        search_col, button_col = st.columns([8, 1])
+    with st.form("s61_search_form", border=False):
+        search_col, button_col = st.columns(
+            [10, 1],
+            vertical_alignment="bottom",
+            gap="small",
+        )
 
         with search_col:
             search_query = st.text_input(
                 "검색어",
                 value=query or "",
                 placeholder="궁금한 내용을 검색해 보세요.",
+                label_visibility="collapsed",
             )
 
         with button_col:
