@@ -16,6 +16,7 @@ from core.config import ROOT_DIR
 
 _CONTROLS = """
 <div class="stApp">
+<div data-testid="stDialog"><div role="dialog"><span class="sh-upload-dialog-marker" hidden></span>
   <div class="stButton"><button kind="primary" data-color="rgb(255, 255, 255)"><div data-testid="stMarkdownContainer">업로드</div></button></div>
   <div class="stButton"><button kind="secondary" data-color="rgb(0, 153, 68)"><div data-testid="stMarkdownContainer">닫기</div></button></div>
   <div class="stButton"><button kind="tertiary" data-color="rgb(0, 64, 152)"><div data-testid="stMarkdownContainer">전체 지우기</div></button></div>
@@ -27,6 +28,9 @@ _CONTROLS = """
     <div><button class="keep-label"><span>Cancel upload</span></button></div>
     <div><button class="keep-label"><span>Remove file</span></button></div>
   </div></div>
+</div></div>
+<style>.baseline-button{color:rgb(128,0,128)}</style>
+<div class="stButton"><button kind="primary" class="baseline-button" id="outside-button"><div data-testid="stMarkdownContainer">다른 화면</div></button></div>
 </div>
 """
 
@@ -57,7 +61,9 @@ document.fonts.ready.then(() => {
     getComputedStyle(document.querySelector('#choose'), '::after').content.includes('내 컴퓨터에서 파일 선택') &&
     [...document.querySelectorAll('.keep-label')].every(button =>
       ['none', 'normal'].includes(getComputedStyle(button, '::after').content) &&
-      getComputedStyle(button.firstElementChild).display !== 'none');
+      getComputedStyle(button.firstElementChild).display !== 'none') &&
+    getComputedStyle(document.querySelector('#outside-button')).color === 'rgb(128, 0, 128)' &&
+    getComputedStyle(document.querySelector('#outside-button [data-testid="stMarkdownContainer"]')).color === 'rgb(128, 0, 128)';
   report.textContent = JSON.stringify({
     fontLoaded: [...document.fonts].some(f => f.family === 'NeoHyundai' && f.status === 'loaded') &&
       document.fonts.check('13px NeoHyundai'), rows, controlsOk
@@ -89,10 +95,14 @@ def main() -> None:
     if not Path(args.chrome).is_file():
         parser.error("Chrome 실행 파일을 찾을 수 없습니다. --chrome 경로를 지정하세요.")
     font_dir = ROOT_DIR / "static/fonts"
-    for name in ("NeoHyundai-R.ttf", "NeoHyundai-B.ttf"):
+    font_css = ""
+    for name, weight in (("NeoHyundai-R.ttf", 400), ("NeoHyundai-B.ttf", 700)):
         if not (font_dir / name).is_file():
             parser.error(f"폰트 파일이 없습니다: {name}")
-    css = _CSS.replace('url("app/static/fonts/', f'url("{font_dir.as_uri()}/')
+        font_css += (f'@font-face{{font-family:"NeoHyundai";font-weight:{weight};'
+                     f'src:url("{(font_dir / name).as_uri()}") format("truetype")}}')
+    # 앱에서는 develop의 테마가 폰트를 제공하므로 독립 검사에서만 등록한다.
+    css = '<style>' + font_css + '</style>' + _CSS
     rows = []
     messages = {"busy": "문서를 저장하고 색인합니다.", "done": "색인 완료 · 청크 366개",
                 "duplicate": "이미 등록된 파일입니다. 기존 문서를 확인해 주세요.",
@@ -118,7 +128,7 @@ def main() -> None:
         if match is None:
             raise ValueError("Chrome 측정 결과가 없습니다. 브라우저 실행 환경을 확인하세요.")
         validate_report(json.loads(html.unescape(match[1])))
-    print("PASS: 상태 행 16조건 정렬·잘림 + 버튼 3종·본문 색상 + 파일 선택·취소·제거 라벨")
+    print("PASS: 상태 행 16조건 + 모달 버튼·본문 색상 + 선택·취소·제거 라벨 + 모달 외부 색상 보존")
 
 
 if __name__ == "__main__":

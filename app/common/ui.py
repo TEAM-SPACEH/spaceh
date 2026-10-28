@@ -12,35 +12,36 @@ import streamlit as st
 
 from core.constants import ACCESS_CONFIDENTIAL, ACCESS_INTERNAL, ACCESS_PUBLIC
 
-# 루트 design.md 2.3 기준. 기밀은 기존 권한 모델의 표시를 유지한다.
+# 보안 등급 화면 이름과 배지 색 (design.md 2.3: 공개 그린, 사내 옐로, 기밀 빨강)
 ACCESS_LABELS = {ACCESS_PUBLIC: "공개", ACCESS_INTERNAL: "사내", ACCESS_CONFIDENTIAL: "기밀"}
 _ACCESS_CLASS = {ACCESS_PUBLIC: "sh-pub", ACCESS_INTERNAL: "sh-int", ACCESS_CONFIDENTIAL: "sh-con"}
 
 _CSS = """
 <style>
-@font-face{font-family:"NeoHyundai";src:url("app/static/fonts/NeoHyundai-R.ttf") format("truetype");font-weight:400;font-display:swap}
-@font-face{font-family:"NeoHyundai";src:url("app/static/fonts/NeoHyundai-B.ttf") format("truetype");font-weight:700;font-display:swap}
-:root{--sh-font:"NeoHyundai","Segoe UI",sans-serif}
-.stApp,.stApp [data-testid="stMarkdownContainer"],.stApp input,.stApp textarea,.stApp button,
-[data-testid="stDialog"]{font-family:var(--sh-font);font-size:14px;line-height:1.6;color:#111111}
-.stApp button [data-testid="stMarkdownContainer"],
-[data-testid="stDialog"] button [data-testid="stMarkdownContainer"]{color:inherit}
-h1,h2,h3,h4{font-family:var(--sh-font)!important;color:#111111}
-.stApp h1{font-size:22px;line-height:1.35;font-weight:700}
-.stApp h2,[data-testid="stDialog"] h2{font-size:18px;line-height:1.4;font-weight:600}
-.stApp h3,[data-testid="stDialog"] h3{font-size:15px;line-height:1.45;font-weight:500}
-[data-testid="stCaptionContainer"]{font-size:12px;line-height:1.5;color:#868E96}
-#MainMenu,footer{visibility:hidden}
-[data-testid="stSidebarCollapsedControl"]{visibility:visible}
-.stButton>button{border-radius:4px;font-weight:600;padding:8px 16px;transition:background-color .2s}
-.stButton>button[kind="primary"]{background:#009944;color:#FFFFFF;border:1px solid transparent}
-.stButton>button[kind="primary"]:hover:not(:disabled){background:#007A36}
-.stButton>button[kind="primary"]:active:not(:disabled){background:#005C29}
-.stButton>button[kind="secondary"]{background:#FFFFFF;color:#009944;border:1px solid #009944}
-.stButton>button[kind="secondary"]:hover:not(:disabled){background:#F0FDF4}
-.stButton>button[kind="tertiary"]{background:transparent;color:#004098;border:none}
-.stButton>button[kind="tertiary"]:hover:not(:disabled){text-decoration:underline}
-.stButton>button:disabled{opacity:.5}
+.sh-tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;line-height:20px;white-space:nowrap}
+.sh-pub{background:#EBFBEE;color:#2B8A3E}
+.sh-int{background:#FFF4CC;color:#7A5A00}
+.sh-con{background:#FFF5F5;color:#E03131}
+.sh-co{background:#F1F3F5;color:#343A40;font-weight:700}
+.sh-cite{display:inline-block;min-width:19px;padding:0 4px;border-radius:9px;background:#E7F0FA;color:#004098;font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-left:3px}
+.sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
+.sh-muted{color:#868E96;font-size:13px}
+.sh-text{white-space:pre-wrap;line-height:1.6}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker){font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) input,[data-testid="stDialog"]:has(.sh-upload-dialog-marker) textarea,[data-testid="stDialog"]:has(.sh-upload-dialog-marker) button{font:inherit}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stMarkdownContainer"]{font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) button [data-testid="stMarkdownContainer"]{color:inherit}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) h2{font-size:18px;line-height:1.4;font-weight:600}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stCaptionContainer"]{font-size:12px;line-height:1.5;color:#868E96}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button{border-radius:4px;font-weight:600;padding:8px 16px;transition:background-color .2s}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]{background:#009944;color:#FFFFFF;border:1px solid transparent}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:hover:not(:disabled){background:#007A36}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:active:not(:disabled){background:#005C29}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]{background:#FFFFFF;color:#009944;border:1px solid #009944}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]:hover:not(:disabled){background:#F0FDF4}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="tertiary"]{background:transparent;color:#004098;border:none}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="tertiary"]:hover:not(:disabled){text-decoration:underline}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button:disabled{opacity:.5}
 [class*="st-key-upload-document-card-"]{border:1px solid #E9ECEF!important;border-radius:6px;padding:10px 12px;margin-bottom:0}
 [class*="st-key-upload-document-card-"]:hover{border-color:#009944!important;box-shadow:0 2px 8px rgba(0,153,68,.08)}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker)>div{width:560px!important;min-width:0!important;
@@ -71,6 +72,7 @@ h1,h2,h3,h4{font-family:var(--sh-font)!important;color:#111111}
 [class*="st-key-upload-document-card-"] .stButton>button{min-width:24px;min-height:24px;padding:0;line-height:20px}
 .st-key-upload-footer{position:sticky;bottom:0;z-index:2;background:#FFFFFF;padding:8px 0 0}
 .st-key-upload-footer hr{margin:0 0 8px}
+.st-key-upload-footer .sh-muted{font-size:12px}
 .st-key-upload-picker [data-testid="stFileUploaderDropzone"]{background:#F8F9FA;border:1px dashed #009944;
   border-radius:6px;padding:8px 12px;min-height:104px;min-width:0;width:100%;box-sizing:border-box;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
@@ -93,7 +95,7 @@ h1,h2,h3,h4{font-family:var(--sh-font)!important;color:#111111}
 .st-key-upload-registration [data-testid="stCaptionContainer"] p{margin:0!important;font-size:12px;line-height:18px}
 .st-key-upload-registration [data-testid="stWidgetLabel"]{margin-bottom:4px;min-height:20px}
 .sh-upload-status{display:flex;align-items:center;gap:8px;box-sizing:border-box;min-height:36px;
-  padding:8px 12px;border-radius:4px;font-family:var(--sh-font);font-size:13px;line-height:20px}
+  padding:8px 12px;border-radius:4px;font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:13px;line-height:20px}
 .sh-upload-status>span{display:block;margin:0;padding:0;line-height:20px;overflow-wrap:anywhere}
 .sh-upload-status-busy{background:#F8F9FA;color:#495057}
 .sh-upload-status-done{background:#EBFBEE;color:#2B8A3E}
@@ -107,21 +109,12 @@ h1,h2,h3,h4{font-family:var(--sh-font)!important;color:#111111}
   .st-key-upload-picker [data-testid="stFileUploaderDropzone"]{min-height:88px;padding:6px 12px}
   .st-key-upload-picker [data-testid="stFileUploaderDropzone"]::before{display:none}
 }
-.sh-tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;line-height:20px;white-space:nowrap}
-.sh-pub{background:#EBFBEE;color:#2B8A3E}
-.sh-int{background:#E7F5FF;color:#1971C2}
-.sh-con{background:#FFF5F5;color:#E03131}
-.sh-co{background:#F1F3F5;color:#343A40;font-weight:700}
-.sh-cite{display:inline-block;min-width:19px;padding:0 4px;border-radius:9px;background:#E7F5FF;color:#004098;font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-left:3px}
-.sh-hl{background:rgba(250,190,0,0.15);border-radius:2px;padding:0 2px}
-.sh-muted{color:#868E96;font-size:12px}
-.sh-text{white-space:pre-wrap;line-height:1.6}
 </style>
 """
 
 
 def apply_theme() -> None:
-    """루트 design.md의 공통 타이포그래피·버튼·카드·배지를 적용한다."""
+    """공통 배지와 A-01 업로드 전용 스타일을 적용한다. main.py에서만 부른다."""
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
@@ -142,13 +135,10 @@ def page_header(title: str, description: str | None = None) -> None:
         st.caption(description)
 
 
-def security_badge_html(access_level: str, *, is_own_company: bool | None = None) -> str:
-    """소속 비교가 있으면 자사·타사 internal을 구분하고 알 수 없는 등급은 회색으로 표시한다."""
+def security_badge_html(access_level: str) -> str:
+    """보안 등급 배지. 모르는 값이면 회색으로 값 그대로 보여 준다."""
     label = ACCESS_LABELS.get(access_level, access_level)
     css = _ACCESS_CLASS.get(access_level, "sh-co")
-    if access_level == ACCESS_INTERNAL and is_own_company is not None:
-        label = "사내 · 자사" if is_own_company else "사내 · 타사"
-        css = "sh-int" if is_own_company else "sh-con"
     return f'<span class="sh-tag {css}">{html.escape(label)}</span>'
 
 

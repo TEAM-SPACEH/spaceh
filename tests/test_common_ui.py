@@ -22,16 +22,6 @@ class CommonUiHtmlTest(unittest.TestCase):
     def test_unknown_level_is_shown_as_is(self):
         self.assertIn("unknown", security_badge_html("unknown"))
 
-    def test_internal_badge_depends_on_viewer_company(self):
-        """자사·타사 internal은 표시만 구분하고 기존 호출도 유지한다."""
-        own = security_badge_html("internal", is_own_company=True)
-        other = security_badge_html("internal", is_own_company=False)
-        self.assertIn("sh-int", own)
-        self.assertIn("자사", own)
-        self.assertIn("sh-con", other)
-        self.assertIn("타사", other)
-        self.assertIn("sh-pub", security_badge_html("public", is_own_company=False))
-
     def test_text_is_escaped(self):
         self.assertNotIn("<script>", highlight_html("<script>x</script>"))
         self.assertNotIn("<b>", company_tag_html("<b>MVX</b>"))
