@@ -10,11 +10,13 @@
 
 조회 권한 (docs/architecture/overview.md §2)
 - 일반 사원: 조회 불가.
-- 계열사 관리자: 자사 범위만. 행동한 사람이 자사 소속이거나, 결과·근거 문서에 자사 문서가
-  들어 있는 로그다 (범위 계산은 audit_repository._where).
+- 계열사 관리자: 자사 직원이 행동한 로그만 (행동 당시 소속이 자사). 타사 직원이 자사 문서를 건드린
+  로그는 보이지 않는다 (범위 계산은 audit_repository._where).
 - 최종 어드민: 전체.
 """
 
+import csv
+import io
 import math
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -33,6 +35,30 @@ MAX_PAGE_SIZE = 100
 
 # 화면에 보여 주는 시각 형식 (예: 2026-10-27 09:30:05).
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# 행위 코드(audit_logs.action)의 화면 이름. 목록에 없는 코드는 코드 그대로 보여 준다.
+ACTION_LABELS = {
+    "login": "로그인",
+    "search": "검색",
+    "ask": "질문",
+    "view_document": "원문 열기",
+    "download": "원문 내려받기",
+    "report_create": "보고서 생성",
+    "upload": "문서 업로드",
+    "share_change": "공유 변경",
+    "access_request": "권한 요청",
+    "access_review": "권한 처리",
+    "audit_export": "감사 로그 내려받기",
+}
+
+# 요약 카드의 시간대별 막대가 보여 주는 시각 범위 (업무 시간 9시~18시).
+HOURLY_START, HOURLY_END = 9, 18
+
+# CSV 로 한 번에 내려받을 수 있는 최대 건수. 너무 많은 로그가 한 번에 반출되지 않게 막는다.
+EXPORT_MAX_ROWS = 5000
+
+# 타사 문서는 제목을 보여 주지 않고 이 문구로 대신한다 (관리자가 볼 수 없는 문서의 제목 노출 방지).
+OTHER_COMPANY_DOCUMENT = "타사 문서"
 
 
 def record_audit_log(
@@ -145,7 +171,7 @@ def search_audit_logs(
         )
 
     return {
-        "logs": [_to_log(row) for row in rows],
+        "logs": _enrich([_to_log(row) for row in rows], company_code),
         "total_count": total,
         "page": page,
         "total_pages": total_pages,
@@ -167,7 +193,7 @@ def get_audit_log_detail(log_id: int, user: dict) -> dict:
     row = audit_repository.get_log(log_id, company_code)
     if row is None:
         raise LookupError(f"감사 로그를 찾을 수 없습니다: {log_id}")
-    return _to_log(row)
+    return _enrich([_to_log(row)], company_code)[0]
 
 
 def get_recent_audit_logs(user: dict, limit: int = 10) -> list[dict]:
@@ -180,7 +206,7 @@ def get_recent_audit_logs(user: dict, limit: int = 10) -> list[dict]:
     """
     company_code = _resolve_scope(user)
     rows = audit_repository.list_recent(company_code, _clamp(limit, 1, MAX_PAGE_SIZE))
-    return [_to_log(row) for row in rows]
+    return _enrich([_to_log(row) for row in rows], company_code)
 
 
 def get_audit_filter_options(user: dict) -> dict:
@@ -196,6 +222,135 @@ def get_audit_filter_options(user: dict) -> dict:
         "users": audit_repository.list_employee_nos(company_code),
         "action_types": audit_repository.list_actions(company_code),
     }
+
+
+def get_audit_summary(user: dict, today: date | None = None) -> dict:
+    """A-04 조회 범위 안의 오늘 로그를 요약한다 (감사 로그 화면 위쪽 카드용).
+
+    메소드 명세서에는 없는 보조 함수다. 숫자는 모두 조회 범위(계열사 관리자는 자사 직원 로그) 안에서 센다.
+    user: 로그인 사용자
+    today: 기준 날짜. 안 주면 지금(KST)의 날짜. 시험에서 날짜를 고정하려고 둔 인자다
+    반환: {"today_count": 오늘 건수, "yesterday_count": 어제 건수, "blocked_count": 오늘 차단 건수,
+           "blocked_reasons": [(사유, 건수)...] 많은 순 최대 3개, "download_count": 오늘 원문 내려받기 건수,
+           "blocked_download_count": 그중 차단 건수, "hourly": 9~18시 시간대별 건수 리스트(10개)}
+    PermissionError: 조회 권한이 없을 때
+    """
+    company_code = _resolve_scope(user)
+    today = today or datetime.now(KST).date()
+    start = datetime.combine(today, time.min)
+    end = start + timedelta(days=1)
+    day = audit_repository.summarize(company_code, start, end)
+    previous = audit_repository.summarize(company_code, start - timedelta(days=1), start)
+    return {
+        "today_count": day["total"],
+        "yesterday_count": previous["total"],
+        "blocked_count": day["blocked"],
+        "blocked_reasons": day["blocked_reasons"],
+        "download_count": day["downloads"],
+        "blocked_download_count": day["blocked_downloads"],
+        "hourly": [day["hourly"].get(hour, 0) for hour in range(HOURLY_START, HOURLY_END + 1)],
+    }
+
+
+def get_audit_scope_name(user: dict) -> str:
+    """A-04 화면 제목 위에 보여 줄 관리 범위 이름. 계열사 관리자는 회사명, 최종 어드민은 "전체 계열사".
+
+    PermissionError: 조회 권한이 없을 때
+    """
+    company_code = _resolve_scope(user)
+    if company_code is None:
+        return "전체 계열사"
+    # 회사명을 못 찾으면(삭제 등) 코드를 그대로 보여 준다.
+    return audit_repository.get_company_name(company_code) or company_code
+
+
+def export_audit_logs_csv(user: dict, filters: dict | None = None) -> str:
+    """A-04 현재 필터에 맞는 로그를 조회 범위 안에서 CSV 문자열로 만든다 (최대 EXPORT_MAX_ROWS 건, 최신순).
+
+    조회 화면과 같은 범위 규칙을 따르고, 내려받기 자체도 감사 로그(audit_export)에 남긴다.
+    user: 로그인 사용자
+    filters: search_audit_logs 와 같은 화면 필터
+    반환: 엑셀에서 한글이 깨지지 않도록 BOM(바이트 순서 표시) 문자로 시작하는 CSV 텍스트
+    PermissionError: 조회 권한이 없을 때
+    """
+    result = search_audit_logs(user, filters, page=1, size=MAX_PAGE_SIZE)
+    logs = list(result["logs"])
+    # 한 번에 읽는 최대치(MAX_PAGE_SIZE)보다 많이 내려받을 수 있게 다음 페이지를 이어서 읽는다.
+    limit = min(result["total_count"], EXPORT_MAX_ROWS)
+    page = 1
+    while len(logs) < limit and page < result["total_pages"]:
+        page += 1
+        logs.extend(search_audit_logs(user, filters, page=page, size=MAX_PAGE_SIZE)["logs"])
+    logs = logs[:limit]
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["시각", "사원번호", "이름", "소속", "행위", "대상", "차단", "차단 사유"])
+    for log in logs:
+        values = (
+            log["created_at"],
+            log["employee_no"] or "",
+            log["user_name"] or "",
+            log["company_code"] or "",
+            log["action_label"],
+            log["target_label"],
+            "차단" if log["blocked"] else "허용",
+            log["block_reason"] or "",
+        )
+        writer.writerow([_csv_safe(value) for value in values])
+
+    # 반출은 반드시 기록이 남아야 하므로, 기록이 실패하면 예외를 그대로 올려 파일을 주지 않는다.
+    record_audit_log(
+        user.get("id"),
+        "audit_export",
+        None,
+        None,
+        False,
+        None,
+        target_type="audit_log",
+        filters=filters or None,
+        result_count=len(logs),
+    )
+    return "\ufeff" + buffer.getvalue()
+
+
+def _csv_safe(value) -> str:
+    """CSV 셀 값을 문자열로 바꾸고, 엑셀이 수식으로 실행할 수 있는 시작 문자(= + - @ 탭 줄바꿈)는 ' 를 붙여 막는다.
+
+    로그에는 사용자가 입력한 검색어·사유가 들어 있어서, 내려받은 파일을 엑셀로 열 때 수식이 실행될 수 있다.
+    """
+    text = str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+def _enrich(logs: list[dict], company_code: str | None) -> list[dict]:
+    """로그 dict 에 화면용 값(user_name, action_label, target_label)을 더한다.
+
+    company_code: 조회 범위. 자사 문서만 제목을 보여 주고, 그 밖의 회사 문서는 제목을 가린다 (None 이면 전체 공개).
+    """
+    user_names = audit_repository.lookup_user_names(
+        sorted({log["user_id"] for log in logs if log["user_id"] is not None})
+    )
+    documents = audit_repository.lookup_documents(
+        sorted({log["target_id"] for log in logs if log["target_type"] == "document" and log["target_id"]})
+    )
+    for log in logs:
+        log["user_name"] = user_names.get(log["user_id"])
+        log["action_label"] = ACTION_LABELS.get(log["action_type"], log["action_type"])
+        log["target_label"] = _target_label(log, documents, company_code)
+    return logs
+
+
+def _target_label(log: dict, documents: dict, company_code: str | None) -> str:
+    """"대상" 칸에 보여 줄 글자: 문서 제목 > 검색어·질문 > 대상 ID > "-"."""
+    if log["target_type"] == "document" and log["target_id"]:
+        document = documents.get(log["target_id"])
+        if document is None:
+            return "삭제된 문서"
+        if company_code is None or document["company_id"] == company_code:
+            return document["title"]
+        return OTHER_COMPANY_DOCUMENT
+    return log["query"] or log["target_id"] or "-"
 
 
 def _resolve_scope(user: dict | None) -> str | None:

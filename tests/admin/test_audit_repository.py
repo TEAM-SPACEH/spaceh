@@ -109,14 +109,14 @@ class AuditRepositoryTest(unittest.TestCase):
             self.assert_bound(sql, params)
             self.assertNotIn("DROP TABLE", sql)
         # 악성 문자열도 SQL 이 아니라 바인딩 값으로만 전달되어야 한다.
-        # 계열사 조건은 바인딩 값이 2개다: 소속 코드, doc_companies 에서 찾을 JSON 문자열.
-        self.assertEqual(count_params, ["MVX", '"MVX"', injection, "login", start, end])
+        # 계열사 조건은 바인딩 값이 1개다: 행동한 사람의 소속 코드.
+        self.assertEqual(count_params, ["MVX", injection, "login", start, end])
         # 목록 쿼리는 조건 값 뒤에 limit, offset 이 붙는다.
         self.assertEqual(
-            list_params, ["MVX", '"MVX"', injection, "login", start, end, 20, 40]
+            list_params, ["MVX", injection, "login", start, end, 20, 40]
         )
         self.assertIn("company_code = %s", count_sql)
-        self.assertIn("JSON_CONTAINS(doc_companies, %s)", count_sql)
+        self.assertNotIn("doc_companies", count_sql)
         self.assertIn("employee_no = %s", count_sql)
         self.assertIn("action = %s", count_sql)
         self.assertIn("is_blocked = 1", count_sql)
@@ -136,7 +136,7 @@ class AuditRepositoryTest(unittest.TestCase):
             row = audit_repository.get_log(5, "MVX")
         sql, params = cursor.executed[0]
         self.assert_bound(sql, params)
-        self.assertEqual(params, ["MVX", '"MVX"', 5])
+        self.assertEqual(params, ["MVX", 5])
         self.assertEqual(row, {"id": 5})
 
     def test_get_log_without_company_filters_only_by_id(self):
@@ -256,21 +256,77 @@ class AuditRepositoryTest(unittest.TestCase):
         self.assertEqual((nos, actions), (["MVX-0001"], ["login"]))
         for sql, params in cursor.executed:
             self.assert_bound(sql, params)
-            self.assertEqual(params, ["MVX", '"MVX"'])
+            self.assertEqual(params, ["MVX"])
         self.assertIn("employee_no IS NOT NULL", cursor.executed[0][0])
 
 
-    def test_company_scope_includes_logs_that_touched_company_documents(self):
-        """계열사 범위는 '소속이 자사' 또는 '결과 문서에 자사 문서 포함'이며, 괄호로 묶여 id 조건을 우회하지 못한다."""
+    def test_company_scope_is_only_logs_of_own_employees(self):
+        """계열사 범위는 행동한 사람의 소속이 자사인 로그뿐이다. 자사 문서를 건드린 타사 직원의 로그는 조건에 없다."""
         cursor = FakeCursor(one=[{"id": 5}])
         with _patch_connection(cursor):
             audit_repository.get_log(5, "MVX")
         sql, params = cursor.executed[0]
-        self.assertIn(
-            "WHERE (company_code = %s OR JSON_CONTAINS(doc_companies, %s)) AND id = %s", sql
+        self.assertIn("WHERE company_code = %s AND id = %s", sql)
+        # SELECT 컬럼에는 doc_companies 가 있으므로 WHERE 절만 본다.
+        self.assertNotIn("doc_companies", sql.split("WHERE", 1)[1])
+        self.assertNotIn("JSON_CONTAINS", sql)
+        self.assertEqual(params, ["MVX", 5])
+
+
+class AuditRepositoryExtraTest(unittest.TestCase):
+    """이름·문서 제목 조회와 요약 집계."""
+
+    def test_lookup_user_names_binds_ids_and_skips_db_when_empty(self):
+        """id 는 바인딩으로 넘기고, 목록이 비면 DB 를 읽지 않는다."""
+        cursor = FakeCursor()
+        cursor.fetchall = lambda: [{"id": 1, "name": "홍길동"}]
+        with _patch_connection(cursor):
+            self.assertEqual(audit_repository.lookup_user_names([1, 2]), {1: "홍길동"})
+            self.assertEqual(audit_repository.lookup_user_names([]), {})
+        self.assertEqual(len(cursor.executed), 1)
+        sql, params = cursor.executed[0]
+        self.assertIn("id IN (%s, %s)", sql)
+        self.assertEqual(params, [1, 2])
+
+    def test_lookup_documents_returns_title_and_company(self):
+        """문서는 제목과 소유 회사를 함께 돌려준다 (회사로 제목 공개 여부를 판단하기 위해)."""
+        cursor = FakeCursor()
+        cursor.fetchall = lambda: [{"doc_id": "d1", "title": "사양서", "company_id": "MVX"}]
+        with _patch_connection(cursor):
+            got = audit_repository.lookup_documents(["d1"])
+        self.assertEqual(got, {"d1": {"title": "사양서", "company_id": "MVX"}})
+        self.assertEqual(audit_repository.lookup_documents([]), {})
+
+    def test_summarize_scopes_every_query_and_binds_values(self):
+        """집계 6개 쿼리 모두 같은 범위(소속·기간) 조건을 쓰고 값은 바인딩으로만 넘긴다."""
+        cursor = FakeCursor(
+            one=[{"cnt": 10}, {"cnt": 3}, {"cnt": 4}, {"cnt": 1}],
+            many=[[{"reason": "기밀", "cnt": 2}], [{"hr": 9, "cnt": 5}]],
         )
-        # 두 번째 값은 따옴표가 붙은 JSON 문자열이어야 JSON 배열 안의 원소와 비교된다.
-        self.assertEqual(json.loads(params[1]), "MVX")
+        start, end = datetime(2026, 10, 28), datetime(2026, 10, 29)
+        with _patch_connection(cursor):
+            got = audit_repository.summarize("MVX", start, end)
+
+        self.assertEqual(got["total"], 10)
+        self.assertEqual(got["blocked"], 3)
+        self.assertEqual(got["blocked_reasons"], [("기밀", 2)])
+        self.assertEqual((got["downloads"], got["blocked_downloads"]), (4, 1))
+        self.assertEqual(got["hourly"], {9: 5})
+        self.assertEqual(len(cursor.executed), 6)
+        for sql, params in cursor.executed:
+            self.assertIn("company_code = %s", sql)
+            self.assertIn("created_at >= %s", sql)
+            self.assertEqual(params[:3], ["MVX", start, end])
+            self.assertNotIn("MVX", sql)
+            self.assertNotIn("JSON_CONTAINS", sql)
+
+    def test_summarize_for_super_admin_has_no_company_condition(self):
+        """최종 어드민(범위 없음)은 소속 조건 없이 기간만 건다."""
+        cursor = FakeCursor(one=[{"cnt": 0}] * 4)
+        with _patch_connection(cursor):
+            audit_repository.summarize(None, datetime(2026, 10, 28), datetime(2026, 10, 29))
+        for sql, _ in cursor.executed:
+            self.assertNotIn("company_code", sql.split("WHERE", 1)[1])
 
 
 if __name__ == "__main__":

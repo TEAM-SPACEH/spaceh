@@ -315,5 +315,119 @@ class RecentAndOptionsTest(unittest.TestCase):
         )
 
 
+class ScreenValuesTest(unittest.TestCase):
+    """화면용 값(이름·행동 이름·대상 이름), 요약, CSV."""
+
+    def _repo(self, repo, rows, users=None, documents=None):
+        repo.search_logs.return_value = (rows, len(rows))
+        repo.lookup_user_names.return_value = users or {}
+        repo.lookup_documents.return_value = documents or {}
+
+    @patch(REPO)
+    def test_rows_get_user_name_action_label_and_document_title(self, repo):
+        """이름·행동 이름·문서 제목이 붙는다."""
+        self._repo(
+            repo,
+            [_row(1, action="view_document", target_type="document", target_id="d1", user_id=7)],
+            users={7: "홍길동"},
+            documents={"d1": {"title": "사양서", "company_id": "MVX"}},
+        )
+        log = audit_service.search_audit_logs(MVX_ADMIN)["logs"][0]
+        self.assertEqual((log["user_name"], log["action_label"], log["target_label"]), ("홍길동", "원문 열기", "사양서"))
+
+    @patch(REPO)
+    def test_other_company_document_title_is_hidden_from_company_admin(self, repo):
+        """계열사 관리자는 타사 문서의 제목을 볼 수 없다. 최종 어드민은 볼 수 있다."""
+        docs = {"d1": {"title": "ELV 기밀 단가표", "company_id": "ELV"}}
+        row = lambda: _row(1, action="view_document", target_type="document", target_id="d1")  # noqa: E731
+        self._repo(repo, [row()], documents=docs)
+        self.assertEqual(audit_service.search_audit_logs(MVX_ADMIN)["logs"][0]["target_label"], "타사 문서")
+        self._repo(repo, [row()], documents=docs)
+        self.assertEqual(audit_service.search_audit_logs(SUPER)["logs"][0]["target_label"], "ELV 기밀 단가표")
+
+    @patch(REPO)
+    def test_target_falls_back_to_query_then_dash(self, repo):
+        """문서가 아닌 행위는 검색어, 그것도 없으면 "-" 를 대상으로 보여 준다. 삭제된 문서는 안내 문구."""
+        self._repo(
+            repo,
+            [
+                _row(1, action="search", query="AGV 사양"),
+                _row(2, action="login"),
+                _row(3, action="view_document", target_type="document", target_id="gone"),
+            ],
+        )
+        labels = [log["target_label"] for log in audit_service.search_audit_logs(MVX_ADMIN)["logs"]]
+        self.assertEqual(labels, ["AGV 사양", "-", "삭제된 문서"])
+
+    @patch(REPO)
+    def test_summary_counts_today_and_hours(self, repo):
+        """오늘·어제 건수와 9~18시 시간대별 리스트(10칸)를 만든다. 두 번 조회한다(오늘, 어제)."""
+        day = {
+            "total": 5,
+            "blocked": 2,
+            "blocked_reasons": [("기밀", 2)],
+            "downloads": 3,
+            "blocked_downloads": 0,
+            "hourly": {9: 1, 14: 4, 23: 9},
+        }
+        repo.summarize.side_effect = [day, {**day, "total": 3}]
+
+        got = audit_service.get_audit_summary(MVX_ADMIN, date(2026, 10, 28))
+
+        self.assertEqual((got["today_count"], got["yesterday_count"], got["blocked_count"]), (5, 3, 2))
+        self.assertEqual(got["hourly"], [1, 0, 0, 0, 0, 4, 0, 0, 0, 0])  # 9시·14시만, 23시는 범위 밖
+        first, second = repo.summarize.call_args_list
+        self.assertEqual(first.args, ("MVX", datetime(2026, 10, 28), datetime(2026, 10, 29)))
+        self.assertEqual(second.args, ("MVX", datetime(2026, 10, 27), datetime(2026, 10, 28)))
+
+    @patch(REPO)
+    def test_summary_and_scope_name_denied_for_employee(self, repo):
+        """일반 사원은 요약·범위 이름을 볼 수 없고 DB 도 읽지 않는다."""
+        with self.assertRaises(PermissionError):
+            audit_service.get_audit_summary(EMPLOYEE)
+        with self.assertRaises(PermissionError):
+            audit_service.get_audit_scope_name(EMPLOYEE)
+        repo.summarize.assert_not_called()
+
+    @patch(REPO)
+    def test_scope_name(self, repo):
+        """계열사 관리자는 회사명, 최종 어드민은 "전체 계열사"."""
+        repo.get_company_name.return_value = "현대무벡스"
+        self.assertEqual(audit_service.get_audit_scope_name(MVX_ADMIN), "현대무벡스")
+        self.assertEqual(audit_service.get_audit_scope_name(SUPER), "전체 계열사")
+        repo.get_company_name.return_value = None
+        self.assertEqual(audit_service.get_audit_scope_name(MVX_ADMIN), "MVX")
+
+    @patch("app.admin.services.audit_service.record_audit_log")
+    @patch(REPO)
+    def test_csv_export_escapes_formulas_and_records_the_export(self, repo, record):
+        """CSV 는 BOM 으로 시작하고, 수식으로 읽힐 값은 ' 가 붙으며, 내려받기 자체가 기록된다."""
+        self._repo(repo, [_row(1, action="search", query='=HYPERLINK("http://x")')], users={1: "홍길동"})
+
+        text = audit_service.export_audit_logs_csv(MVX_ADMIN, {"action_type": "search"})
+
+        self.assertTrue(text.startswith("\ufeff시각,"))
+        self.assertIn("'=HYPERLINK", text)
+        self.assertNotIn(",=HYPERLINK", text)
+        args, kwargs = record.call_args
+        self.assertEqual(args[1], "audit_export")
+        self.assertEqual((kwargs["result_count"], kwargs["filters"]), (1, {"action_type": "search"}))
+
+    @patch("app.admin.services.audit_service.record_audit_log", side_effect=RuntimeError("db down"))
+    @patch(REPO)
+    def test_csv_export_fails_when_it_cannot_be_recorded(self, repo, record):
+        """내려받기 기록이 실패하면 파일을 주지 않는다 (기록 없는 반출 금지)."""
+        self._repo(repo, [_row(1)])
+        with self.assertRaises(RuntimeError):
+            audit_service.export_audit_logs_csv(MVX_ADMIN)
+
+    @patch(REPO)
+    def test_csv_export_denied_for_employee(self, repo):
+        """일반 사원은 내려받을 수 없다."""
+        with self.assertRaises(PermissionError):
+            audit_service.export_audit_logs_csv(EMPLOYEE)
+        repo.search_logs.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

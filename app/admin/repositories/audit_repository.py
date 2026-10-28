@@ -146,19 +146,17 @@ def _where(
         (" WHERE ..." 문자열, %s 에 대응하는 값 리스트). 조건이 하나도 없으면 ("", []).
         company_code 가 None 이면 계열사 제한 없음 = 전체 조회(super_admin 용).
 
-    계열사 범위(company_code 를 준 경우)의 뜻: 행동한 사람의 소속이 그 계열사이거나,
-    결과·근거 문서(doc_companies)에 그 계열사 문서가 하나라도 들어 있는 로그.
-    예) 타사 직원이 MVX 대외비 문서를 열람하려다 차단된 기록도 MVX 관리자는 볼 수 있다.
+    계열사 범위(company_code 를 준 경우)의 뜻: 행동한 사람의 소속이 그 계열사인 로그만.
+    결과·근거 문서에 그 계열사 문서가 들어 있어도 행동한 사람이 타사 직원이면 포함하지 않는다
+    (타사 직원의 검색어·질문 원문이 노출되지 않게 한다). company_code 는 행동 당시 소속이다.
     """
     clauses: list[str] = []
     params: list = []
     if company_code is not None:
-        # 두 조건을 괄호로 묶어, 뒤에 AND 로 붙는 다른 조건(id 등)과 섞이지 않게 한다.
-        # doc_companies 는 JSON 배열(["MVX", "ELV"])이다. JSON_CONTAINS 의 두 번째 인자는
-        # JSON 값이어야 하므로 문자열을 따옴표 붙은 JSON 문자열(\"MVX\")로 바꿔 바인딩한다.
-        # doc_companies 가 NULL 이면 이 식은 거짓으로 취급되어 company_code 조건만 남는다.
-        clauses.append("(company_code = %s OR JSON_CONTAINS(doc_companies, %s))")
-        params.extend([company_code, json.dumps(company_code)])
+        # 소속을 알 수 없는 로그(로그인 실패 등, company_code 가 NULL)는 어느 계열사 것인지 알 수 없어
+        # 계열사 관리자 범위에 들어오지 않는다. 최종 어드민(company_code=None)만 본다.
+        clauses.append("company_code = %s")
+        params.append(company_code)
     if employee_no:
         clauses.append("employee_no = %s")
         params.append(employee_no)
@@ -257,3 +255,79 @@ def list_actions(company_code: str | None) -> list[str]:
             f"SELECT DISTINCT action FROM audit_logs{where} ORDER BY action", params
         )
         return [row["action"] for row in cur.fetchall()]
+
+
+def lookup_user_names(user_ids: list[int]) -> dict[int, str]:
+    """users.id 목록에 대응하는 이름을 {id: 이름} 으로 돌려준다. 목록이 비어 있으면 DB 를 읽지 않는다.
+
+    감사 로그 표에 사원번호 대신 이름을 보여 주려고 쓴다. 로그에는 사용자 id·사원번호만 저장되기 때문이다.
+    """
+    if not user_ids:
+        return {}
+    marks = ", ".join(["%s"] * len(user_ids))
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT id, name FROM users WHERE id IN ({marks})", list(user_ids))
+        return {row["id"]: row["name"] for row in cur.fetchall()}
+
+
+def lookup_documents(doc_ids: list[str]) -> dict[str, dict]:
+    """doc_id 목록에 대응하는 문서 제목·소유 회사를 {doc_id: {"title", "company_id"}} 로 돌려준다.
+
+    이미 삭제된 문서는 결과에 없다. 회사를 함께 돌려주는 이유는, 서비스가 "관리자가 볼 수 있는 회사의 문서"만
+    제목을 보여 주도록 판단할 수 있게 하기 위해서다 (판단은 여기서 하지 않는다).
+    """
+    if not doc_ids:
+        return {}
+    marks = ", ".join(["%s"] * len(doc_ids))
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT doc_id, title, company_id FROM documents WHERE doc_id IN ({marks})", list(doc_ids))
+        return {row["doc_id"]: {"title": row["title"], "company_id": row["company_id"]} for row in cur.fetchall()}
+
+
+def get_company_name(company_id: str) -> str | None:
+    """계열사 코드의 회사명. 없으면 None."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT name FROM companies WHERE company_id = %s", (company_id,))
+        row = cur.fetchone()
+        return row["name"] if row else None
+
+
+def summarize(company_code: str | None, start: datetime, end: datetime) -> dict:
+    """[start, end) 기간의 로그를 company_code 범위(_where 참고) 안에서 집계한다.
+
+    반환: {"total": 전체 건수, "blocked": 차단 건수, "blocked_reasons": [(사유, 건수), ...] 많은 순 최대 3개,
+           "downloads": 원문 내려받기 건수, "blocked_downloads": 그중 차단된 건수, "hourly": {시(0~23): 건수}}
+    사유가 비어 있는 차단은 "사유 없음"으로 묶는다. 값은 모두 %s 바인딩으로 넘긴다.
+    """
+    where, params = _where(company_code, start=start, end=end)
+    # _where 가 만든 WHERE 에 조건을 더 붙이는 도우미. WHERE 가 이미 있으면 AND, 없으면 WHERE 로 잇는다.
+    more = lambda extra: f"{where} AND {extra}" if where else f" WHERE {extra}"  # noqa: E731
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) AS cnt FROM audit_logs{where}", params)
+        total = cur.fetchone()["cnt"]
+        cur.execute(f"SELECT COUNT(*) AS cnt FROM audit_logs{more('is_blocked = 1')}", params)
+        blocked = cur.fetchone()["cnt"]
+        cur.execute(
+            f"SELECT COALESCE(NULLIF(block_reason, ''), '사유 없음') AS reason, COUNT(*) AS cnt "
+            f"FROM audit_logs{more('is_blocked = 1')} GROUP BY reason ORDER BY cnt DESC, reason LIMIT 3",
+            params,
+        )
+        reasons = [(row["reason"], row["cnt"]) for row in cur.fetchall()]
+        cur.execute(f"SELECT COUNT(*) AS cnt FROM audit_logs{more('action = %s')}", [*params, "download"])
+        downloads = cur.fetchone()["cnt"]
+        cur.execute(
+            f"SELECT COUNT(*) AS cnt FROM audit_logs{more('action = %s AND is_blocked = 1')}", [*params, "download"]
+        )
+        blocked_downloads = cur.fetchone()["cnt"]
+        cur.execute(
+            f"SELECT HOUR(created_at) AS hr, COUNT(*) AS cnt FROM audit_logs{where} GROUP BY hr", params
+        )
+        hourly = {row["hr"]: row["cnt"] for row in cur.fetchall()}
+    return {
+        "total": total,
+        "blocked": blocked,
+        "blocked_reasons": reasons,
+        "downloads": downloads,
+        "blocked_downloads": blocked_downloads,
+        "hourly": hourly,
+    }
