@@ -12,6 +12,9 @@
   문서 내용이 LLM에 들어갈 길이 처음부터 막힌다.
 """
 
+import logging
+
+from app.admin.services.audit_service import record_audit_log
 from app.permissions.repositories.permission_repository import (
     find_document,
     find_user,
@@ -19,6 +22,7 @@ from app.permissions.repositories.permission_repository import (
     has_pending_request,
     insert_access_request,
 )
+from app.permissions.validators import validate_request_reason
 from core.constants import (
     ACCESS_CONFIDENTIAL,
     ACCESS_INTERNAL,
@@ -27,6 +31,8 @@ from core.constants import (
     ROLE_SUPER_ADMIN,
     ROLES,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def apply_rbac_filter(user: dict, filters: dict | None) -> dict:
@@ -157,10 +163,7 @@ def _matches(condition: dict, document: dict) -> bool:
 #  - 못 보는 문서는 "저 이거 보게 해 주세요"라고 요청을 남길 수 있다(관리자가 나중에 허락).
 #
 # 참고: doc_id는 숫자가 아니라 글자(문자열)다. 문서 이름표가 'ELV-spec-1' 같은 글자라서다.
-
-# 요청 사유 글자 수 규칙 (validate_request_reason에서 쓴다). 팀 정책이 바뀌면 이 값만 고친다.
-_MIN_REASON_LEN = 5
-_MAX_REASON_LEN = 500
+# 요청 사유 검증(validate_request_reason)은 형식 검증 계층인 app/permissions/validators.py에 있다.
 
 
 def check_document_access(user_id: int, doc_id: str) -> bool:
@@ -200,37 +203,25 @@ def can_request_access(user_id: int, doc_id: str) -> bool:
       - 이미 대기 중인 요청이 있음: 같은 요청을 또 낼 필요가 없다.
     셋 다 아니면(= 못 보는 문서인데 요청도 안 낸 상태) 요청할 수 있다(True).
     """
-    # 1) 사람·문서 찾기. 둘 중 하나라도 없으면 요청 불가.
-    user = find_user(user_id)
-    document = find_document(doc_id)
+    # 사람·문서를 한 번 찾아 공통 판단(_can_request)에 넘긴다.
+    return _can_request(find_user(user_id), find_document(doc_id), user_id, doc_id)
+
+
+def _can_request(user: dict | None, document: dict | None, user_id: int, doc_id: str) -> bool:
+    """요청 가능 여부 공통 판단. 이미 찾아 둔 user·document를 받아 같은 조회를 두 번 하지 않게 한다.
+
+    요청 불가(False): 사람/문서 없음, 최종 관리자(전부 열람 가능), 이미 열람 가능, 이미 대기 중.
+    넷 다 아니면 요청 가능(True).
+    """
     if user is None or document is None:
         return False
-
-    # 2) 최종 관리자는 전부 볼 수 있으니 요청할 필요가 없다.
-    if user["role"] == ROLE_SUPER_ADMIN:
+    if user["role"] == ROLE_SUPER_ADMIN:  # 어차피 전부 볼 수 있어 요청 불필요
         return False
-
-    # 3) 이미 볼 수 있는 문서면 요청할 필요가 없다.
-    if check_search_permission(user, document):
+    if check_search_permission(user, document):  # 이미 볼 수 있음 → 요청 불필요
         return False
-
-    # 4) 이미 같은 요청이 대기 중이면 또 내지 않는다.
-    if has_pending_request(user_id, doc_id):
+    if has_pending_request(user_id, doc_id):  # 이미 대기 중 → 중복 금지
         return False
-
-    # 5) 여기까지 왔으면 "못 보는 문서 + 요청도 없음" → 요청할 수 있다.
     return True
-
-
-def validate_request_reason(reason: str) -> bool:
-    """M-03 요청 사유가 쓸 만한지 검사한다. 앞뒤 공백을 떼고 5~500자면 True.
-
-    너무 짧으면(공백·'ㅇ' 등) 왜 보려는지 알 수 없고, 너무 길면(500자 초과) 받지 않는다.
-    """
-    if not isinstance(reason, str):
-        return False
-    trimmed = reason.strip()  # 앞뒤 공백 제거 후 길이로만 판단
-    return _MIN_REASON_LEN <= len(trimmed) <= _MAX_REASON_LEN
 
 
 def request_document_access(user_id: int, doc_id: str, reason: str) -> bool:
@@ -238,21 +229,44 @@ def request_document_access(user_id: int, doc_id: str, reason: str) -> bool:
 
     이 요청은 그 문서를 가진 회사의 관리자가 나중에 보고 허락/거절한다(A-05).
     사유가 규칙에 안 맞거나 요청할 수 없는 상황(관리자·이미 열람 가능·대기 중 요청 있음)이면
-    아무것도 저장하지 않고 False. 요청을 잘 남기면 True.
+    아무것도 저장하지 않고 False. 요청을 잘 남기면 A-04 감사 로그에 남기고 True.
     """
-    # 1) 사유가 규칙(5~500자)에 맞는지 먼저 본다.
+    # 1) 사유가 규칙(5~500자)에 맞는지 먼저 본다 (형식 검증은 validators에 있다).
     if not validate_request_reason(reason):
         return False
 
-    # 2) 지금 요청해도 되는 상황인지 확인한다(위 can_request_access 규칙).
-    if not can_request_access(user_id, doc_id):
-        return False
-
-    # 3) 이 요청을 처리할 '주인 회사'는 문서를 가진 회사(company_id)다. 그 회사 관리자가 본다.
+    # 2) 사람·문서를 한 번만 찾고(중복 조회 방지), 지금 요청해도 되는 상황인지 확인한다.
+    user = find_user(user_id)
     document = find_document(doc_id)
-    if document is None:
+    if not _can_request(user, document, user_id, doc_id):
         return False
 
-    # 4) 저장한다. 저장 함수가 '대기 중 요청이 없을 때만' 넣으므로, 두 번 동시에 눌러도
-    #    한 건만 저장된다. 못 넣으면(이미 대기 중) False가 돌아온다.
-    return insert_access_request(user_id, doc_id, document["company_id"], reason.strip())
+    # 3) 저장한다. 저장 함수가 '대기 중 요청이 없을 때만' 넣으므로 중복 요청은 걸러진다.
+    #    성공하면 새 요청 id, 이미 대기 요청이 있어 못 넣으면 None.
+    owner_company = document["company_id"]  # 주인 회사 = 문서를 가진 회사
+    request_id = insert_access_request(user_id, doc_id, owner_company, reason.strip())
+    if request_id is None:
+        return False
+
+    # 4) 성공한 요청을 A-04 감사 로그에 남긴다 (기록이 실패해도 요청은 유효하므로 True).
+    _audit_access_request(user_id, doc_id, owner_company, request_id)
+    return True
+
+
+def _audit_access_request(user_id: int, doc_id: str, owner_company: str, request_id: int) -> None:
+    """A-04 권한 요청을 감사 로그에 남긴다. 기록이 실패해도 요청 등록을 되돌리지 않도록 예외는 삼킨다."""
+    try:
+        record_audit_log(
+            user_id,
+            "access_request",
+            doc_id,
+            None,
+            False,
+            None,
+            target_type="document",
+            doc_ids=[doc_id],
+            doc_companies=[owner_company],
+            context_detail={"request_id": request_id},
+        )
+    except Exception:
+        logger.exception("감사 로그 기록 실패(access_request)")

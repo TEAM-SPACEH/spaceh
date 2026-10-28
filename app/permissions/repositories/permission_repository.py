@@ -55,14 +55,14 @@ def has_pending_request(user_id: int, doc_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-def insert_access_request(user_id: int, doc_id: str, owner_company_code: str, reason: str) -> bool:
-    """M-03 열람 요청 1건을 '대기 중' 상태로 저장한다. 단, 같은 사람·문서의 대기 요청이 없을 때만.
+def insert_access_request(user_id: int, doc_id: str, owner_company_code: str, reason: str) -> int | None:
+    """M-03 열람 요청 1건을 '대기 중' 상태로 저장하고, 새 요청 id를 돌려준다. 못 넣으면 None.
 
     왜 이렇게 하나: 사용자가 버튼을 '두 번 빠르게' 누르면 요청이 두 건 저장될 수 있다.
     그래서 '확인(이미 대기 요청이 있나?)'과 '저장'을 SQL 한 문장으로 합쳐, 대기 요청이 없을
     때만(WHERE NOT EXISTS) 넣는다. 이러면 동시에 눌러도 한 건만 저장된다.
     status(처리 상태)는 적지 않는다 — 표의 기본값 'pending'(대기 중)이 자동으로 들어간다.
-    들어간 줄이 1이면 True, 0이면(이미 대기 요청이 있었음) False.
+    저장되면 그 줄의 id(감사 로그 기록에 쓴다), 이미 대기 요청이 있어 안 넣었으면 None.
     """
     with get_connection() as conn, conn.cursor() as cur:
         # FROM DUAL은 MySQL에서 '값만 고를 때' 쓰는 가짜 표다(WHERE를 붙이려고 둔다).
@@ -75,5 +75,5 @@ def insert_access_request(user_id: int, doc_id: str, owner_company_code: str, re
             ")",
             (user_id, doc_id, owner_company_code, reason, user_id, doc_id),
         )
-        # rowcount = 방금 들어간 줄 수. 1이면 저장 성공, 0이면 이미 대기 요청이 있어 안 넣음.
-        return cur.rowcount == 1
+        # rowcount=1이면 방금 넣은 줄의 id(lastrowid)를, 0이면(이미 대기 요청 있음) None을 준다.
+        return cur.lastrowid if cur.rowcount == 1 else None
