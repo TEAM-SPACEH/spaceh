@@ -1,6 +1,6 @@
-"""M-02·M-03 마이페이지 화면: 내 프로필과 열람 권한 요청 목록을 보여 준다.
+"""M-02·M-03 마이페이지 화면: 내 프로필·비밀번호 바꾸기와 열람 권한 요청 목록을 보여 준다.
 
-이 화면은 services만 부른다(계층 규칙). 내 정보는 users.user_service, 권한 요청 목록은
+이 화면은 services만 부른다(계층 규칙). 내 정보·비밀번호는 users.user_service, 권한 요청 목록은
 permissions.permission_service를 거친다. 메뉴 연결(main.py)은 팀장이 맡는다.
 """
 
@@ -13,7 +13,7 @@ import streamlit as st
 from app.auth.session import get_current_user_id
 from app.common.ui import company_tag_html, empty_state, page_header, show_text
 from app.permissions.services.permission_service import get_access_request_history
-from app.users.services.user_service import get_user_info
+from app.users.services.user_service import change_password, get_user_info
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ def render_mypage() -> None:
 
     page_header("내 정보")
     _render_profile(info)
+    # M-02 비밀번호 바꾸기 폼은 '비밀번호 바꾸기' 버튼을 눌렀을 때만 연다.
+    if st.session_state.get("change_password_open"):
+        _render_change_password_form(info["user_id"])
     st.divider()
     _render_access_requests(user_id)
 
@@ -68,6 +71,42 @@ def _render_profile(info: dict) -> None:
             f"사원번호 {info['employee_no']} · {info['company_name'] or '소속 없음'}",
             muted=True,
         )
+        # M-02: 누르면 아래에 비밀번호 변경 폼이 열린다.
+        if st.button("비밀번호 바꾸기"):
+            st.session_state["change_password_open"] = True
+
+
+def _render_change_password_form(user_id: int) -> None:
+    """M-02 현재 비밀번호 확인 → 새 비밀번호 검증 → 변경. user_service에 맡기고 결과만 안내한다."""
+    with st.form("change_password_form"):
+        st.markdown("**비밀번호 바꾸기**")
+        current = st.text_input("현재 비밀번호", type="password")
+        new = st.text_input("새 비밀번호 (8~20자, 영문·숫자 포함, 공백 없음)", type="password")
+        confirm = st.text_input("새 비밀번호 확인", type="password")
+        submitted = st.form_submit_button("변경")
+
+    if not submitted:
+        return
+
+    # 새 비밀번호와 확인이 다르면 서비스를 부르기 전에 먼저 걸러 준다(화면에서 바로 안내).
+    if new != confirm:
+        st.error("새 비밀번호와 확인이 일치하지 않습니다.")
+        return
+
+    try:
+        changed = change_password(user_id, current, new)
+    except Exception:
+        # DB 오류 등은 화면 밖으로 터뜨리지 않고 쉬운 말로 안내한다(스택 트레이스는 로그에만).
+        logger.exception("비밀번호 변경 실패")
+        st.error("비밀번호 변경 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
+        return
+
+    if changed:
+        st.success("비밀번호를 변경했습니다.")
+        st.session_state.pop("change_password_open", None)
+    else:
+        # change_password는 현재 비밀번호 불일치·새 비밀번호 규칙 위반 모두 False로 알려 준다.
+        st.error("현재 비밀번호가 올바르지 않거나, 새 비밀번호가 규칙(8~20자, 영문·숫자 포함, 공백 없음)에 맞지 않습니다.")
 
 
 def _render_access_requests(user_id: int) -> None:
