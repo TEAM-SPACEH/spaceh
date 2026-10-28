@@ -128,6 +128,8 @@ class TestS04Permissions(unittest.TestCase):
 
 
     # 테스트 4. 검색 저장소에 권한 필터가 전달되는지 확인
+    # 감사 로그는 MySQL에 쓰므로 막아 둔다 (안 막으면 테스트마다 실제 기록이 쌓인다).
+    @patch("app.search.services.search_service.record_audit_log")
     @patch(
         "app.permissions.services.permission_service.get_approved_doc_ids",
         return_value=[]
@@ -143,7 +145,8 @@ class TestS04Permissions(unittest.TestCase):
         self,
         mock_query_chunks,
         mock_embed,
-        mock_approved
+        mock_approved,
+        mock_audit
     ):
 
         # 검색 저장소에서 반환할 가상 청크
