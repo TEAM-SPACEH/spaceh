@@ -1,6 +1,6 @@
 """spaceH Streamlit 진입점. 저장소 루트에서 `streamlit run main.py`로 실행한다.
 
-로그인 전에는 로그인 화면만, 로그인 후에는 역할별 메뉴를 보여 준다 (overview §2.2, 플로우 차트).
+로그인 전에는 로그인 화면만, 로그인 후에는 역할별 메뉴를 보여 준다 (Figma "UI v4 디테일 수정", overview §2.2).
 메뉴의 각 페이지는 메소드 명세서의 페이지 함수(render_search 등)를 부른다. 담당자가 그 함수를
 아직 만들지 않았으면 "준비 중" 화면이 대신 나온다. 함수를 만들면 이 파일을 고치지 않아도 연결된다.
 """
@@ -11,7 +11,7 @@ import streamlit as st
 
 from app.auth.services.auth_service import login, logout
 from app.auth.session import get_current_user
-from app.common.ui import apply_theme, empty_state, page_header, show_text
+from app.common.ui import apply_theme, empty_state, page_header, show_text, text_html
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_EMPLOYEE, ROLE_SUPER_ADMIN
 
 st.set_page_config(page_title="spaceH", layout="wide")
@@ -22,27 +22,26 @@ ROLE_LABELS = {
     ROLE_COMPANY_ADMIN: "계열사 관리자",
     ROLE_SUPER_ADMIN: "최종 어드민",
 }
-ADMIN_ROLES = (ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN)
 
-# (메뉴 이름, 주소, 모듈, 메소드 명세서의 페이지 함수, 볼 수 있는 역할)
-# 메뉴 순서는 플로우 차트의 사이드바 순서를 따른다.
-MENU = {
-    "": [
-        ("통합 검색", "search", "app.search.views.search_page", "render_search", None),
-        ("보고서", "report", "app.reports.views.report_page", "render_report_page", None),
-        # 마이페이지(M-02·M-04) 화면 함수는 명세서에 없다. 이름이 정해지면 여기만 바꾼다.
-        ("마이페이지", "mypage", "app.users.views.mypage", "render_mypage", None),
-    ],
-    "관리자": [
-        ("대시보드", "admin-dashboard", "app.admin.views.dashboard", "render_admin_dashboard", ADMIN_ROLES),
-        ("문서 관리", "admin-documents", "app.admin.views.documents", "render_admin_documents", ADMIN_ROLES),
-        ("그룹사 공유", "admin-sharing", "app.admin.views.sharing", "render_admin_sharing", ADMIN_ROLES),
-        ("권한 승인", "admin-permissions", "app.admin.views.access_requests", "render_admin_permissions", ADMIN_ROLES),
-        ("감사 로그", "admin-audit-logs", "app.admin.views.audit_logs", "render_admin_audit_logs", ADMIN_ROLES),
-        ("DART 수집", "admin-dart", "app.admin.views.dart_collection", "render_admin_dart_collect", (ROLE_SUPER_ADMIN,)),
-        ("계열사 관리", "admin-companies", "app.admin.views.companies", "render_admin_companies", (ROLE_SUPER_ADMIN,)),
-    ],
-}
+# (메뉴 이름, 주소, 모듈, 메소드 명세서의 페이지 함수)
+# 모든 사용자 메뉴. UI v4는 관리자의 내 정보를 오른쪽 위 아바타에 두지만 Streamlit에는 그 자리가 없어 메뉴에 둔다.
+USER_MENU = [
+    ("통합 검색", "search", "app.search.views.search_page", "render_search"),
+    ("보고서", "report", "app.reports.views.report_page", "render_report_page"),
+    # 내 정보(M-02·M-03·M-04) 화면 함수는 명세서에 없다. 이름이 정해지면 여기만 바꾼다.
+    ("내 정보", "mypage", "app.users.views.mypage", "render_mypage"),
+]
+# 관리 메뉴. 그룹사 공유(A-03)·현황(A-09)은 UI v4에서 별도 메뉴 없이 문서 화면 안에 들어간다.
+COMPANY_ADMIN_MENU = [
+    ("문서", "admin-documents", "app.admin.views.documents", "render_admin_documents"),
+    ("열람 권한 요청", "admin-access-requests", "app.admin.views.access_requests", "render_admin_permissions"),
+    ("감사 로그", "admin-audit-logs", "app.admin.views.audit_logs", "render_admin_audit_logs"),
+]
+SUPER_ADMIN_MENU = [
+    ("계열사", "admin-companies", "app.admin.views.companies", "render_admin_companies"),
+    *COMPANY_ADMIN_MENU,
+    ("DART 수집", "admin-dart", "app.admin.views.dart_collection", "render_admin_dart_collect"),
+]
 
 
 def _find_page_function(module_name: str, function_name: str):
@@ -86,34 +85,56 @@ def _login_page() -> None:
     st.error("사원번호 또는 비밀번호가 맞지 않습니다.")
 
 
-def _render_sidebar_user(user: dict) -> None:
-    """사이드바 맨 위 사용자 정보(이름·역할·소속)와 로그아웃(계정 전환)."""
+def _company_label(user: dict) -> str:
+    """화면에 보여 줄 소속 이름. 세션에 회사 이름이 없으면 회사 코드를 쓴다."""
+    return user.get("company_name") or user.get("company_id") or "전 계열사"
+
+
+def _scope_lines(user: dict) -> tuple[str, list[str]]:
+    """사이드바 아래 안내 상자의 제목과 줄 (UI v4: 내 열람 범위 / 관리 범위)."""
+    company = _company_label(user)
+    if user["role"] == ROLE_SUPER_ADMIN:
+        return "관리 범위", ["모든 계열사 문서와 사용자"]
+    if user["role"] == ROLE_COMPANY_ADMIN:
+        return "관리 범위", [f"{company} 문서와 사용자", "다른 계열사 문서는 볼 수만 있음"]
+    return "내 열람 범위", ["공개 문서 전체", f"{company} 사내 문서", "다른 계열사가 공유한 사내 문서", "열람 승인받은 문서"]
+
+
+def _render_sidebar(user: dict) -> None:
+    """사이드바: 사용자 정보(이름·역할·소속), 로그아웃(계정 전환), 열람·관리 범위."""
     with st.sidebar:
-        # 이름은 DB에서 온 값이라 Markdown으로 해석하지 않는 공통 함수로 보여 준다.
+        # 이름·소속은 DB에서 온 값이라 Markdown으로 해석하지 않는 공통 함수로 보여 준다.
         show_text(user["name"], bold=True)
-        role = ROLE_LABELS.get(user["role"], user["role"])
-        show_text(f"{role} · {user['company_id'] or '전 계열사'}", muted=True)
+        show_text(f"{ROLE_LABELS.get(user['role'], user['role'])} · {_company_label(user)}", muted=True)
         if st.button("로그아웃 · 계정 전환", key="m01_logout"):
             logout()
             st.rerun()
 
+        title, lines = _scope_lines(user)
+        with st.container(border=True):
+            # 줄마다 st.html을 따로 부르면 요소 사이 간격이 벌어져 한 번에 그린다.
+            st.html(text_html(title, bold=True) + "".join(text_html(line, muted=True) for line in lines))
+
 
 def _build_pages(user: dict) -> dict:
-    """로그인 사용자의 역할로 볼 수 있는 메뉴만 st.Page로 만든다."""
-    pages = {}
-    for section, items in MENU.items():
-        section_pages = [
+    """로그인 사용자의 역할로 볼 수 있는 메뉴만 st.Page로 만든다. 섹션 이름이 키다."""
+
+    def to_pages(items: list) -> list:
+        return [
             st.Page(
                 _make_page(title, module_name, function_name),
                 title=title,
                 url_path=url_path,
                 default=url_path == "search",
             )
-            for title, url_path, module_name, function_name, roles in items
-            if roles is None or user["role"] in roles
+            for title, url_path, module_name, function_name in items
         ]
-        if section_pages:
-            pages[section] = section_pages
+
+    pages = {"": to_pages(USER_MENU)}
+    if user["role"] == ROLE_SUPER_ADMIN:
+        pages["전체 관리"] = to_pages(SUPER_ADMIN_MENU)
+    elif user["role"] == ROLE_COMPANY_ADMIN:
+        pages[f"{_company_label(user)} 관리"] = to_pages(COMPANY_ADMIN_MENU)
     return pages
 
 
@@ -121,5 +142,5 @@ user = get_current_user()
 if user is None:
     st.navigation([st.Page(_login_page, title="로그인", url_path="login")], position="hidden").run()
 else:
-    _render_sidebar_user(user)
+    _render_sidebar(user)
     st.navigation(_build_pages(user)).run()
