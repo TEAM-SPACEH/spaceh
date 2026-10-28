@@ -5,6 +5,7 @@ permissions.permission_service를 거친다. 메뉴 연결(main.py)은 팀장이
 """
 
 import html
+import logging
 from datetime import datetime
 
 import streamlit as st
@@ -13,6 +14,8 @@ from app.auth.session import get_current_user_id
 from app.common.ui import company_tag_html, empty_state, page_header, show_text
 from app.permissions.services.permission_service import get_access_request_history
 from app.users.services.user_service import get_user_info
+
+logger = logging.getLogger(__name__)
 
 # 역할 코드 → 화면 이름 (DB에는 영어 코드만 저장, 화면에서 한글로 바꾼다)
 _ROLE_LABELS = {
@@ -36,7 +39,13 @@ def render_mypage() -> None:
         st.warning("로그인 후 이용할 수 있습니다.")
         return
 
-    info = get_user_info(user_id)
+    try:
+        info = get_user_info(user_id)
+    except Exception:
+        # DB 오류 등은 화면 밖으로 터뜨리지 않고, 쉬운 말로 안내하고 자세한 내용은 로그에만 남긴다.
+        logger.exception("내 정보 조회 실패")
+        st.error("내 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        return
     if info is None:
         st.error("내 정보를 불러오지 못했습니다.")
         return
@@ -64,7 +73,13 @@ def _render_profile(info: dict) -> None:
 def _render_access_requests(user_id: int) -> None:
     """열람 권한 요청 목록: 문서·회사·요청 시각·상태를 표로 보여 준다."""
     st.subheader("열람 권한 요청")
-    requests = get_access_request_history(user_id)
+    try:
+        requests = get_access_request_history(user_id)
+    except Exception:
+        # DB 오류 등은 화면 밖으로 터뜨리지 않고, 쉬운 말로 안내하고 자세한 내용은 로그에만 남긴다.
+        logger.exception("열람 권한 요청 목록 조회 실패")
+        st.error("열람 권한 요청 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        return
     if not requests:
         empty_state("열람 권한을 요청한 문서가 없습니다.")
         return
