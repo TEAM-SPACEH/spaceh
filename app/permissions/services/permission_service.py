@@ -12,7 +12,13 @@
   문서 내용이 LLM에 들어갈 길이 처음부터 막힌다.
 """
 
-from app.permissions.repositories.permission_repository import get_approved_doc_ids
+from app.permissions.repositories.permission_repository import (
+    find_document,
+    find_user,
+    get_approved_doc_ids,
+    has_pending_request,
+    insert_access_request,
+)
 from core.constants import (
     ACCESS_CONFIDENTIAL,
     ACCESS_INTERNAL,
@@ -141,3 +147,96 @@ def _matches(condition: dict, document: dict) -> bool:
         elif actual != expected:
             return False
     return True
+
+
+# ─── M-03: "이 문서 봐도 돼요?" 확인과 "보게 해 주세요" 요청 ───
+#
+# 쉽게 말하면:
+#  - 문서마다 '이름표'(document_id = doc_id)가 붙어 있다. 그 이름표로 문서를 찾는다.
+#  - 볼 수 있는지 없는지는 아래 네 함수가 정한다. "봐도 되면 True, 안 되면 False".
+#  - 못 보는 문서는 "저 이거 보게 해 주세요"라고 요청을 남길 수 있다(관리자가 나중에 허락).
+#
+# 참고: document_id는 숫자가 아니라 글자(문자열)다. 문서 이름표가 'a3f9c0...' 같은 글자라서다.
+#       (기능명세서에는 숫자로 적혀 있지만, 실제 저장된 모양은 글자다.)
+
+
+def check_document_access(user_id: int, document_id: str) -> bool:
+    """M-03 이 사람(user_id)이 이 문서(document_id)를 볼 수 있는지 True/False로 알려준다.
+
+    누가 무엇을 볼 수 있는지는 역할(사원/관리자), 소속 회사, 문서의 보안 등급,
+    그룹사 공유 여부, 그리고 '봐도 된다'고 허락(승인)받았는지로 정해진다.
+    그 판단은 이미 있는 check_search_permission 한 곳에 맡겨, 검색 화면과 규칙이 똑같게 한다.
+    """
+    # 1) 사원번호로 사람 정보를, 이름표로 문서 정보를 데이터베이스에서 찾아온다.
+    user = find_user(user_id)
+    document = find_document(document_id)
+
+    # 2) 사람이나 문서가 없으면 "볼 수 없음"으로 안전하게 답한다.
+    if user is None or document is None:
+        return False
+
+    # 3) 실제 "볼 수 있나?" 판단은 기존 함수에 맡긴다.
+    return check_search_permission(user, document)
+
+
+def check_existing_request(user_id: int, document_id: str) -> bool:
+    """M-03 이 사람이 이 문서에 대해 '아직 처리 안 된(대기 중) 요청'을 이미 냈는지 확인한다.
+
+    (대기 중 = 관리자가 아직 허락도 거절도 안 한 상태. 같은 요청을 두 번 내지 않게 막는 데 쓴다.)
+    """
+    return has_pending_request(user_id, document_id)
+
+
+def can_request_access(user_id: int, document_id: str) -> bool:
+    """M-03 이 사람이 이 문서에 '보게 해 주세요' 요청을 '새로' 낼 수 있는지 판단한다.
+
+    다음 중 하나라도 해당하면 요청할 수 없다(False):
+      - 최종 관리자(super_admin): 어차피 모든 문서를 볼 수 있어 요청이 필요 없다.
+      - 이미 볼 수 있는 문서: 요청할 이유가 없다.
+      - 이미 대기 중인 요청이 있음: 같은 요청을 또 낼 필요가 없다.
+    셋 다 아니면(= 못 보는 문서인데 요청도 안 낸 상태) 요청할 수 있다(True).
+    """
+    # 1) 사람·문서 찾기. 둘 중 하나라도 없으면 요청 불가.
+    user = find_user(user_id)
+    document = find_document(document_id)
+    if user is None or document is None:
+        return False
+
+    # 2) 최종 관리자는 전부 볼 수 있으니 요청할 필요가 없다.
+    if user["role"] == ROLE_SUPER_ADMIN:
+        return False
+
+    # 3) 이미 볼 수 있는 문서면 요청할 필요가 없다.
+    if check_search_permission(user, document):
+        return False
+
+    # 4) 이미 같은 요청이 대기 중이면 또 내지 않는다.
+    if has_pending_request(user_id, document_id):
+        return False
+
+    # 5) 여기까지 왔으면 "못 보는 문서 + 요청도 없음" → 요청할 수 있다.
+    return True
+
+
+def request_document_access(user_id: int, document_id: str, reason: str) -> bool:
+    """M-03 못 보는 문서에 대해 '이래서 보고 싶어요'(사유)를 적어 열람 요청을 남긴다.
+
+    이 요청은 그 문서를 가진 회사의 관리자가 나중에 보고 허락/거절한다(A-05).
+    사유가 비었거나 요청할 수 없는 상황(관리자·이미 열람 가능·대기 중 요청 있음)이면
+    아무것도 저장하지 않고 False. 요청을 잘 남기면 True.
+    """
+    # 1) 사유(reason)가 비어 있으면 요청을 받지 않는다.
+    if not reason or not reason.strip():
+        return False
+
+    # 2) 지금 요청해도 되는 상황인지 먼저 확인한다(위 can_request_access 규칙).
+    if not can_request_access(user_id, document_id):
+        return False
+
+    # 3) 이 요청을 처리할 '주인 회사'는 문서를 가진 회사(company_id)다. 그 회사 관리자가 본다.
+    document = find_document(document_id)
+    if document is None:
+        return False
+
+    # 4) 요청을 데이터베이스에 '대기 중' 상태로 저장한다. 저장 성공이면 True.
+    return insert_access_request(user_id, document_id, document["company_id"], reason.strip())
