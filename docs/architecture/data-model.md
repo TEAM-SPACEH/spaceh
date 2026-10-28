@@ -182,6 +182,16 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 - A-01 `upload_document()`가 업로드 권한·중복을 확인하고 파일과 DB 행·확정 작성일을 먼저 저장한다. 호출 결과로 DB 상태를 갱신하는 것도 A-01 책임이다. 재색인도 같은 함수에 기존 문서 ID와 원본 등록 정보를 전달한다. 이 함수 자체는 DB·파일 저장·UUID 생성·DART 수집을 수행하지 않는다.
 - 회사·문서 유형·보안 정보는 등록 정보에서만 구성하고, 마스킹된 블록만 청킹·임베딩으로 넘긴다. 등록 형식과 실제 파일 확장자가 다르면 임베딩 전에 실패로 처리한다. 메타데이터의 원문 위치는 청크까지 유지한다.
 
+### 관리자 업로드 (A-01)
+
+`upload_document(file, metadata, user)`는 세션 사용자 ID로 활성 관리자 역할을 다시 조회한다. 계열사 관리자는 자사만, 최종 관리자는 모든 활성 회사에 등록할 수 있다. `file`은 `name`과 `read`·`seek`·`tell`을 제공하는 업로드 객체이며 PDF·DOCX·PPTX, 비어 있지 않은 20 MiB 이하만 받는다. 원래 읽기 위치는 보존한다.
+
+`metadata`는 `company_id`, `doc_type`, `access_level`이 필수이고 `title`, `published_date`, `is_mock`은 선택이다. 제목은 파일명으로, 작성일은 확정한 업로드일로 대체한다. 회사명은 DB에서 조회하고 파일명·형식은 업로드 객체에서 얻는다. 출처는 `internal`, 그룹사 공유는 OFF로 등록하며 공유 변경은 A-03에서 수행한다.
+
+동일 기업의 원본 SHA-256이 같으면 기존 문서의 ID·제목·색인 상태와 `index_status="duplicate"`를 반환하고 덮어쓰거나 API를 호출하지 않는다. `check_duplicate_document(file, company_id, user)`도 관리 권한을 확인하고 `is_duplicate`·`document`·`error_message`를 반환한다. 등록 단계에서는 회사 행을 잠그고 중복을 다시 조회해 A-01의 동시 등록을 직렬화한다.
+
+원본은 `UPLOAD_DIR/{uuid}.{확장자}`로 배타적으로 저장한 뒤 DB에 `pending` 행을 등록한다. `indexing`으로 바꾸고 파이프라인의 완료·실패와 청크 수를 반영한다. 실패한 등록 문서와 원본은 재처리용으로 보존한다. DB 등록 commit 응답이 불명확하면 원본과 문서 ID를 남겨 확인하도록 안내한다. DB·파일·Chroma는 하나의 트랜잭션이 아니며 상태 기록까지 실패하면 수동 확인이 필요하다. `page_count`·`pii_masked_count`는 파이프라인 반환 계약에 없어 DB 기본값을 유지한다.
+
 ## 5. MySQL 테이블
 
 8개 테이블 모두 `db/schema.sql`에 있다. 컬럼 설명은 팀 「DB 스키마 정의서」(제출용 사본)와 `schema.sql`의 COMMENT에 있고, 둘이 다르면 `schema.sql`을 따른다.
