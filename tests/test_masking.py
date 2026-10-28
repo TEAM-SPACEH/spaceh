@@ -1,3 +1,4 @@
+import copy
 import unittest
 
 from app.ingestion.preprocessing.masking import mask_sensitive_data
@@ -106,6 +107,50 @@ class MaskSensitiveDataTest(unittest.TestCase):
     def test_receipt_number_is_kept(self):
         original = "접수번호 20240312000123"
         self.assertEqual(_mask(original)[0], original)
+
+    def test_sections_are_masked_without_duplicate_counts_or_input_changes(self):
+        """제목의 개인정보와 복사된 절 이름을 모두 치환하되 원문 건수만 집계한다."""
+        title = "문의 010-1234-5678 test@example.com"
+        blocks = [{"text": title, "section": title, "block_type": "title", "page": 1},
+                  {"text": "본문", "section": title, "block_type": "text", "page": 2},
+                  {"text": "표 내용", "section": title, "block_type": "table", "page": 3}]
+        before = copy.deepcopy(blocks)
+        masked, counts = mask_sensitive_data(blocks)
+        for item in masked:
+            self.assertEqual(item["section"], "문의 [마스킹: 연락처] [마스킹: 이메일]")
+        self.assertEqual(counts, {"연락처": 1, "이메일": 1, "계좌": 0})
+        self.assertEqual(blocks, before)
+        self.assertEqual([b["page"] for b in masked], [1, 2, 3])
+
+    def test_section_whitespace_is_normalized_without_joining_lines(self):
+        """여러 공백·탭 전화번호를 치환하고 계좌 키워드의 줄 경계는 보존한다."""
+        blocks = [{"text": "본문", "section":
+                   " 문의 010  1234\t\t5678\r\n입금\r\n110-123-456789 "}]
+        before = copy.deepcopy(blocks)
+        masked, counts = mask_sensitive_data(blocks)
+        self.assertEqual(masked[0]["section"],
+                         "문의 [마스킹: 연락처]\n입금\n110-123-456789")
+        self.assertEqual(sum(counts.values()), 0)
+        self.assertEqual(blocks, before)
+
+    def test_section_does_not_change_body_table_header_state(self):
+        """절 이름의 법인등록번호 라벨을 본문 표의 머리글로 오인하지 않는다."""
+        blocks = [{"text": "표 안내", "section": "법인등록번호", "block_type": "table"},
+                  {"text": "국민은행 110-123-456789", "section": "법인등록번호",
+                   "block_type": "table"}]
+        masked, counts = mask_sensitive_data(blocks)
+        self.assertEqual(masked[1]["text"], "국민은행 [마스킹: 계좌]")
+        self.assertEqual(counts["계좌"], 1)
+
+    def test_body_table_header_state_does_not_exempt_section_account(self):
+        """본문의 법인번호 열 상태를 절 이름에 적용해 계좌 마스킹을 놓치지 않는다."""
+        blocks = [{"text": "법인등록번호", "block_type": "table", "section": ""},
+                  {"text": "110111-1234567 (국민은행)", "block_type": "table",
+                   "section": "입금 계좌 110-123-456789"}]
+        masked, counts = mask_sensitive_data(blocks)
+        self.assertEqual(masked[1]["text"], blocks[1]["text"])
+        self.assertEqual(masked[1]["section"], "입금 계좌 [마스킹: 계좌]")
+        self.assertEqual(sum(counts.values()), 0)
 
     def test_input_not_mutated_and_other_keys_kept(self):
         blocks = [{"text": "010-1234-5678", "page": 3}, {"text": ""}]

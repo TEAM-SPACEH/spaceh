@@ -86,6 +86,52 @@ class ChunkerTest(unittest.TestCase):
             )
             self.assertEqual([body(c) for c in chunks], ["첫째\n둘째", "다음"])
 
+    def test_docx_paragraph_numbers_do_not_clear_table_caption_and_unit(self):
+        """DOCX는 문단 순번이 달라도 같은 절의 표 제목·단위를 유지한다."""
+        blocks = [block("절 제목", page=1, section="A", kind="title"),
+                  block("표 1. 매출", page=2, section="A"),
+                  block("(단위: 천원)", page=3, section="A"),
+                  block("| 매출 | 123 |", page=4, section="A", kind="table"),
+                  block("| 이익 | 45 |", page=5, section="A", kind="table")]
+        chunks = split_into_chunks(blocks, {**self.metadata, "file_format": "docx"}, {})
+        tables = [c for c in chunks if c["metadata"]["block_type"] == "table"]
+        self.assertIn("표 1. 매출", body(tables[0]))
+        for item in tables:
+            self.assertIn("(단위: 천원)", body(item))
+        self.assertNotIn("| 매출 | 123 |", body(tables[1]))
+
+    def test_docx_intro_groups_by_section_or_document_when_section_missing(self):
+        """DOCX 소개서는 문단별로 쪼개지 않고 절 또는 제목 없는 본문 단위로 묶는다."""
+        for section in ("안내", ""):
+            with self.subTest(section=section):
+                blocks = [block("첫 문단", page=1, section=section),
+                          block("다음 문단", page=2, section=section)]
+                chunks = split_into_chunks(blocks,
+                                           {**self.metadata, "file_format": "docx",
+                                            "doc_type": "intro"}, {})
+                self.assertEqual(len(chunks), 1)
+                self.assertEqual(body(chunks[0]), "첫 문단\n다음 문단")
+        blocks = [block("단위: 원", page=1, section="A"),
+                  block("새 절", page=2, section="B", kind="title"),
+                  block("| 새 표 |", page=3, section="B", kind="table")]
+        chunks = split_into_chunks(blocks, {**self.metadata, "file_format": "docx"}, {})
+        self.assertNotIn("단위: 원", body(chunks[-1]))
+
+    def test_pptx_still_clears_context_and_groups_intro_by_slide(self):
+        """PPTX는 실제 슬라이드 경계를 넘겨 표 문맥이나 소개서 본문을 합치지 않는다."""
+        chunks = split_into_chunks(
+            [block("단위: 원", page=1, section="A"),
+             block("| 새 표 |", page=2, section="A", kind="table")],
+            {**self.metadata, "file_format": "pptx"}, {},
+        )
+        self.assertNotIn("단위: 원", body(chunks[-1]))
+        chunks = split_into_chunks(
+            [block("슬라이드 1", page=1, section="A"),
+             block("슬라이드 2", page=2, section="A")],
+            {**self.metadata, "file_format": "pptx", "doc_type": "intro"}, {},
+        )
+        self.assertEqual(len(chunks), 2)
+
     def test_large_table_repeats_header_context_without_losing_rows(self):
         """긴 표의 모든 행을 보존하고 각 조각에 머리글·제목·단위를 반복한다."""
         table = "| 항목 | 값 |\n| --- | --- |\n" + "| 자산 | 123 |\n" * 100

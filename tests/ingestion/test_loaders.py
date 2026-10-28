@@ -15,6 +15,7 @@ from app.ingestion.parsers.loader import load_document
 from app.ingestion.parsers.pdf import parse_pdf
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
+    normalize_text,
     table_to_markdown,
 )
 
@@ -301,6 +302,19 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         self.assertIn(r"x\\y", result)
         self.assertIn("| last |  |", result)
         self.assertEqual(table_to_markdown([[None, ""]]), "")
+
+    def test_text_and_section_share_whitespace_normalization(self):
+        """본문·절 이름을 같은 방식으로 정규화하고 줄바꿈은 남긴다."""
+        original = " 문의 010  1234\t5678\r\n 다음  줄 "
+        expected = "문의 010 1234 5678\n다음 줄"
+        blocks = [{"block_type": "title", "text": original, "section": original,
+                   "page": 1, "location": "문단 1"}]
+        before = copy.deepcopy(blocks)
+        result = normalize_blocks(blocks)[0]
+        self.assertEqual(normalize_text(original), expected)
+        self.assertEqual(result["text"], expected)
+        self.assertEqual(result["section"], expected)
+        self.assertEqual(blocks, before)
 
     def test_normalization_keeps_lines_locations_and_input(self):
         """정규화가 원본·위치·줄바꿈을 유지하며 잘못된 블록을 거부한다."""
