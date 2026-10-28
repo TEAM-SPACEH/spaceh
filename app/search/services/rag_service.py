@@ -13,6 +13,8 @@ from .rag_prompt import SYSTEM_PROMPT, USER_PROMPT
 
 from openai import APIError
 
+from core import config  # 모델 이름 등 설정값은 .env를 거쳐 config에서 읽는다(하드코딩 금지)
+
 def _get_field(chunk: Any, name: str, default=None) :
     """딕셔너리 또는 객체에서 필드 값을 가져옵니다"""
     if isinstance(chunk, Mapping):
@@ -133,8 +135,9 @@ def _generate_with_openai(query: str, context: str) -> str:
     ])
 
     # 3. OpenAI 모델 설정
+    # 모델 이름은 config.LLM_MODEL(.env의 LLM_MODEL)에서 읽는다. 하드코딩하지 않는다.
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=config.LLM_MODEL,
         temperature=0,
     )
 
@@ -295,8 +298,9 @@ def _judge_grounding(answer: str, context: str) -> str:
         ),
     ])
 
+    # 모델 이름은 config.LLM_MODEL(.env의 LLM_MODEL)에서 읽는다. 하드코딩하지 않는다.
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=config.LLM_MODEL,
         temperature=0,
     )
 
@@ -413,16 +417,6 @@ FOLLOWUP_COUNT = 3
 # 토크나이저(외부 패키지)를 들이지 않으려고 토큰 대신 글자 수로 어림잡는다.
 _FOLLOWUP_CHAR_BUDGET = 8000
 
-# 모델이 3개보다 적게 내놓을 때, 정상 입력에서 항상 3개를 돌려주려고 채워 넣는 일반 질문.
-# (재생성으로도 모자랄 때만 뒤에서부터 채운다. 모두 물음표로 끝난다.)
-_FALLBACK_FOLLOWUPS = (
-    "이 내용과 관련해 더 자세한 자료가 있나요?",
-    "관련된 위험 요인이나 한계는 무엇인가요?",
-    "다른 계열사는 어떤 상황인가요?",
-    "최근 동향이나 전망은 어떤가요?",
-    "핵심 수치나 근거는 무엇인가요?",
-)
-
 def _generate_followups_with_openai(query: str, answer: str, context: str) -> str:
     """OpenAI LLM으로 후속 질문 후보를 생성합니다 (한 줄에 하나씩)."""
 
@@ -460,8 +454,9 @@ def _generate_followups_with_openai(query: str, answer: str, context: str) -> st
     ])
 
     # 3. OpenAI 모델 설정
+    # 모델 이름은 config.LLM_MODEL(.env의 LLM_MODEL)에서 읽는다. 하드코딩하지 않는다.
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=config.LLM_MODEL,
         temperature=0,
     )
 
@@ -540,31 +535,16 @@ def _parse_followups(text: str, query: str = "", limit: int = FOLLOWUP_COUNT) ->
 
     return questions
 
-def _request_followups(query: str, answer: str, context: str) -> list[str]:
-    """LLM을 한 번 호출해 후속 질문 후보를 파싱해 돌려준다.
-
-    API 오류는 파일 규칙대로 RAGServiceError로 바꾼다. 결과는 최대 3개(원래 질문 제외).
-    """
-    try:
-        raw = _generate_followups_with_openai(query, answer, context)
-    except APIError as exc:
-        raise RAGServiceError(
-            "후속 질문 추천 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
-        ) from exc
-
-    if not isinstance(raw, str):
-        return []
-
-    return _parse_followups(raw, query)
-
 def generate_followup_questions(
         query: str,
         answer: str,
         chunks: Sequence[Any]
 ) -> list[str]:
-    """S-07 AI 답변과 검색 근거를 기반으로 후속 질문 3개를 생성합니다.
+    """S-07 AI 답변과 검색 근거를 기반으로 후속 질문을 최대 3개 생성합니다.
 
     근거(chunks)가 없거나 답변이 '찾을 수 없음'이면 추천할 것이 없으므로 빈 목록을 돌려줍니다.
+    모델이 3개보다 적게 주면 '적은 대로' 돌려줍니다 — 답변과 무관한 일반 질문으로 억지로 채우지
+    않고, 재시도도 하지 않습니다(LLM 호출을 두 배로 늘리지 않기 위해서).
     """
 
     # 1. 질문·답변이 비어 있거나 근거 없음 답변이면 추천하지 않는다.
@@ -583,21 +563,16 @@ def generate_followup_questions(
     if not sources:
         return []
 
-    query_clean = query.strip()
-    answer_clean = answer.strip()
+    # 3. OpenAI로 후속 질문을 한 번만 생성한다 (재시도 없음). API 오류는 RAGServiceError로 올린다.
+    try:
+        raw = _generate_followups_with_openai(query.strip(), answer.strip(), context)
+    except APIError as exc:
+        raise RAGServiceError(
+            "후속 질문 추천 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
+        ) from exc
 
-    # 3. OpenAI로 후속 질문 생성 (첫 시도 실패는 RAGServiceError로 올린다).
-    questions = _request_followups(query_clean, answer_clean, context)
+    if not isinstance(raw, str):
+        return []
 
-    # 4. 3개보다 적으면 한 번 더 생성하고, 그래도 모자라면 일반 질문으로 채워 항상 3개를 보장한다.
-    if len(questions) < FOLLOWUP_COUNT:
-        try:
-            retry = _request_followups(query_clean, answer_clean, context)
-        except RAGServiceError:
-            retry = []  # 재시도 실패는 무시하고 대체 질문으로 넘어간다.
-
-        # 생성분(우선) + 재시도분 + 대체 질문을 합쳐 다시 정리(중복·원래 질문 제외, 3개 제한).
-        merged = "\n".join([*questions, *retry, *_FALLBACK_FOLLOWUPS])
-        questions = _parse_followups(merged, query_clean)
-
-    return questions[:FOLLOWUP_COUNT]
+    # 4. 번호·머리말·중복·원래 질문을 걸러 최대 3개를 돌려준다(모자라면 그만큼).
+    return _parse_followups(raw, query.strip())
