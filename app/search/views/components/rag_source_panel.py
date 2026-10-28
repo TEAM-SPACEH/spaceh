@@ -2,7 +2,7 @@ import html
 
 import streamlit as st
 
-from app.common.ui import citation_html, company_tag_html
+from app.common.ui import citation_html, company_tag_html, empty_state
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 
 
@@ -19,7 +19,7 @@ def render_rag_source_panel(sources: list[dict]) -> None:
     st.html('<div class="sh-s61-source-title">출처</div>')
 
     if not sources:
-        st.caption("표시할 인용 출처가 없습니다.")
+        empty_state("표시할 인용 출처가 없습니다.")
         return
 
     # 기업별 출처 묶기 (입력 순서 유지)

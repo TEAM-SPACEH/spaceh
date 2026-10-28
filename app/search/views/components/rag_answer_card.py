@@ -6,7 +6,7 @@ import re
 
 import streamlit as st
 
-from app.common.ui import citation_html
+from app.common.ui import citation_html, empty_state
 
 
 def render_rag_answer_card(result: dict) -> None:
@@ -17,12 +17,12 @@ def render_rag_answer_card(result: dict) -> None:
 
         # 답변이 비어 있는 경우
         if not isinstance(answer, str) or not answer.strip():
-            st.info("아직 생성된 답변이 없습니다.")
+            empty_state("아직 생성된 답변이 없습니다.")
             return
 
         # 문서에 답변 근거가 없는 경우
         if answer.strip() == "찾을 수 없음":
-            st.info("검색된 문서에서 충분한 답변 근거를 찾지 못했습니다.")
+            empty_state("검색된 문서에서 충분한 답변 근거를 찾지 못했습니다.")
             return
 
         # HTML 및 Markdown 실행 방지
