@@ -68,13 +68,14 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 type="primary",
             )
 
-        # 기존 S-02 검색 필터 재사용
-        selection = render_search_filters(
-            _COMPANIES,
-            _DOC_TYPES,
-            date_range,
-            key="search",
-        )
+        # 기존 S-02 검색 필터를 접을 수 있도록 표시
+        with st.expander("검색 필터 · 계열사 / 문서 유형 / 기간", expanded=False):
+            selection = render_search_filters(
+                _COMPANIES,
+                _DOC_TYPES,
+                date_range,
+                key="search",
+            )
 
     # 로그인 사용자별 결과 구분
     user_key = (
