@@ -19,7 +19,8 @@ SET FOREIGN_KEY_CHECKS = 1;
 CREATE TABLE companies (
   company_id  VARCHAR(20)  NOT NULL                COMMENT '회사 코드 (대문자, 사원번호 앞부분)',
   name        VARCHAR(100) NOT NULL                COMMENT '회사명',
-  dart_code   VARCHAR(8)   NULL                    COMMENT 'DART 고유번호 8자리 (I-05), 비상장은 NULL',
+  dart_code   VARCHAR(8)   NULL                    COMMENT 'DART 고유번호 8자리 (I-05), 비상장·입력 전은 NULL',
+  default_share_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '새 사내 문서를 올릴 때 그룹사 공유를 켠 채로 시작 (A-07 설정, A-01이 읽음)',
   is_active   TINYINT(1)   NOT NULL DEFAULT 1      COMMENT '사용 여부',
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -49,6 +49,8 @@ ACTION_LABELS = {
     "access_request": "권한 요청",
     "access_review": "권한 처리",
     "audit_export": "감사 로그 내려받기",
+    "company_create": "계열사 추가",
+    "company_update": "계열사 수정",
 }
 
 # 요약 카드의 시간대별 막대가 보여 주는 시각 범위 (업무 시간 9시~18시).
