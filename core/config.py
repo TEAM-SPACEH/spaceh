@@ -25,5 +25,7 @@ CHROMA_COLLECTION = "documents"
 
 # S-01 검색 결과로 가져올 청크 수
 SEARCH_TOP_K = int(os.getenv("SEARCH_TOP_K", "10"))
+# S-06 하이브리드 검색 RRF 상수. 클수록 순위 차이가 점수에 덜 반영된다 (관례값 60).
+HYBRID_RRF_K = int(os.getenv("HYBRID_RRF_K", "60"))
 
 SEED_DEFAULT_PASSWORD = os.getenv("SEED_DEFAULT_PASSWORD", "")

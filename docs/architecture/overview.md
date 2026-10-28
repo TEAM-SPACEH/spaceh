@@ -50,7 +50,7 @@
 | 문서 업로드·삭제·재색인 | ❌ | 자사 문서만 | 전체 |
 | 그룹사 공유 ON/OFF | ❌ | 자사 internal만 | 전체 internal |
 | 권한 요청 승인·반려 | ❌ | 자사 소유 문서만 | 전체 |
-| 감사 로그 조회 | ❌ | 자사 관련만 | 전체 |
+| 감사 로그 조회 | ❌ | 자사 직원 로그만 | 전체 |
 | DART 수집·계열사 추가·전체 재색인 | ❌ | ❌ | ✅ |
 
 ### 2.3 구현 원칙
@@ -87,7 +87,7 @@ final_where = {"$and": [where, {"company_id": {"$in": ["MVX", "ELV"]}}, {"publis
 | --- | --- | --- |
 | 모든 화면 | 현재 로그인 사용자 조회 (`auth/session.py`) | 검색·계정 |
 | 검색·답변·보고서 | 권한 필터 생성, 문서 접근 확인 (`permissions/services`) | 검색·계정 |
-| 답변·보고서 | 통합 검색 (`search/services`) | 검색·계정 |
+| 답변·보고서 | 통합 검색 (`search/services`의 `search_documents()`·`hybrid_search()`. `bm25_search()`·`vector_search()`는 직접 부르지 않는다) | 검색·계정 |
 | 관리자 업로드·DART | 적재 파이프라인 (`ingestion/pipeline.py`) | 문서·관리자 |
 | 모든 서비스 | 감사 로그 기록 (`admin/services/audit_service.py`) | 문서·관리자 |
 | 답변 출처·보고서 각주 | 출처 배지·원문 뷰어 (`documents/views/components`) | 답변·보고서 |
