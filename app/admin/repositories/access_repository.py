@@ -18,7 +18,10 @@ from core.database import get_connection
 logger = logging.getLogger(__name__)
 
 # 목록 SELECT 컬럼 (고정 문자열이라 f-string 으로 SQL 에 넣어도 안전하다).
-_LIST_COLUMNS = "doc_id, company_id, title, file_name, file_format, access_level, is_group_shared, created_at"
+_LIST_COLUMNS = (
+    "doc_id, company_id, title, file_name, file_format, doc_type, access_level, "
+    "is_group_shared, chunk_count, index_status, created_at"
+)
 
 
 def _escape_like(text: str) -> str:
@@ -38,7 +41,7 @@ def list_documents(
 
     access_levels: 조회할 보안 등급 목록 (비어 있으면 안 된다)
     company_id: 이 회사 문서만 조회. None 이면 전체 회사
-    keyword: 제목에 포함된 글자. 빈 문자열이면 조건을 걸지 않는다
+    keyword: 제목이나 파일명에 포함된 글자. 빈 문자열이면 조건을 걸지 않는다
     is_group_shared: True/False 면 그 공유 상태만, None 이면 전체
     반환: (행 목록, 조건에 맞는 전체 건수)
     """
@@ -53,8 +56,10 @@ def list_documents(
         params.append(company_id)
     if keyword:
         # 앞뒤 %는 "아무 글자나 와도 됨"이라는 LIKE 의 뜻이다. 사용자가 입력한 % 는 _escape_like 로 막는다.
-        conditions.append("title LIKE %s")
-        params.append(f"%{_escape_like(keyword)}%")
+        # OR 조건은 괄호로 묶어, 뒤에 AND 로 붙는 다른 조건(회사·공유 상태)과 섞이지 않게 한다.
+        conditions.append("(title LIKE %s OR file_name LIKE %s)")
+        pattern = f"%{_escape_like(keyword)}%"
+        params.extend([pattern, pattern])
     if is_group_shared is not None:
         # False 도 "공유 OFF 만 보기"라는 유효한 조건이라 `if is_group_shared:` 가 아니라 None 인지로 구분한다.
         conditions.append("is_group_shared = %s")
@@ -73,6 +78,28 @@ def list_documents(
         return list(cur.fetchall()), total
 
 
+def count_share_status(company_id: str | None) -> dict:
+    """공유 설정 화면 요약 카드용 집계: 사내 문서의 공유 ON·OFF 건수와 기밀 문서 건수.
+
+    company_id: 이 회사 문서만 센다. None 이면 전체 회사
+    반환: {"shared": 공유 ON(internal), "unshared": 공유 OFF(internal), "confidential": 공유 불가(confidential)}
+    """
+    where = "WHERE company_id = %s" if company_id else ""
+    params = [company_id] if company_id else []
+    with get_connection() as conn, conn.cursor() as cur:
+        # 한 번의 조회로 세 값을 센다. 값이 하나도 없으면 SUM 이 NULL 이라 COALESCE 로 0 을 준다.
+        cur.execute(
+            "SELECT "
+            "COALESCE(SUM(access_level = 'internal' AND is_group_shared = 1), 0) AS shared, "
+            "COALESCE(SUM(access_level = 'internal' AND is_group_shared = 0), 0) AS unshared, "
+            "COALESCE(SUM(access_level = 'confidential'), 0) AS confidential "
+            f"FROM documents {where}",
+            params,
+        )
+        row = cur.fetchone()
+    return {key: int(row[key]) for key in ("shared", "unshared", "confidential")}
+
+
 def get_document(doc_id: str) -> dict | None:
     """공유 변경 전 확인에 필요한 문서 1건(doc_id·company_id·access_level·is_group_shared)을 읽는다. 없으면 None."""
     with get_connection() as conn, conn.cursor() as cur:
@@ -81,6 +108,14 @@ def get_document(doc_id: str) -> dict | None:
             (doc_id,),
         )
         return cur.fetchone()
+
+
+def get_company_name(company_id: str) -> str | None:
+    """계열사 코드의 회사명. 없으면 None."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT name FROM companies WHERE company_id = %s", (company_id,))
+        row = cur.fetchone()
+        return row["name"] if row else None
 
 
 def list_company_ids() -> list[str]:

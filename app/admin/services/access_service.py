@@ -49,16 +49,19 @@ def get_manageable_documents(
     size: int = DEFAULT_PAGE_SIZE,
     *,
     share_filter: bool | None = None,
+    access_level: str = "",
 ) -> dict:
     """A-03 관리자 범위 안에서 공유 설정 대상(internal·confidential) 문서를 최신순으로 한 페이지 조회한다.
 
     user: 로그인 사용자. {"role": ..., "company_id": ...} 모양
-    keyword: 문서 제목에 포함된 글자
+    keyword: 문서 제목이나 파일명에 포함된 글자
     company_filter: 계열사 코드. 최종 어드민만 적용된다 (계열사 관리자는 항상 자사 문서만)
     page, size: 페이지 번호(1부터)와 한 페이지 건수
     share_filter: 메소드 명세서에는 없는 선택 인자. True 면 공유 ON, False 면 공유 OFF 문서만, None 이면 전체
+    access_level: 메소드 명세서에는 없는 선택 인자. internal 또는 confidential 이면 그 등급만. 그 밖의 값은 전체
     반환: {"documents": 문서 목록, "total_count": 조건 전체 건수, "page": 실제 페이지, "total_pages": 전체 페이지 수}
-        문서 dict: doc_id, company_id, title, file_name, file_format, access_level, is_group_shared(bool), created_at(문자열)
+        문서 dict: doc_id, company_id, title, file_name, file_format, doc_type, access_level, is_group_shared(bool),
+            chunk_count, index_status, created_at(문자열)
     PermissionError: 관리자가 아니거나, 소속 없는 계열사 관리자일 때
     """
     # 권한 확인이 DB 조회보다 먼저다. 계열사 관리자의 조회 범위(자사)는 화면이 보낸 company_filter 가 아니라
@@ -70,8 +73,10 @@ def get_manageable_documents(
     keyword = (keyword or "").strip()
 
     # 첫 조회와 "마지막 페이지로 보정 후 재조회"가 같은 조건을 쓰도록 한 번만 만든다.
+    # 화면이 보낸 등급이 공유 설정 대상(internal·confidential)일 때만 그 등급으로 좁힌다.
+    levels = (access_level,) if access_level in SHARE_TARGET_LEVELS else SHARE_TARGET_LEVELS
     conditions = {
-        "access_levels": SHARE_TARGET_LEVELS,
+        "access_levels": levels,
         "company_id": scope_company,
         "keyword": keyword,
         "is_group_shared": share_filter,
@@ -90,6 +95,32 @@ def get_manageable_documents(
         "page": page,
         "total_pages": total_pages,
     }
+
+
+def get_share_summary(user: dict, company_filter: str = "") -> dict:
+    """A-03 공유 설정 화면 위쪽 카드용 집계. 관리 범위(계열사 관리자는 자사, 최종 어드민은 선택한 계열사 또는 전체) 안에서 센다.
+
+    메소드 명세서에는 없는 보조 함수다.
+    반환: {"shared": 공유 ON 사내 문서 수, "unshared": 공유 OFF 사내 문서 수, "confidential": 공유 불가 기밀 문서 수,
+           "internal_total": 사내 문서 전체 수}
+    PermissionError: 관리자가 아니거나, 소속 없는 계열사 관리자일 때
+    """
+    # 권한 확인이 DB 조회보다 먼저다. 조회 범위도 get_manageable_documents 와 같은 규칙으로 정한다.
+    counts = access_repository.count_share_status(_resolve_scope(user, company_filter))
+    return {**counts, "internal_total": counts["shared"] + counts["unshared"]}
+
+
+def get_share_scope_name(user: dict) -> str:
+    """A-03 화면 제목 위에 보여 줄 관리 범위 이름. 계열사 관리자는 회사명, 최종 어드민은 "전체 계열사".
+
+    메소드 명세서에는 없는 보조 함수다.
+    PermissionError: 관리자가 아니거나, 소속 없는 계열사 관리자일 때
+    """
+    company_code = _resolve_scope(user, "")
+    if company_code is None:
+        return "전체 계열사"
+    # 회사명을 못 찾으면(삭제 등) 코드를 그대로 보여 준다.
+    return access_repository.get_company_name(company_code) or company_code
 
 
 def get_company_filter_options(user: dict) -> list[str]:
@@ -248,7 +279,10 @@ def _to_document(row: dict) -> dict:
         "title": row["title"],
         "file_name": row["file_name"],
         "file_format": row["file_format"],
+        "doc_type": row["doc_type"],
         "access_level": row["access_level"],
         "is_group_shared": bool(row["is_group_shared"]),
+        "chunk_count": row["chunk_count"],
+        "index_status": row["index_status"],
         "created_at": created_at.strftime(_DATE_FORMAT) if isinstance(created_at, datetime) else str(created_at),
     }
