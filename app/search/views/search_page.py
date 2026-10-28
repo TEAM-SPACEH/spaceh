@@ -48,36 +48,96 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         return
 
     st.title("통합 검색")
-    query = st.text_input(
-        "검색어",
-        value=query or "",
-        placeholder="현대무벡스·현대엘리베이터·현대경제연구원 문서에서 찾을 내용을 입력하세요",
+
+    # 1. 검색창과 필터를 하나의 Form으로 묶는다.
+    date_range = (_EARLIEST_DOC_DATE, date.today())
+
+    with st.form("s61_search_form"):
+        search_col, button_col = st.columns([8, 1])
+
+        with search_col:
+            search_query = st.text_input(
+                "검색어",
+                value=query or "",
+                placeholder="궁금한 내용을 검색해 보세요.",
+            )
+
+        with button_col:
+            submitted = st.form_submit_button(
+                "검색",
+                type="primary",
+            )
+
+        # 기존 S-02 검색 필터 재사용
+        selection = render_search_filters(
+            _COMPANIES,
+            _DOC_TYPES,
+            date_range,
+            key="search",
+        )
+
+    # 로그인 사용자별 결과 구분
+    user_key = (
+        user.get("id"),
+        user.get("company_id"),
+        user.get("role"),
     )
 
-    # S-02 필터를 그리고 선택값을 Chroma where 조건으로 바꾼다.
-    # 기간 상한(오늘)은 여기서 계산한다. 모듈 로드 때 한 번 고정하면 자정을 넘겨 실행될 때
-    # 바뀐 오늘 날짜를 시작일·종료일로 고를 수 없다.
-    date_range = (_EARLIEST_DOC_DATE, date.today())
-    selection = render_search_filters(_COMPANIES, _DOC_TYPES, date_range, key="search")
-    try:
-        where = apply_metadata_filters(selection)
-    except ValueError:
-        # 시작일이 종료일보다 늦는 등 잘못된 기간. 앱을 멈추지 않고 안내만 한다.
-        st.error("시작일이 종료일보다 늦습니다.")
+    state_key = "s61_search_results"
+
+    # 2. 검색 버튼을 눌렀을 때만 실행한다.
+    if submitted:
+        # 이전 검색 결과 초기화
+        st.session_state.pop(state_key, None)
+
+        if not search_query.strip():
+            st.warning("검색어를 입력해 주세요.")
+            return
+
+        try:
+            # 기존 필터 변환 함수 사용
+            where = apply_metadata_filters(selection)
+
+            # 기존 검색 서비스 호출
+            with st.spinner("문서를 검색하고 있습니다..."):
+                chunks = search_documents(
+                    search_query.strip(),
+                    where,
+                    user,
+                )
+
+            # 검색 결과 저장
+            st.session_state[state_key] = {
+                "user_key": user_key,
+                "query": search_query.strip(),
+                "chunks": chunks,
+            }
+
+        except ValueError:
+            st.error("검색 기간을 다시 확인해 주세요.")
+            return
+
+        except PermissionError:
+            st.error("검색 권한을 확인할 수 없습니다.")
+            return
+
+        except Exception:
+            logger.exception("S-01 검색 실패")
+            st.error("검색 중 문제가 발생했습니다.")
+            return
+
+    # 3. 저장된 검색 결과를 화면에 표시한다.
+    saved = st.session_state.get(state_key)
+
+    if not saved:
         return
 
-    if not query.strip():
+    # 로그인 사용자가 바뀌면 이전 결과를 보여 주지 않는다.
+    if saved["user_key"] != user_key:
+        st.session_state.pop(state_key, None)
         return
 
-    try:
-        chunks = search_documents(query, where, user)
-    except PermissionError:
-        st.error("검색 권한을 확인할 수 없습니다. 다시 로그인해 주세요.")
-        return
-    except Exception:
-        logger.exception("S-01 검색 실패")
-        st.error("검색 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
-        return
+    chunks = saved["chunks"]
 
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
