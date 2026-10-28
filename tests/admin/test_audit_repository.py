@@ -273,5 +273,61 @@ class AuditRepositoryTest(unittest.TestCase):
         self.assertEqual(params, ["MVX", 5])
 
 
+class AuditRepositoryExtraTest(unittest.TestCase):
+    """이름·문서 제목 조회와 요약 집계."""
+
+    def test_lookup_user_names_binds_ids_and_skips_db_when_empty(self):
+        """id 는 바인딩으로 넘기고, 목록이 비면 DB 를 읽지 않는다."""
+        cursor = FakeCursor()
+        cursor.fetchall = lambda: [{"id": 1, "name": "홍길동"}]
+        with _patch_connection(cursor):
+            self.assertEqual(audit_repository.lookup_user_names([1, 2]), {1: "홍길동"})
+            self.assertEqual(audit_repository.lookup_user_names([]), {})
+        self.assertEqual(len(cursor.executed), 1)
+        sql, params = cursor.executed[0]
+        self.assertIn("id IN (%s, %s)", sql)
+        self.assertEqual(params, [1, 2])
+
+    def test_lookup_documents_returns_title_and_company(self):
+        """문서는 제목과 소유 회사를 함께 돌려준다 (회사로 제목 공개 여부를 판단하기 위해)."""
+        cursor = FakeCursor()
+        cursor.fetchall = lambda: [{"doc_id": "d1", "title": "사양서", "company_id": "MVX"}]
+        with _patch_connection(cursor):
+            got = audit_repository.lookup_documents(["d1"])
+        self.assertEqual(got, {"d1": {"title": "사양서", "company_id": "MVX"}})
+        self.assertEqual(audit_repository.lookup_documents([]), {})
+
+    def test_summarize_scopes_every_query_and_binds_values(self):
+        """집계 6개 쿼리 모두 같은 범위(소속·기간) 조건을 쓰고 값은 바인딩으로만 넘긴다."""
+        cursor = FakeCursor(
+            one=[{"cnt": 10}, {"cnt": 3}, {"cnt": 4}, {"cnt": 1}],
+            many=[[{"reason": "기밀", "cnt": 2}], [{"hr": 9, "cnt": 5}]],
+        )
+        start, end = datetime(2026, 10, 28), datetime(2026, 10, 29)
+        with _patch_connection(cursor):
+            got = audit_repository.summarize("MVX", start, end)
+
+        self.assertEqual(got["total"], 10)
+        self.assertEqual(got["blocked"], 3)
+        self.assertEqual(got["blocked_reasons"], [("기밀", 2)])
+        self.assertEqual((got["downloads"], got["blocked_downloads"]), (4, 1))
+        self.assertEqual(got["hourly"], {9: 5})
+        self.assertEqual(len(cursor.executed), 6)
+        for sql, params in cursor.executed:
+            self.assertIn("company_code = %s", sql)
+            self.assertIn("created_at >= %s", sql)
+            self.assertEqual(params[:3], ["MVX", start, end])
+            self.assertNotIn("MVX", sql)
+            self.assertNotIn("JSON_CONTAINS", sql)
+
+    def test_summarize_for_super_admin_has_no_company_condition(self):
+        """최종 어드민(범위 없음)은 소속 조건 없이 기간만 건다."""
+        cursor = FakeCursor(one=[{"cnt": 0}] * 4)
+        with _patch_connection(cursor):
+            audit_repository.summarize(None, datetime(2026, 10, 28), datetime(2026, 10, 29))
+        for sql, _ in cursor.executed:
+            self.assertNotIn("company_code", sql.split("WHERE", 1)[1])
+
+
 if __name__ == "__main__":
     unittest.main()
