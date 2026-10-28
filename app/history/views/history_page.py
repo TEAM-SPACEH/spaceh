@@ -23,6 +23,9 @@ _SELECTED_KEY = "history-selected"
 
 _ALL = "전체"
 
+# 권한 요청 상태 배지 색. 공통 테마의 보안 등급 색을 다시 쓴다 (M-03 마이페이지와 같은 색).
+_STATUS_CLASS = {"pending": "sh-int", "approved": "sh-pub", "rejected": "sh-con"}
+
 
 def render_history(user: dict | None = None) -> None:
     """M-04 내 사용 이력(최신순)과 열람 권한 요청 상태를 보여 준다.
@@ -166,11 +169,15 @@ def _render_requests(user_id: int) -> None:
 
     for request in requests:
         with st.container(border=True):
-            st.html(f"<div>{company_tag_html(request['owner_company_code'])} <b>{html.escape(request['title'])}</b></div>")
+            css = _STATUS_CLASS.get(request["status"], "sh-co")
+            st.html(
+                f'<div><span class="sh-tag {css}">{html.escape(request["status_label"])}</span> '
+                f"{company_tag_html(request['owner_company_code'])} <b>{html.escape(request['title'])}</b></div>"
+            )
             dates = f"신청 {request['created_at']}"
             if request["reviewed_at"]:
                 dates += f" · 처리 {request['reviewed_at']}"
-            show_text(f"상태: {request['status_label']} · {dates}", muted=True)
+            show_text(dates, muted=True)
             show_text(f"요청 사유: {request['reason']}", muted=True)
             if request["status"] == "rejected":
                 show_text(f"반려 사유: {request['review_comment'] or '사유 없음'}")
