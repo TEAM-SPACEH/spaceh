@@ -7,6 +7,7 @@
 
 import logging
 import re
+import threading
 
 from app.admin.services.audit_service import record_audit_log
 from app.auth import session
@@ -18,16 +19,32 @@ logger = logging.getLogger(__name__)
 # 사원번호 형식: 영문·숫자·하이픈 1~20자 (예: MVX-0001). 이 형식일 때만 감사 로그에 남긴다.
 _EMPLOYEE_NO_PATTERN = re.compile(r"[A-Za-z0-9\-]{1,20}")
 
+# 감사 로그 기록을 기다리는 최대 시간(초). DB가 응답하지 않아도 로그인이 이 시간 넘게 멈추지 않게 한다.
+_AUDIT_TIMEOUT_SECONDS = 2.0
+
 
 def _audit_login(user_id: int | None, employee_no: str | None, blocked: bool, reason: str | None) -> None:
     """A-04 로그인 시도(성공·실패)를 감사 로그에 남긴다.
 
-    감사 로그 기록이 실패해도 로그인 자체는 멈추지 않도록 예외를 삼키고 로그만 남긴다.
+    감사 로그 INSERT는 동기 호출이라, DB가 응답하지 않으면 로그인이 함께 멈출 수 있다
+    (core/database.py에 읽기·쓰기 제한 시간이 없고 PyMySQL 기본값도 None이라 예외로도 안 풀린다).
+    그래서 기록은 별도 스레드에서 하고 최대 _AUDIT_TIMEOUT_SECONDS만 기다린다. 제한 시간 안에
+    못 끝내거나 예외가 나도 로그인은 계속 진행한다(기록 실패가 로그인을 막지 않는다).
     """
-    try:
-        record_audit_log(user_id, "login", None, None, blocked, reason, employee_no=employee_no)
-    except Exception:
-        logger.exception("감사 로그 기록 실패(login)")
+
+    def _write() -> None:
+        try:
+            record_audit_log(user_id, "login", None, None, blocked, reason, employee_no=employee_no)
+        except Exception:
+            logger.exception("감사 로그 기록 실패(login)")
+
+    # daemon 스레드라, 기록이 끝내 걸려 있어도 프로그램 종료를 막지 않는다.
+    worker = threading.Thread(target=_write, daemon=True)
+    worker.start()
+    worker.join(_AUDIT_TIMEOUT_SECONDS)
+    if worker.is_alive():
+        # 제한 시간 안에 못 끝냄(DB 지연 등). 기록은 포기하고 로그인은 계속 진행한다.
+        logger.warning("감사 로그 기록 지연으로 건너뜀(login)")
 
 
 def login(employee_no: str, password: str) -> bool:

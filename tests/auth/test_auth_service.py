@@ -1,5 +1,6 @@
 """M-01 login() 테스트. users 저장소·세션·감사 로그는 목으로 바꾸고, 해시는 core/security로 생성한다."""
 
+import threading
 import unittest
 from unittest import mock
 
@@ -130,6 +131,28 @@ class LoginAuditTest(unittest.TestCase):
 
         self.find.return_value = _user()
         self.assertFalse(auth_service.login("HRI-0001", "wrong"))  # 실패 유지
+
+    def test_audit_hang_does_not_block_login(self) -> None:
+        # 감사 로그 기록(DB)이 응답하지 않아도, 제한 시간 뒤 로그인은 결과를 돌려줘야 한다.
+        import time
+
+        started = threading.Event()
+
+        def _hang(*args, **kwargs):
+            started.set()
+            time.sleep(5)  # DB가 멈춘 상황을 흉내
+
+        self.record.side_effect = _hang
+        self.find.return_value = _user()
+
+        with mock.patch.object(auth_service, "_AUDIT_TIMEOUT_SECONDS", 0.2):
+            start = time.monotonic()
+            result = auth_service.login("HRI-0001", "pw-1234")
+            elapsed = time.monotonic() - start
+
+        self.assertTrue(result)  # 기록이 멈춰도 로그인 성공은 반환된다
+        self.assertTrue(started.is_set())  # 기록을 실제로 시도했다
+        self.assertLess(elapsed, 2.0)  # 5초(멈춤)보다 훨씬 빨리, 제한 시간(0.2초)쯤에 돌아온다
 
 
 if __name__ == "__main__":
