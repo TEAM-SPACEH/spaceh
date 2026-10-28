@@ -11,6 +11,11 @@ from app.search.services.search_service import apply_metadata_filters, search_do
 from app.search.views.components.search_filters import render_search_filters
 from app.search.services.rag_service import RAGServiceError, answer_question
 from app.search.views.components.rag_answer_card import render_rag_answer_card
+from app.documents.views.components.source_badge import (
+    SELECTED_SOURCE_KEY,
+    render_source_badge,
+)
+from app.documents.views.components.document_viewer import render_selected_source
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         # 이전 검색 결과 초기화
         st.session_state.pop(state_key, None)
 
+        # 이전 검색에서 선택한 원문 초기화
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
+
         if not search_query.strip():
             st.warning("검색어를 입력해 주세요.")
             return
@@ -165,6 +173,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     # 로그인 사용자가 바뀌면 이전 결과를 보여 주지 않는다.
     if saved["user_key"] != user_key:
         st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
         return
 
     chunks = saved["chunks"]
@@ -173,12 +182,28 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
         return
 
-    # S-04 AI 답변 표시
+    
+    # S-04 AI 답변 및 S-05 출처 패널 표시
     if saved.get("rag_error"):
         st.error(saved["rag_error"])
 
     elif saved.get("rag_result") is not None:
-        render_rag_answer_card(saved["rag_result"])
+        rag_result = saved["rag_result"]
+
+        # Figma 기준: 왼쪽 AI 답변 / 오른쪽 출처
+        answer_col, source_col = st.columns([2, 1], gap="large")
+
+        with answer_col:
+            render_rag_answer_card(rag_result)
+
+        with source_col:
+            st.subheader("출처")
+            render_source_badge(rag_result.get("sources") or [])
+
+        # 출처의 '원문 보기' 버튼을 누른 경우만 뷰어 표시
+        if st.session_state.get(SELECTED_SOURCE_KEY):
+            with st.expander("선택한 문서 원문", expanded=True):
+                render_selected_source(user)
 
     # 기존 S-01 검색 결과 표시
     documents = _group_by_document(chunks)
