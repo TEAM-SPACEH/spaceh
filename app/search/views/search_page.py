@@ -104,7 +104,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     state_key = "s61_search_results"
 
     # 2. 검색 버튼을 눌렀을 때만 실행한다.
-    if submitted:
+    pending = st.session_state.pop("s61_followup_pending", False)
+
+    if submitted or pending:
         # 이전 검색 결과 초기화
         st.session_state.pop(state_key, None)
 
