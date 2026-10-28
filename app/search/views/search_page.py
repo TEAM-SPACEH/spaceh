@@ -9,7 +9,7 @@ from app.auth.session import get_current_user
 from app.common.ui import show_text
 from app.search.services.search_service import apply_metadata_filters, search_documents
 from app.search.views.components.search_filters import render_search_filters
-from app.search.services.rag_service import RAGServiceError, answer_question
+from app.search.services.rag_service import RAGServiceError, generate_answer
 from app.search.views.components.rag_answer_card import render_rag_answer_card
 from app.documents.views.components.source_badge import (
     SELECTED_SOURCE_KEY,
@@ -134,10 +134,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             if chunks:
                 try:
                     with st.spinner("AI 답변을 생성하고 있습니다..."):
-                        rag_result = answer_question(
+                        rag_result = generate_answer(
                             search_query.strip(),
-                            where,
-                            user,
+                            chunks,
                         )
 
                 except PermissionError:
