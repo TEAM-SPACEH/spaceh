@@ -153,10 +153,43 @@ class ListDocumentsTest(unittest.TestCase):
         count_sql, count_params = cursor.executed[0]
         self.assertIn("access_level IN (%s, %s)", count_sql)
         self.assertIn("company_id = %s", count_sql)
+        self.assertIn("(title LIKE %s OR file_name LIKE %s)", count_sql)
         self.assertNotIn("100", count_sql)  # 검색어는 SQL 문자열에 들어가지 않는다
-        self.assertEqual(count_params, ["internal", "confidential", "MVX", "%100\\%\\_a%", 0])
+        # 제목·파일명 두 곳에서 같은 패턴을 찾으므로 검색어 값이 두 번 들어간다.
+        self.assertEqual(count_params, ["internal", "confidential", "MVX", "%100\\%\\_a%", "%100\\%\\_a%", 0])
         _, list_params = cursor.executed[1]
         self.assertEqual(list_params[-2:], [20, 40])
+
+
+class CountShareStatusTest(unittest.TestCase):
+    def test_counts_are_bound_and_scoped_by_company(self):
+        """회사 코드는 바인딩으로 넘기고, 세 값을 정수로 돌려준다."""
+        cursor = FakeCursor(one=[{"shared": 3, "unshared": 5, "confidential": 2}])
+        with patch.object(access_repository, "get_connection", _Connection(cursor)):
+            got = access_repository.count_share_status("MVX")
+
+        self.assertEqual(got, {"shared": 3, "unshared": 5, "confidential": 2})
+        sql, params = cursor.executed[0]
+        self.assertIn("WHERE company_id = %s", sql)
+        self.assertEqual(params, ["MVX"])
+
+    def test_all_companies_has_no_where(self):
+        """회사를 정하지 않으면(최종 어드민 전체) WHERE 가 없다."""
+        cursor = FakeCursor(one=[{"shared": 0, "unshared": 0, "confidential": 0}])
+        with patch.object(access_repository, "get_connection", _Connection(cursor)):
+            access_repository.count_share_status(None)
+        self.assertNotIn("WHERE", cursor.executed[0][0])
+        self.assertEqual(cursor.executed[0][1], [])
+
+
+class GetCompanyNameTest(unittest.TestCase):
+    def test_returns_name_or_none(self):
+        """회사 코드는 바인딩으로 넘기고, 없는 코드는 None 이다."""
+        cursor = FakeCursor(one=[{"name": "현대무벡스"}, None])
+        with patch.object(access_repository, "get_connection", _Connection(cursor)):
+            self.assertEqual(access_repository.get_company_name("MVX"), "현대무벡스")
+            self.assertIsNone(access_repository.get_company_name("XXX"))
+        self.assertEqual(cursor.executed[0][1], ("MVX",))
 
 
 if __name__ == "__main__":

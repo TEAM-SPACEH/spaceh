@@ -158,8 +158,11 @@ class GetManageableDocumentsTest(unittest.TestCase):
             "title": "제목",
             "file_name": "a.pdf",
             "file_format": "pdf",
+            "doc_type": "report",
             "access_level": "internal",
             "is_group_shared": 1,
+            "chunk_count": 54,
+            "index_status": "done",
             "created_at": datetime(2026, 10, 27, 9, 30),
         }
 
@@ -197,6 +200,7 @@ class GetManageableDocumentsTest(unittest.TestCase):
 
         self.assertEqual((result["total_count"], result["page"], result["total_pages"]), (45, 2, 3))
         doc = result["documents"][0]
+        self.assertEqual((doc["doc_type"], doc["chunk_count"], doc["index_status"]), ("report", 54, "done"))
         self.assertIs(doc["is_group_shared"], True)
         self.assertEqual(doc["created_at"], "2026-10-27")
         self.assertEqual(repo.list_documents.call_args.kwargs["offset"], 20)
@@ -219,6 +223,63 @@ class GetManageableDocumentsTest(unittest.TestCase):
         kwargs = repo.list_documents.call_args.kwargs
         self.assertEqual(kwargs["keyword"], "실적")
         self.assertIs(kwargs["is_group_shared"], False)
+
+
+@patch(REPO)
+class ShareSummaryAndFilterTest(unittest.TestCase):
+    """공유 요약 집계와 보안 등급 필터."""
+
+    def test_summary_is_scoped_to_company_admins_company(self, repo):
+        """계열사 관리자는 계열사 선택값과 무관하게 자사 문서만 센다. 합계도 함께 준다."""
+        repo.count_share_status.return_value = {"shared": 3, "unshared": 5, "confidential": 2}
+
+        got = access_service.get_share_summary(MVX_ADMIN, "ELV")
+
+        repo.count_share_status.assert_called_once_with("MVX")
+        self.assertEqual(got, {"shared": 3, "unshared": 5, "confidential": 2, "internal_total": 8})
+
+    def test_super_admin_summary_can_pick_company_or_all(self, repo):
+        """최종 어드민은 계열사를 고르면 그 회사, 안 고르면 전체를 센다."""
+        repo.count_share_status.return_value = {"shared": 0, "unshared": 0, "confidential": 0}
+        access_service.get_share_summary(SUPER, "ELV")
+        repo.count_share_status.assert_called_with("ELV")
+        access_service.get_share_summary(SUPER)
+        repo.count_share_status.assert_called_with(None)
+
+    def test_summary_denied_for_employee_before_db(self, repo):
+        """일반 사원은 거부되고 DB 를 읽지 않는다."""
+        with self.assertRaises(PermissionError):
+            access_service.get_share_summary(MVX_EMPLOYEE)
+        repo.count_share_status.assert_not_called()
+
+    def test_access_level_filter_narrows_only_to_share_target_levels(self, repo):
+        """internal·confidential 만 그 등급으로 좁히고, public 같은 값은 무시해 전체 대상 등급을 읽는다."""
+        repo.list_documents.return_value = ([], 0)
+
+        access_service.get_manageable_documents(SUPER, access_level="confidential")
+        self.assertEqual(repo.list_documents.call_args.kwargs["access_levels"], ("confidential",))
+        access_service.get_manageable_documents(SUPER, access_level="public")
+        self.assertEqual(repo.list_documents.call_args.kwargs["access_levels"], ("internal", "confidential"))
+
+
+@patch(REPO)
+class ShareScopeNameTest(unittest.TestCase):
+    def test_company_admin_gets_company_name_and_falls_back_to_code(self, repo):
+        """계열사 관리자는 회사명, 회사명을 못 찾으면 코드를 보여 준다."""
+        repo.get_company_name.return_value = "현대무벡스"
+        self.assertEqual(access_service.get_share_scope_name(MVX_ADMIN), "현대무벡스")
+        repo.get_company_name.return_value = None
+        self.assertEqual(access_service.get_share_scope_name(MVX_ADMIN), "MVX")
+
+    def test_super_admin_scope_is_all_companies(self, repo):
+        """최종 어드민은 "전체 계열사"이고 회사명을 조회하지 않는다."""
+        self.assertEqual(access_service.get_share_scope_name(SUPER), "전체 계열사")
+        repo.get_company_name.assert_not_called()
+
+    def test_employee_is_denied(self, repo):
+        """일반 사원은 거부된다."""
+        with self.assertRaises(PermissionError):
+            access_service.get_share_scope_name(MVX_EMPLOYEE)
 
 
 if __name__ == "__main__":
