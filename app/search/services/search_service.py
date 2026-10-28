@@ -19,6 +19,10 @@ from app.permissions.services.permission_service import apply_rbac_filter
 from app.search.repositories.chunk_repository import get_chunks, query_chunks
 from core import config
 
+# 하이브리드 검색에서 결합 전에 각 검색이 가져올 후보 수 = 최종 결과 수(SEARCH_TOP_K) × 이 값.
+# 최종 수만큼만 가져오면 양쪽에서 11위인 청크처럼 합치면 위로 올라올 청크가 결합 전에 잘린다.
+_HYBRID_CANDIDATE_FACTOR = 3
+
 # 영문·숫자 묶음(모델명 "WBST-500", "HD2000" 등)과 한글 묶음을 토큰으로 뽑는다.
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:[-_.][a-z0-9]+)*|[가-힣]+")
 
@@ -58,9 +62,12 @@ def hybrid_search(query: str, filters: dict | None, user: dict) -> list[dict]:
     # BM25 점수와 벡터 점수는 범위가 달라 그대로 더할 수 없다.
     # 그래서 각 검색의 '순위'만 보고 1/(k+순위)를 더한다 (RRF, Reciprocal Rank Fusion).
     # 같은 청크가 양쪽에 나오면 chunk_id 하나로 합쳐지고 점수가 더해진다.
+    # BM25 결과를 먼저 넣는다. 점수가 같으면 먼저 넣은 쪽이 앞에 남으므로(안정 정렬),
+    # BM25에서만 1등인 모델명 청크가 벡터에서만 1등인 청크보다 앞선다.
     rrf_k = config.HYBRID_RRF_K
+    candidate_k = config.SEARCH_TOP_K * _HYBRID_CANDIDATE_FACTOR
     merged: dict[str, dict] = {}
-    for results in (vector_search(query, where), bm25_search(query, where)):
+    for results in (bm25_search(query, where, candidate_k), vector_search(query, where, candidate_k)):
         for rank, result in enumerate(results, start=1):
             entry = merged.setdefault(result["chunk_id"], {**result, "score": 0.0})
             entry["score"] += 1 / (rrf_k + rank)
@@ -73,14 +80,15 @@ def hybrid_search(query: str, filters: dict | None, user: dict) -> list[dict]:
     return ranked[: config.SEARCH_TOP_K]
 
 
-def vector_search(query: str, filters: dict | None) -> list[dict]:
+def vector_search(query: str, filters: dict | None, top_k: int | None = None) -> list[dict]:
     """S-06 권한이 허용된 문서 청크를 대상으로 임베딩 기반 의미 유사도 검색을 한다.
 
     filters: apply_rbac_filter()가 만든 권한 포함 where. 권한 조건이 없는 where를 넘기지 않는다.
+    top_k: 가져올 청크 수. 없으면 SEARCH_TOP_K. hybrid_search()는 결합용으로 더 많이 가져온다.
     반환 모양은 search_documents()와 같다.
     명세상 user를 받지 않아 권한을 직접 확인하지 않는다. 다른 기능은 이 함수 대신 hybrid_search()를 부른다.
     """
-    chunks = query_chunks(_embed_query(query), filters, config.SEARCH_TOP_K)
+    chunks = query_chunks(_embed_query(query), filters, top_k or config.SEARCH_TOP_K)
     results = [
         {
             "chunk_id": chunk["chunk_id"],
@@ -96,10 +104,11 @@ def vector_search(query: str, filters: dict | None) -> list[dict]:
     return sorted(results, key=lambda result: result["score"], reverse=True)
 
 
-def bm25_search(query: str, filters: dict | None) -> list[dict]:
+def bm25_search(query: str, filters: dict | None, top_k: int | None = None) -> list[dict]:
     """S-06 권한이 허용된 문서에서 키워드·모델명·고유명사 기반으로 검색한다.
 
     filters: apply_rbac_filter()가 만든 권한 포함 where. 이 조건을 통과한 청크만으로 인덱스를 만든다.
+    top_k: 돌려줄 청크 수. 없으면 SEARCH_TOP_K. hybrid_search()는 결합용으로 더 많이 가져온다.
     반환 모양은 search_documents()와 같다. score는 BM25 점수(클수록 관련, 상한 없음).
     검색어 토큰이 하나도 들어 있지 않은 청크는 돌려주지 않는다.
     명세상 user를 받지 않아 권한을 직접 확인하지 않는다. 다른 기능은 이 함수 대신 hybrid_search()를 부른다.
@@ -134,7 +143,7 @@ def bm25_search(query: str, filters: dict | None) -> list[dict]:
         if query_token_set.intersection(tokens)
     ]
     results.sort(key=lambda result: result["score"], reverse=True)
-    return results[: config.SEARCH_TOP_K]
+    return results[: top_k or config.SEARCH_TOP_K]
 
 
 def _tokenize(text: str) -> list[str]:
