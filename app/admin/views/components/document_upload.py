@@ -1,10 +1,10 @@
-﻿"""A-01 문서 업로드 모달."""
+"""A-01 문서 업로드 모달."""
 
 import streamlit as st
 
 from app.admin.services.document_service import get_upload_companies, upload_document
 from app.admin.views.components.duplicate_notice import render_duplicate_notice
-from app.common.ui import ACCESS_LABELS, company_tag_html, security_badge_html, show_text
+from app.common.ui import ACCESS_LABELS, company_tag_html, show_text, upload_status_html
 
 
 def clear_upload_files() -> None:
@@ -50,80 +50,87 @@ def render_document_upload(user: dict) -> None:
             max_upload_size=20, key=widget_key, label_visibility="collapsed",
             on_change=_queue_files, args=(widget_key,),
         )
+        st.caption("PDF · DOCX · PPTX · 파일당 최대 20 MiB · 여러 파일 선택 가능")
     queue = st.session_state.setdefault("upload-files", {})
     for file in selected:
         queue[file.file_id] = file
     files = list(queue.values())
-    st.caption("PDF · DOCX · PPTX | 파일당 최대 20 MiB, 여러 개 선택 가능")
-    heading, clear = st.columns([3, 1], vertical_alignment="center")
-    heading.markdown(f"**선택한 파일 {len(files)}개**")
-    with clear, st.container(horizontal=True, horizontal_alignment="right"):
-        st.button("전체 지우기", on_click=clear_upload_files, disabled=not files,
-                  type="tertiary")
+    with st.container(key="upload-file-heading"):
+        heading, clear = st.columns([3, 1], vertical_alignment="center")
+        with heading:
+            show_text(f"선택한 파일 {len(files)}개", bold=True)
+        with clear, st.container(horizontal=True, horizontal_alignment="right"):
+            st.button("전체 지우기", on_click=clear_upload_files, disabled=not files,
+                      type="tertiary")
     results = st.session_state.setdefault("upload-results", {})
     slots = {}
-    for file in files:
-        with st.container(border=True, key=f"upload-file-{file.file_id}"):
-            details, remove = st.columns([9, 1], vertical_alignment="center")
-            with details:
-                show_text(file.name, bold=True)
-                st.caption(f"{file.size / (1024 * 1024):.2f} MiB")
-            remove.button("×", key=f"remove-{file.file_id}", help="선택 목록에서 제거합니다.",
-                          type="tertiary", on_click=_remove_file, args=(file.file_id,))
-            slots[file.file_id] = st.empty()
-            if file.file_id in results:
-                _show_result(slots[file.file_id], results[file.file_id])
+    if files:
+        with st.container(height="content" if len(files) == 1 else 160,
+                          autoscroll=False, border=False, key="upload-file-list"):
+            for file in files:
+                with st.container(border=True, key=f"upload-document-card-{file.file_id}"):
+                    icon, details, remove = st.columns([1, 8, 1], vertical_alignment="center")
+                    with icon:
+                        st.html(company_tag_html(file.name.rsplit(".", 1)[-1].upper()))
+                    with details:
+                        show_text(file.name, bold=True)
+                        st.caption(f"{file.size / (1024 * 1024):.2f} MiB")
+                    with remove, st.container(horizontal=True, horizontal_alignment="right"):
+                        st.button("×", key=f"remove-{file.file_id}", help="선택 목록에서 제거합니다.",
+                                  type="tertiary", on_click=_remove_file, args=(file.file_id,))
+                    slots[file.file_id] = st.empty()
+                    if file.file_id in results:
+                        _show_result(slots[file.file_id], results[file.file_id])
 
-    st.subheader("읽기 권한", anchor=False)
-    st.caption("선택한 회사 소유로 등록합니다. 열람 범위는 보안 등급에 따라 적용합니다.")
+    with st.container(key="upload-section-heading"):
+        st.markdown("**읽기 권한**")
     names = {company["company_id"]: company["name"] for company in companies}
-    company_id = st.radio("회사", list(names), format_func=names.get, horizontal=True,
-                          key="upload-company")
-    access_level = st.radio(
-        "보안 등급", list(ACCESS_LABELS), index=1,
-        format_func=ACCESS_LABELS.get, horizontal=True, key="upload-access",
-    )
-    st.html(company_tag_html(company_id) + " " + security_badge_html(
-        access_level, is_own_company=(company_id == user["company_id"]
-                                     if user.get("company_id") else None),
-    ))
+    company_column, access_column = st.columns(2, gap="small")
+    with company_column:
+        company_id = st.selectbox("회사", list(names), format_func=names.get,
+                                  key="upload-company")
+    with access_column:
+        access_level = st.selectbox(
+            "보안 등급", list(ACCESS_LABELS), index=1,
+            format_func=ACCESS_LABELS.get, key="upload-access",
+        )
     descriptions = {
         "public": "모든 회사의 직원과 관리자가 읽을 수 있습니다.",
-        "internal": "자사 직원·관리자와 최종 어드민이 열람합니다.\n\n타사는 별도 승인이 필요합니다.",
-        "confidential": "자사 관리자와 최종 어드민이 열람합니다.\n\n그 외에는 별도 승인이 필요합니다.",
+        "internal": "자사 직원·관리자와 최종 어드민이 열람합니다.\n타사는 별도 승인이 필요합니다.",
+        "confidential": "자사 관리자와 최종 어드민이 열람합니다.\n그 외에는 별도 승인이 필요합니다.",
     }
     with st.container(key="upload-permission-note"):
-        st.info(descriptions[access_level])
-    st.caption("그룹사 공유는 OFF로 등록합니다. 선택한 등록 정보는 목록의 모든 파일에 적용합니다.")
-    with st.expander("등록 정보"):
-        doc_types = {"report": "보고서", "disclosure": "공시", "manual": "매뉴얼",
-                     "spec": "사양서", "intro": "소개서", "memo": "메모"}
-        doc_type = st.selectbox("문서 유형", list(doc_types), format_func=doc_types.get)
-        published = st.date_input("작성일 (비워 두면 업로드일을 사용합니다)", value=None)
-        is_mock = st.checkbox("직접 만든 목데이터입니다")
-        st.caption("문서 제목은 각 파일명에서 확장자를 뺀 이름으로 등록합니다.")
+        show_text(descriptions[access_level])
+    with st.container(key="upload-registration"):
+        with st.expander("등록 정보"):
+            st.caption("그룹사 공유 OFF · 등록 정보는 선택한 모든 파일에 적용합니다.")
+            doc_types = {"report": "보고서", "disclosure": "공시", "manual": "매뉴얼",
+                         "spec": "사양서", "intro": "소개서", "memo": "메모"}
+            doc_type = st.selectbox("문서 유형", list(doc_types), format_func=doc_types.get)
+            published = st.date_input("작성일 (비워 두면 업로드일을 사용합니다)", value=None)
+            is_mock = st.checkbox("직접 만든 목데이터입니다")
+            st.caption("문서 제목은 각 파일명에서 확장자를 뺀 이름으로 등록합니다.")
 
-    st.divider()
-    summary, actions = st.columns([3, 2], vertical_alignment="center")
-    with summary:
-        show_text(f"{len(files)}개 파일 · {names[company_id]} · {ACCESS_LABELS[access_level]}", muted=True)
     pending = [file for file in files if file.file_id not in results]
-    with actions, st.container(horizontal=True, horizontal_alignment="right", gap="small"):
-        if st.button("닫기"):
-            st.rerun()
-        submitted = st.button("업로드", type="primary", disabled=not pending)
+    with st.container(key="upload-footer"):
+        st.divider()
+        summary, actions = st.columns([3, 2], vertical_alignment="center")
+        with summary:
+            show_text(f"{len(files)}개 파일 · {names[company_id]} · {ACCESS_LABELS[access_level]}", muted=True)
+        with actions, st.container(horizontal=True, horizontal_alignment="right", gap="small"):
+            if st.button("닫기"):
+                st.rerun()
+            submitted = st.button("업로드", type="primary", disabled=not pending)
     if submitted:
         for file in pending:
-            with slots[file.file_id].container():
-                with st.spinner("문서를 저장하고 색인합니다."):
-                    result = upload_document(file, {
-                        "company_id": company_id, "doc_type": doc_type,
-                        "access_level": access_level, "published_date": published,
-                        "is_mock": is_mock,
-                    }, user)
+            slots[file.file_id].html(upload_status_html("문서를 저장하고 색인합니다.", "busy"))
+            result = upload_document(file, {
+                "company_id": company_id, "doc_type": doc_type,
+                "access_level": access_level, "published_date": published,
+                "is_mock": is_mock,
+            }, user)
             results[file.file_id] = result
             _show_result(slots[file.file_id], result)
-        st.caption("처리가 끝났습니다. 실패한 문서는 등록 여부를 확인한 뒤 재처리해 주세요.")
 
 
 def _show_result(slot, result: dict) -> None:
@@ -132,6 +139,6 @@ def _show_result(slot, result: dict) -> None:
         if result["index_status"] == "duplicate":
             render_duplicate_notice(result)
         elif result["index_status"] == "done":
-            st.success(f"색인 완료 · 청크 {result['chunk_count']}개")
+            st.html(upload_status_html(f"색인 완료 · 청크 {result['chunk_count']}개", "done"))
         else:
-            st.error(result["error_message"])
+            st.html(upload_status_html(result["error_message"], "failed"))
