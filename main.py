@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from app.admin.views.documents import render_admin_documents
 from app.auth import session
 from app.auth.views.login_page import render_login
 from app.common.layout import company_label, render_header, render_sidebar
@@ -35,8 +36,12 @@ def build_pages(user: dict) -> dict:
     if user["role"] == ROLE_EMPLOYEE:
         pages[""].append(coming_soon_page("내 정보", "mypage", ":material/person:"))
 
+    def documents() -> None:
+        """A-01 로그인한 관리자의 문서 업로드 화면을 연다."""
+        render_admin_documents(user)
+
     manage = [
-        coming_soon_page("문서", "admin-documents", ":material/description:"),
+        st.Page(documents, title="문서", url_path="admin-documents", icon=":material/description:"),
         coming_soon_page("열람 권한 요청", "admin-access-requests", ":material/inbox:"),
         coming_soon_page("감사 로그", "admin-audit-logs", ":material/format_list_bulleted:"),
     ]
