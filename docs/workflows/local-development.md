@@ -80,6 +80,18 @@ VS Code: `Ctrl/Cmd + Shift + P` → `Python: Select Interpreter` → `.venv`
 
 `pip freeze > requirements.txt`는 쓰지 않는다. OS마다 다른 패키지가 섞인다.
 
+## 업로드 상태 행의 브라우저 정렬 검사
+
+화면 상태 행을 변경했다면 설치된 Chrome으로 검사한다. DB·API 호출 없이 실제 네오현대 폰트와 공통 HTML·CSS로 처리 중·완료·중복·실패, 폭 280·520px, 배율 100·125%의 16조건을 확인한다.
+
+```bash
+python -m scripts.check_upload_layout
+# Chrome이 기본 경로에 없을 때:
+python -m scripts.check_upload_layout --chrome "Chrome 실행 파일의 경로"
+```
+
+폰트 로딩 실패, 문구 잘림, 텍스트·스피너의 세로 중앙 오차가 0.5px를 넘으면 실패한다. 전체 Streamlit 모달의 배치·상호작용 검증은 별도로 수행한다.
+
 ## MySQL
 
 ```sql
