@@ -9,12 +9,23 @@ A-07 계열사 동적 추가 = 최종 어드민이 새 회사를 등록하면 �
 - validators: 입력값 형식 검증 / company_repository: SQL 실행만 한다.
 
 권한 (docs/architecture/overview.md §2.2): 계열사 추가·DART 설정은 최종 어드민만 할 수 있다.
+
+감사 로그 (A-04): 계열사 등록·DART 고유번호 변경은 기록하고, 최종 어드민이 아닌 사용자의 시도는 막힌 것(blocked)으로 기록한다.
 """
+
+import logging
 
 from app.admin import validators
 from app.admin.repositories import company_repository
 from app.admin.repositories.company_repository import DuplicateCompanyError
+from app.admin.services.audit_service import record_audit_log
 from core.constants import ROLE_SUPER_ADMIN
+
+logger = logging.getLogger(__name__)
+
+# audit_logs.action 값. 감사 로그 화면의 행동 이름은 audit_service.ACTION_LABELS 에 있다.
+ACTION_COMPANY_CREATE = "company_create"
+ACTION_COMPANY_UPDATE = "company_update"
 
 # 겹친 값의 종류별 안내 문구. 사용자가 입력한 값은 문구에 넣지 않는다 (화면에 그대로 보여 줘도 안전하게).
 _DUPLICATE_MESSAGES = {
@@ -62,8 +73,8 @@ def create_company(
     PermissionError: 최종 어드민이 아닐 때
     ValueError: 형식이 틀렸거나 코드·회사명·DART 고유번호가 이미 있을 때 (화면에 그대로 보여 줄 수 있는 문구)
     """
-    # 권한 확인이 입력 검증·DB 접근보다 먼저다.
-    _require_super_admin(user)
+    # 권한 확인이 입력 검증·DB 접근보다 먼저다. 막힌 시도도 감사 로그에 남긴다.
+    _require_super_admin(user, ACTION_COMPANY_CREATE)
     name = validators.validate_company_name(name)
     company_id = validators.validate_company_code(company_id)
     dart_code = validators.validate_dart_code(dart_code)
@@ -73,6 +84,13 @@ def create_company(
         company_repository.insert_company(company_id, name, dart_code, share)
     except DuplicateCompanyError as exc:
         raise ValueError(_DUPLICATE_MESSAGES[exc.kind]) from exc
+    # 등록은 이미 저장됐다. 기록이 실패해도 되돌릴 수는 없으므로 호출한 쪽에는 성공을 알리고 실패는 로그로 남긴다.
+    _record(
+        user,
+        ACTION_COMPANY_CREATE,
+        company_id,
+        detail={"name": name, "dart_code": dart_code, "default_share_enabled": share},
+    )
     return {
         "company_id": company_id,
         "name": name,
@@ -94,15 +112,22 @@ def set_dart_code(user: dict, company_id: str, dart_code: str) -> dict:
     ValueError: 형식이 틀렸거나 다른 계열사가 쓰는 번호일 때
     LookupError: 없는 계열사일 때
     """
-    _require_super_admin(user)
+    _require_super_admin(user, ACTION_COMPANY_UPDATE)
     dart_code = validators.validate_dart_code(dart_code)
-    if company_repository.get_company(company_id) is None:
+    company = company_repository.get_company(company_id)
+    if company is None:
         raise LookupError("계열사를 찾을 수 없습니다.")
 
     try:
         company_repository.update_dart_code(company_id, dart_code)
     except DuplicateCompanyError as exc:
         raise ValueError(_DUPLICATE_MESSAGES[exc.kind]) from exc
+    _record(
+        user,
+        ACTION_COMPANY_UPDATE,
+        company_id,
+        detail={"dart_code": dart_code, "previous": company["dart_code"]},
+    )
     return {
         "company_id": company_id,
         "dart_code": dart_code,
@@ -111,10 +136,41 @@ def set_dart_code(user: dict, company_id: str, dart_code: str) -> dict:
     }
 
 
-def _require_super_admin(user: dict | None) -> None:
-    """최종 어드민이 아니면 PermissionError (로그인 전도 포함)."""
+def _require_super_admin(user: dict | None, action: str | None = None) -> None:
+    """최종 어드민이 아니면 PermissionError (로그인 전도 포함).
+
+    action 을 주면, 막힌 시도를 그 행위의 차단 기록으로 감사 로그에 남긴다 (누가 계열사 관리에 접근하려 했는지 알 수 있게).
+    """
     if not user or user.get("role") != ROLE_SUPER_ADMIN:
-        raise PermissionError("최종 어드민만 계열사를 관리할 수 있습니다.")
+        error = PermissionError("최종 어드민만 계열사를 관리할 수 있습니다.")
+        if action:
+            _record(user or {}, action, None, blocked=True, reason=str(error))
+        raise error
+
+
+def _record(
+    user: dict,
+    action: str,
+    company_id: str | None,
+    *,
+    blocked: bool = False,
+    reason: str | None = None,
+    detail: dict | None = None,
+) -> None:
+    """감사 로그를 남긴다. 기록 실패가 원래 결과(성공·권한 오류)를 가리지 않도록 로그만 남기고 넘어간다."""
+    try:
+        record_audit_log(
+            user.get("id"),
+            action,
+            company_id,
+            None,  # ip_address: 명세 시그니처만 맞춘다. audit_logs 에 IP 컬럼이 없어 저장되지 않는다
+            blocked,
+            reason,
+            target_type="company",
+            context_detail=detail,
+        )
+    except Exception:
+        logger.exception("A-07 감사 로그 기록 실패: action=%s company_id=%s", action, company_id)
 
 
 def _to_company(row: dict) -> dict:

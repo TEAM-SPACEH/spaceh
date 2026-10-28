@@ -11,6 +11,7 @@ from app.admin.repositories.company_repository import DuplicateCompanyError
 from app.admin.services import company_service
 
 REPO = "app.admin.services.company_service.company_repository"
+AUDIT = "app.admin.services.company_service.record_audit_log"
 
 SUPER = {"id": 1, "role": "super_admin", "company_id": None}
 MVX_ADMIN = {"id": 2, "role": "company_admin", "company_id": "MVX"}
@@ -35,8 +36,17 @@ def _row(**overrides):
     return row
 
 
+class _AuditMixin:
+    """모든 테스트에서 감사 로그 기록을 가짜로 바꿔, 실제 DB 에 쓰지 않고 호출 내용만 확인한다."""
+
+    def setUp(self):
+        patcher = patch(AUDIT)
+        self.audit = patcher.start()
+        self.addCleanup(patcher.stop)
+
+
 @patch(REPO)
-class GetCompaniesTest(unittest.TestCase):
+class GetCompaniesTest(_AuditMixin, unittest.TestCase):
     def test_super_admin_gets_companies_with_bool_flags(self, repo):
         """최종 어드민은 목록을 받고, 0/1 값은 bool 로 바뀐다."""
         repo.list_companies.return_value = [_row(is_active=1, default_share_enabled=1)]
@@ -61,7 +71,7 @@ class GetCompaniesTest(unittest.TestCase):
 
 
 @patch(REPO)
-class CreateCompanyTest(unittest.TestCase):
+class CreateCompanyTest(_AuditMixin, unittest.TestCase):
     def test_creates_with_normalized_values(self, repo):
         """공백 제거·대문자 변환·빈 DART 는 None 으로 저장소에 넘기고, 결과 모양이 맞다."""
         got = company_service.create_company(SUPER, "  현대투자파트너스 ", " hip ", "", True)
@@ -122,7 +132,7 @@ class CreateCompanyTest(unittest.TestCase):
 
 
 @patch(REPO)
-class SetDartCodeTest(unittest.TestCase):
+class SetDartCodeTest(_AuditMixin, unittest.TestCase):
     def test_saves_and_clears(self, repo):
         """8자리를 저장하고, 빈 값은 None 으로 비운다."""
         repo.get_company.return_value = _row()
@@ -149,6 +159,77 @@ class SetDartCodeTest(unittest.TestCase):
         repo.update_dart_code.side_effect = DuplicateCompanyError("dart_code")
         with self.assertRaisesRegex(ValueError, "DART 고유번호"):
             company_service.set_dart_code(SUPER, "MVX", "00126380")
+
+
+@patch(REPO)
+class AuditLogTest(_AuditMixin, unittest.TestCase):
+    """등록·수정과 막힌 시도가 감사 로그에 남는다."""
+
+    def test_create_is_recorded_with_details(self, repo):
+        """등록하면 company_create 로 기록하고, 회사 코드와 입력 내용(이름·DART·기본 공유)을 남긴다."""
+        company_service.create_company(SUPER, "현대투자파트너스", "hip", "00126380", True)
+
+        args, kwargs = self.audit.call_args
+        # user_id, action_type, target_id, ip_address, blocked, block_reason
+        self.assertEqual(args, (SUPER["id"], "company_create", "HIP", None, False, None))
+        self.assertEqual(kwargs["target_type"], "company")
+        self.assertEqual(
+            kwargs["context_detail"],
+            {"name": "현대투자파트너스", "dart_code": "00126380", "default_share_enabled": True},
+        )
+
+    def test_dart_change_is_recorded_with_previous_value(self, repo):
+        """DART 고유번호를 바꾸면 company_update 로 기록하고 이전 값을 함께 남긴다."""
+        repo.get_company.return_value = _row(dart_code="00000001")
+
+        company_service.set_dart_code(SUPER, "MVX", "00126380")
+
+        args, kwargs = self.audit.call_args
+        self.assertEqual(args[:3], (SUPER["id"], "company_update", "MVX"))
+        self.assertEqual(kwargs["context_detail"], {"dart_code": "00126380", "previous": "00000001"})
+
+    def test_blocked_attempts_are_recorded_as_blocked(self, repo):
+        """최종 어드민이 아닌 사용자의 등록·수정 시도는 blocked=True 로 기록되고 DB 는 바뀌지 않는다."""
+        for call, action in (
+            (lambda u: company_service.create_company(u, "회사", "AB"), "company_create"),
+            (lambda u: company_service.set_dart_code(u, "MVX", "00126380"), "company_update"),
+        ):
+            for user in (MVX_ADMIN, EMPLOYEE):
+                with self.subTest(action=action, role=user["role"]), self.assertRaises(PermissionError):
+                    call(user)
+                args = self.audit.call_args.args
+                self.assertEqual((args[0], args[1], args[2], args[4]), (user["id"], action, None, True))
+                self.assertIn("최종 어드민", args[5])
+        repo.insert_company.assert_not_called()
+        repo.update_dart_code.assert_not_called()
+
+    def test_anonymous_attempt_is_recorded_without_user(self, repo):
+        """로그인 전(None) 시도도 사용자 없이 막힌 기록이 남는다."""
+        with self.assertRaises(PermissionError):
+            company_service.create_company(None, "회사", "AB")
+        self.assertIsNone(self.audit.call_args.args[0])
+        self.assertTrue(self.audit.call_args.args[4])
+
+    def test_failures_are_not_recorded_as_success(self, repo):
+        """형식 오류·중복·없는 회사는 저장되지 않았으므로 성공 기록이 남지 않는다."""
+        with self.assertRaises(ValueError):
+            company_service.create_company(SUPER, "", "AB")
+        repo.insert_company.side_effect = DuplicateCompanyError("name")
+        with self.assertRaises(ValueError):
+            company_service.create_company(SUPER, "회사", "AB")
+        repo.get_company.return_value = None
+        with self.assertRaises(LookupError):
+            company_service.set_dart_code(SUPER, "NOPE", "00126380")
+        self.audit.assert_not_called()
+
+    def test_audit_failure_does_not_hide_success(self, repo):
+        """감사 로그 기록이 실패해도 이미 저장된 등록에는 성공을 돌려주고, 실패는 로그로 남는다."""
+        self.audit.side_effect = RuntimeError("db down")
+
+        with self.assertLogs(company_service.logger, level="ERROR"):
+            result = company_service.create_company(SUPER, "회사", "AB")
+
+        self.assertEqual(result["status"], "success")
 
 
 if __name__ == "__main__":
