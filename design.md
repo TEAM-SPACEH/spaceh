@@ -61,21 +61,19 @@ Anthropic의 `frontend-design` 가이드라인과 현대 계열사의 브랜드 
 
 ## 3. 타이포그래피 시스템 (Typography)
 
-spaceH의 서체는 현대 브랜드 전용 폰트 2종을 기반으로 설계된다.
+spaceH의 서체는 현대 브랜드 전용 폰트 NeoHyundai를 기반으로 설계된다.
 
 ### 3.1 폰트 패밀리 지정
 ```css
 /* 기본 폰트 스택 */
-font-family: "NeoHyundai", "Marine", -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
+font-family: "NeoHyundai", -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
 ```
-- `"NeoHyundai"`, `"Marine"`은 시스템 설치 폰트에 의존하지 않고 **`@font-face`로 직접 제공**한다. 폰트 파일은 `app/static/fonts/`에 두고 `.streamlit/config.toml`의 `[server] enableStaticServing = true`로 서빙한다 (구현 예시는 7장 참조).
-- `"Pretendard"` 등은 폰트 로딩 실패 시를 위한 fallback이며, 두 브랜드 폰트를 대체하지 않는다.
+- `"NeoHyundai"`는 시스템 설치 폰트에 의존하지 않고 **`@font-face`로 직접 제공**한다. 폰트 파일은 `static/fonts/`에 두고 `.streamlit/config.toml`의 `[server] enableStaticServing = true`로 서빙한다 (구현 예시는 7장 참조).
+- `"Pretendard"` 등은 폰트 로딩 실패 시를 위한 fallback이며, NeoHyundai를 대체하지 않는다.
 1. **메인 서체: `"NeoHyundai"`**
    - **용도**: 제목(Heading), 본문(Body), 입력 폼, UI 전반의 한국어 텍스트.
    - **특징**: 단단한 골격과 정직한 인상을 주어 기업 공식 문서 및 데이터 표현에 안정감을 부여.
-2. **보조/영문 서체: `"Marine"`**
-   - **용도**: 영문 로고 타이틀, 숫자 통계(KPI/지표), 헤더 메타데이터, 코드/각주 번호.
-   - **특징**: 모던하고 날렵한 비즈니스 감성을 제공하며 숫자의 판독성이 우수함.
+영문 로고, 숫자 통계, 헤더 메타데이터와 각주 번호에도 NeoHyundai를 사용한다.
 
 ### 3.2 타이포그래피 스케일 & 스펙
 | 토큰 | 크기 | Line Height | Weight | 적용처 |
@@ -162,7 +160,7 @@ Figma 원본(`Space-H #1-2`)의 정적 그래픽을 Streamlit 애플리케이션
 | Figma 디자인 요소 | 발생 가능한 문제점 (Streamlit) | 보완 구현 원칙 (Solutions) |
 |---|---|---|
 | **기본 Streamlit 테마 누출** | Streamlit 기본 붉은색 테마 및 불필요한 상단 햄버거 메뉴/푸터 노출 | `.streamlit/config.toml`에 primaryColor를 `#009944`로 지정하고, CSS injection으로 Streamlit 기본 헤더/푸터 숨김 처리 |
-| **커스텀 폰트 렌더링** | 로컬 폰트("NeoHyundai", "Marine") 미설치 클라이언트 환경에서 Pretendard 등으로 대체됨 | `app/static/fonts/`의 폰트 파일을 `@font-face`(`local()` 우선, `url()` 보조)로 선언해 클라이언트 설치 여부와 무관하게 제공하고, `Pretendard`·`Segoe UI`·`sans-serif`는 fallback으로만 사용 |
+| **커스텀 폰트 렌더링** | 로컬 폰트("NeoHyundai") 미설치 클라이언트 환경에서 Pretendard 등으로 대체됨 | `static/fonts/`의 폰트 파일을 `@font-face`(`local()` 우선, `url()` 보조)로 선언해 클라이언트 설치 여부와 무관하게 제공하고, `Pretendard`·`Segoe UI`·`sans-serif`는 fallback으로만 사용 |
 | **대시보드 카드 간격 불균형** | `st.container()` 사용 시 불필요하게 늘어지는 세로 여백 | 커스텀 CSS 클래스(`.spaceh-card`)를 선언하여 `padding: 16px; margin-bottom: 12px;`로 여백 통제 |
 | **RAG 인용 출처 상호작용** | 텍스트 내 각주 클릭 시 전체 페이지가 리로드되는 현상 | `st.popover` 또는 탭/사이드바 토글을 활용하여 페이지 재실행 없이 출처 본문 즉시 확인 지원 |
 
@@ -185,25 +183,13 @@ def apply_spaceh_theme():
         /* 브랜드 폰트: 설치본(local) 우선, 없으면 정적 서빙 파일 사용 */
         @font-face {
             font-family: "NeoHyundai";
-            src: local("NeoHyundai"), url("app/static/fonts/NeoHyundai-Regular.woff2") format("woff2");
+            src: local("NeoHyundai"), url("app/static/fonts/NeoHyundai-R.ttf") format("truetype");
             font-weight: 400;
             font-display: swap;
         }
         @font-face {
             font-family: "NeoHyundai";
-            src: local("NeoHyundai Bold"), url("app/static/fonts/NeoHyundai-Bold.woff2") format("woff2");
-            font-weight: 700;
-            font-display: swap;
-        }
-        @font-face {
-            font-family: "Marine";
-            src: local("Marine"), url("app/static/fonts/Marine-Regular.woff2") format("woff2");
-            font-weight: 400;
-            font-display: swap;
-        }
-        @font-face {
-            font-family: "Marine";
-            src: local("Marine Bold"), url("app/static/fonts/Marine-Bold.woff2") format("woff2");
+            src: local("NeoHyundai Bold"), url("app/static/fonts/NeoHyundai-B.ttf") format("truetype");
             font-weight: 700;
             font-display: swap;
         }
@@ -211,7 +197,7 @@ def apply_spaceh_theme():
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
         
         html, body, [class*="css"] {
-            font-family: "NeoHyundai", "Marine", "Pretendard", -apple-system, sans-serif;
+            font-family: "NeoHyundai", "Pretendard", -apple-system, sans-serif;
             color: #111111;
             background-color: #FFFFFF;
         }
@@ -300,7 +286,7 @@ AI 에이전트가 새로운 UI를 생성하거나 기존 코드를 수정할 �
 - [ ] 배경이 순백색(`#FFFFFF`) 또는 연한 그레이(`#F8F9FA`)인가?
 - [ ] 주요 동작 버튼에 `#009944`(현대 그린)가 적용되었는가?
 - [ ] 포인트 컬러로 `#FABE00`(노랑)과 `#004098`(파랑)이 올바른 우선순위와 목적에 맞게 쓰였는가?
-- [ ] 폰트 스택에 `"NeoHyundai"`와 `"Marine"`이 최우선으로 선언되었는가?
+- [ ] 폰트 스택에 `"NeoHyundai"`가 최우선으로 선언되었는가?
 - [ ] 계열사 및 보안 등급 뱃지가 명확한 시각적 대비를 제공하는가?
 
 ### 8.2 절대 금지 사항 (Strictly Forbidden)
@@ -308,4 +294,3 @@ AI 에이전트가 새로운 UI를 생성하거나 기존 코드를 수정할 �
 2. ❌ **다크 모드 혼용 금지**: 일관성을 위해 기본 배경은 무조건 라이트 캔버스(#FFFFFF)로 통일한다.
 3. ❌ **인라인 복합 CSS 난립 금지**: 컴포넌트마다 제각각 style 속성을 주지 말고 공통 클래스(`styles.py`)를 재사용한다.
 4. ❌ **모호한 플레이스홀더 금지**: "내용을 입력하세요" 대신 "현대무벡스 3분기 스마트팩토리 실적 보고서 검색"과 같은 구체적인 도메인 예시를 제공한다.
-
