@@ -87,3 +87,102 @@ def update_index_status(doc_id: str, status: str, chunk_count: int, error_messag
             "error_message = %s WHERE doc_id = %s",
             (status, chunk_count, error_message, doc_id),
         )
+
+
+# ---------------------------------------------------------------------------
+# A-02 문서 목록 조회·삭제·재색인 (이 구역 아래는 A-02 전용이다. 위의 A-01 함수는 바꾸지 않는다)
+# ---------------------------------------------------------------------------
+
+# 목록 SELECT 컬럼 (고정 문자열이라 f-string으로 SQL에 넣어도 안전하다).
+_A02_LIST_COLUMNS = (
+    "doc_id, company_id, title, file_name, file_format, doc_type, source_type, access_level, "
+    "is_group_shared, chunk_count, index_status, error_message, created_at, updated_at"
+)
+# 멈춘 작업인지 DB 시각으로 판단한다 (앱과 DB의 시간대가 달라도 어긋나지 않는다).
+_A02_STALE_COLUMN = "(updated_at < NOW() - INTERVAL %s MINUTE) AS is_stale"
+
+
+def _escape_like(text: str) -> str:
+    """A-02 LIKE 패턴의 특수문자(% _ \\)를 글자 그대로 찾도록 이스케이프한다."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def list_managed_documents(
+    company_id: str | None, doc_type: str, access_level: str, index_status: str,
+    keyword: str, limit: int, offset: int, stale_minutes: int,
+) -> tuple[list[dict], int]:
+    """A-02 관리 가능한 문서를 최신순으로 한 페이지 조회한다.
+
+    company_id: 이 회사 문서만. None이면 전체 회사(최종 어드민)
+    doc_type·access_level·index_status·keyword: 빈 문자열이면 조건을 걸지 않는다
+    stale_minutes: 이 시간 넘게 갱신이 없는 행에 is_stale=1을 붙인다 (멈춘 색인 작업 판단용)
+    반환: (행 목록, 조건에 맞는 전체 건수)
+    """
+    conditions: list[str] = []
+    params: list = []
+    # 조각은 모두 코드에 고정된 글자이고, 입력값은 %s 자리에 params로만 넘긴다.
+    for column, value in (("company_id", company_id), ("doc_type", doc_type),
+                          ("access_level", access_level), ("index_status", index_status)):
+        if value:
+            conditions.append(f"{column} = %s")
+            params.append(value)
+    if keyword:
+        conditions.append("(title LIKE %s OR file_name LIKE %s)")
+        pattern = f"%{_escape_like(keyword)}%"
+        params.extend([pattern, pattern])
+    where = " AND ".join(conditions) or "1 = 1"
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) AS total FROM documents WHERE {where}", params)
+        total = cur.fetchone()["total"]
+        cur.execute(
+            f"SELECT {_A02_LIST_COLUMNS}, {_A02_STALE_COLUMN} FROM documents WHERE {where} "
+            "ORDER BY created_at DESC, doc_id LIMIT %s OFFSET %s",
+            [stale_minutes, *params, limit, offset],
+        )
+        return list(cur.fetchall()), total
+
+
+def get_managed_document(doc_id: str) -> dict | None:
+    """A-02 권한 확인·삭제·재색인에 필요한 문서 1건과 회사명을 조회한다. 없으면 None."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT d.doc_id, d.company_id, c.name AS company_name, d.doc_type, d.title, "
+            "d.file_name, d.file_format, d.source_type, d.source_url, d.published_date, "
+            "d.access_level, d.is_group_shared, d.file_path, d.index_status, d.chunk_count, "
+            "d.error_message, d.created_at "
+            "FROM documents d JOIN companies c ON c.company_id = d.company_id "
+            "WHERE d.doc_id = %s",
+            (doc_id,),
+        )
+        return cur.fetchone()
+
+
+def claim_document(doc_id: str, stale_minutes: int) -> dict | None:
+    """A-02 삭제·재색인 작업을 하나만 실행하도록 문서를 "처리 중"(indexing)으로 선점한다.
+
+    선점할 수 있는 상태: 색인 완료(done)·실패(failed), 또는 stale_minutes보다 오래 멈춘 대기(pending)·처리 중(indexing).
+    행을 잠근 채 확인하고 바꾸므로 서버가 여러 개여도 같은 문서에 두 작업이 동시에 들어가지 못한다.
+    선점하면 바꾸기 전 값({"index_status", "chunk_count", "error_message"})을, 못 하면 None을 반환한다.
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT index_status, chunk_count, error_message, "
+            "(updated_at < NOW() - INTERVAL %s MINUTE) AS is_stale "
+            "FROM documents WHERE doc_id = %s FOR UPDATE",
+            (stale_minutes, doc_id),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        if row["index_status"] not in ("done", "failed") and not row["is_stale"]:
+            return None
+        cur.execute("UPDATE documents SET index_status = 'indexing' WHERE doc_id = %s", (doc_id,))
+        return {"index_status": row["index_status"], "chunk_count": row["chunk_count"],
+                "error_message": row["error_message"]}
+
+
+def delete_document_row(doc_id: str) -> bool:
+    """A-02 문서 행을 삭제한다. 열람 요청·승인은 FK의 ON DELETE CASCADE로 함께 지워진다. 지웠으면 True."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM documents WHERE doc_id = %s", (doc_id,))
+        return cur.rowcount == 1
