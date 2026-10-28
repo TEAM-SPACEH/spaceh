@@ -21,6 +21,7 @@ from app.permissions.repositories.permission_repository import (
     get_approved_doc_ids,
     has_pending_request,
     insert_access_request,
+    list_access_requests_by_user,
 )
 from app.permissions.validators import validate_request_reason
 from core.constants import (
@@ -251,6 +252,14 @@ def request_document_access(user_id: int, doc_id: str, reason: str) -> bool:
     # 4) 성공한 요청을 A-04 감사 로그에 남긴다 (기록이 실패해도 요청은 유효하므로 True).
     _audit_access_request(user_id, doc_id, owner_company, request_id)
     return True
+
+
+def get_access_request_history(user_id: int) -> list[dict]:
+    """M-03 마이페이지용: 이 사용자가 낸 열람 권한 요청 목록(문서·회사·사유·상태·시각)을 최신순으로 돌려준다.
+
+    status는 코드(pending/approved/rejected) 그대로다. 화면에서 한글 이름·색으로 바꾼다.
+    """
+    return list_access_requests_by_user(user_id)
 
 
 def _audit_access_request(user_id: int, doc_id: str, owner_company: str, request_id: int) -> None:
