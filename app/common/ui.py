@@ -27,6 +27,12 @@ _CSS = """
 .sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
 .sh-muted{color:#868E96;font-size:13px}
 .sh-text{white-space:pre-wrap;line-height:1.6}
+.st-key-s61_rag_card{border-left: 3px solid #009944 !important;}
+.sh-rag-header{display: flex; align-items: center; gap: 10px; margin-bottom: 12px;}
+.sh-rag-title{font-size: 15px; font-weight: 700; color: #111111;}
+.sh-rag-meta{font-size: 12px; color: #868E96;}
+.sh-rag-body{font-size: 14px; line-height: 1.75; color: #212529; white-space: pre-wrap; overflow-wrap: anywhere;}
+.sh-rag-footer{margin-top: 14px; font-size: 12px; color: #868E96;}
 </style>
 """
 
