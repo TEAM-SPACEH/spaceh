@@ -27,6 +27,88 @@ _CSS = """
 .sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
 .sh-muted{color:#868E96;font-size:13px}
 .sh-text{white-space:pre-wrap;line-height:1.6}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker){font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) input,[data-testid="stDialog"]:has(.sh-upload-dialog-marker) textarea,[data-testid="stDialog"]:has(.sh-upload-dialog-marker) button{font:inherit}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stMarkdownContainer"]{font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) button [data-testid="stMarkdownContainer"]{color:inherit}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) h2{font-size:18px;line-height:1.4;font-weight:600}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stCaptionContainer"]{font-size:12px;line-height:1.5;color:#626B73}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button{border-radius:4px;font-weight:600;padding:8px 16px;transition:background-color .2s}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]{background:#007A36;color:#FFFFFF;border:1px solid transparent}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:hover:not(:disabled){background:#005C29}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="primary"]:active:not(:disabled){background:#00451F}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]{background:#FFFFFF;color:#007A36;border:1px solid #009944}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="secondary"]:hover:not(:disabled){background:#F0FDF4}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="tertiary"]{background:transparent;color:#004098;border:none}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button[kind="tertiary"]:hover:not(:disabled){text-decoration:underline}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker) .stButton>button:disabled{opacity:.5}
+[class*="st-key-upload-document-card-"]{border:1px solid #E9ECEF!important;border-radius:6px;padding:10px 12px;margin-bottom:0}
+[class*="st-key-upload-document-card-"]:hover{border-color:#009944!important;box-shadow:0 2px 8px rgba(0,153,68,.08)}
+[data-testid="stDialog"]:has(.sh-upload-dialog-marker)>div{width:560px!important;min-width:0!important;
+  max-width:calc(100vw - 32px)!important;box-sizing:border-box}
+[role="dialog"]:has(.sh-upload-dialog-marker){width:100%!important;min-width:0;max-width:100%;box-sizing:border-box;
+  max-height:calc(100dvh - 32px);overflow-y:auto;background:#FFFFFF;border:1px solid #E9ECEF;border-radius:8px}
+[role="dialog"]:has(.sh-upload-dialog-marker)>[slot="title"]{padding:16px 20px 8px!important;font-size:18px}
+[role="dialog"]:has(.sh-upload-dialog-marker)>div:last-child{padding:0 20px 12px!important}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stLayoutWrapper"],
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stVerticalBlock"],
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stHorizontalBlock"]{min-width:0;max-width:100%;box-sizing:border-box}
+[role="dialog"]:has(.sh-upload-dialog-marker) .sh-text{overflow-wrap:anywhere}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stVerticalBlock"]{gap:6px}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stLayoutWrapper"]:has(>.stElementContainer .sh-upload-dialog-marker){display:none}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stElementContainer"]:has(.sh-upload-dialog-marker){display:none}
+[role="dialog"]:has(.sh-upload-dialog-marker) h2{margin:0;padding-bottom:8px}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stMarkdownContainer"] p{margin-bottom:0}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stCaptionContainer"]{margin:0}
+[role="dialog"]:has(.sh-upload-dialog-marker) [data-testid="stCaptionContainer"] p{font-size:12px;line-height:1.4}
+.st-key-upload-file-list{scrollbar-gutter:stable}
+.st-key-upload-section-heading{padding:8px 0 6px;margin:0;min-height:32px;box-sizing:border-box}
+.st-key-upload-section-heading p{font-size:14px;line-height:20px;margin:0!important}
+.st-key-upload-company [data-testid="stWidgetLabel"],
+.st-key-upload-access [data-testid="stWidgetLabel"]{min-height:20px;margin:0 0 6px;padding:0}
+.st-key-upload-company [data-testid="stWidgetLabel"] p,
+.st-key-upload-access [data-testid="stWidgetLabel"] p{font-size:12px;line-height:20px;margin:0}
+[class*="st-key-upload-document-card-"] [data-testid="stVerticalBlock"]{gap:4px!important}
+[class*="st-key-upload-document-card-"] .stButton>button{min-width:24px;min-height:24px;padding:0;line-height:20px}
+.st-key-upload-footer{position:sticky;bottom:0;z-index:2;background:#FFFFFF;padding:8px 0 0}
+.st-key-upload-footer hr{margin:0 0 8px}
+.st-key-upload-footer .sh-muted{font-size:12px;color:#626B73}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]{background:#F8F9FA;border:1px dashed #009944;
+  border-radius:6px;padding:8px 12px;min-height:104px;min-width:0;width:100%;box-sizing:border-box;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]::before{content:"↑";display:grid;place-items:center;
+  width:28px;height:28px;border-radius:50%;background:#E6F4EA;color:#009944;font-size:20px;font-weight:700}
+.st-key-upload-picker [data-testid="stFileUploaderDropzoneInstructions"]{display:none}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span>button{background:transparent;border:none;color:#004098}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span>button>*{display:none}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span>button::after{content:"내 컴퓨터에서 파일 선택";font-size:14px;font-weight:600}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]::after{content:"파일을 여기로 끌어 놓으세요";order:1;text-align:center;font-size:14px;font-weight:700}
+.st-key-upload-picker [data-testid="stFileUploaderDropzone"]>span{order:2}
+.st-key-upload-file-heading{margin:4px 0 0;padding:0}
+.st-key-upload-file-heading .stButton>button{min-height:24px;padding:0;line-height:20px}
+.st-key-upload-file-heading p{margin:0!important;font-size:13px;line-height:20px}
+.st-key-upload-file-heading .sh-text{font-size:13px;line-height:24px}
+.st-key-upload-permission-note{padding:10px 12px;margin:4px 0;background:#F8F9FA;border-radius:4px}
+.st-key-upload-permission-note .sh-text{word-break:keep-all;overflow-wrap:break-word;font-size:12px;line-height:20px;white-space:pre-line}
+.st-key-upload-registration [data-testid="stExpanderDetails"]{padding:12px}
+.st-key-upload-registration [data-testid="stVerticalBlock"]{gap:10px!important}
+.st-key-upload-registration [data-testid="stCaptionContainer"] p{margin:0!important;font-size:12px;line-height:18px}
+.st-key-upload-registration [data-testid="stWidgetLabel"]{margin-bottom:4px;min-height:20px}
+.sh-upload-status{display:flex;align-items:center;gap:8px;box-sizing:border-box;min-height:36px;
+  padding:8px 12px;border-radius:4px;font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:13px;line-height:20px}
+.sh-upload-status>span{display:block;margin:0;padding:0;line-height:20px;overflow-wrap:anywhere}
+.sh-upload-status-busy{background:#F8F9FA;color:#495057}
+.sh-upload-status-done{background:#EBFBEE;color:#237032}
+.sh-upload-status-duplicate{background:#FFF9DB;color:#7A5A00}
+.sh-upload-status-failed{background:#FFF5F5;color:#C92A2A}
+.sh-upload-status .sh-upload-spinner{flex:0 0 14px;width:14px;height:14px;box-sizing:border-box;
+  border:2px solid #CED4DA;border-top-color:#009944;border-radius:50%;animation:sh-upload-spin .8s linear infinite}
+@keyframes sh-upload-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.sh-upload-status .sh-upload-spinner{animation:none}}
+@media(max-height:750px){
+  .st-key-upload-picker [data-testid="stFileUploaderDropzone"]{min-height:88px;padding:6px 12px}
+  .st-key-upload-picker [data-testid="stFileUploaderDropzone"]::before{display:none}
+}
 .st-key-s61_rag_card{border-left: 3px solid #009944 !important;}
 .sh-rag-header{display: flex; align-items: center; gap: 10px; margin-bottom: 12px;}
 .sh-rag-title{font-size: 15px; font-weight: 700; color: #111111;}
@@ -56,8 +138,18 @@ _CSS = """
 
 
 def apply_theme() -> None:
-    """배지·각주·하이라이트용 CSS를 한 번 넣는다. main.py에서만 부른다."""
+    """공통 배지와 A-01 업로드 전용 스타일을 적용한다. main.py에서만 부른다."""
     st.markdown(_CSS, unsafe_allow_html=True)
+
+
+def upload_status_html(message: str, status: str) -> str:
+    """A-01 상태 문구를 Markdown 없이 같은 행 높이와 수직 중앙 정렬로 표시한다."""
+    if status not in {"busy", "done", "duplicate", "failed"}:
+        raise ValueError("지원하지 않는 업로드 상태입니다.")
+    role = "alert" if status == "failed" else "status"
+    spinner = '<span class="sh-upload-spinner" aria-hidden="true"></span>' if status == "busy" else ""
+    return (f'<div class="sh-upload-status sh-upload-status-{status}" role="{role}">'
+            f'{spinner}<span>{html.escape(message)}</span></div>')
 
 
 def page_header(title: str, description: str | None = None) -> None:
