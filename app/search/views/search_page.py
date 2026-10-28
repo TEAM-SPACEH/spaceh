@@ -190,29 +190,84 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
     
     # S-04 AI 답변 및 S-05 출처 패널 표시
-    if saved.get("rag_error"):
-        st.error(saved["rag_error"])
+    content_col, source_col = st.columns(
+        [2.2, 1],
+        gap="medium",
+        vertical_alignment="top",
+    )
 
-    elif saved.get("rag_result") is not None:
-        rag_result = saved["rag_result"]
+    with content_col:
+        # 1. S-04 AI 답변
+        if saved.get("rag_error"):
+            st.error(saved["rag_error"])
 
-        # Figma 기준: 왼쪽 AI 답변 / 오른쪽 출처
-        answer_col, source_col = st.columns([2, 1], gap="large")
+        elif saved.get("rag_result") is not None:
+            render_rag_answer_card(saved["rag_result"])
 
-        with answer_col:
-            render_rag_answer_card(rag_result)
+        # 2. 기존 S-01 검색 결과
+        documents = _group_by_document(chunks)
 
-        with source_col:
-            st.subheader("출처")
-            render_source_badge(rag_result.get("sources") or [])
+        doc_tab, chunk_tab = st.tabs([
+            f"문서 {len(documents)}건",
+            f"청크 {len(chunks)}건",
+        ])
 
-        # 출처의 '원문 보기' 버튼을 누른 경우만 뷰어 표시
+        with doc_tab:
+            for doc in documents:
+                meta = doc["metadata"]
+
+                show_text(
+                    meta.get("title") or meta.get("file_name", ""),
+                    bold=True,
+                )
+
+                show_text(
+                    f"{meta.get('company_name', '')} · "
+                    f"{meta.get('file_name', '')} · "
+                    f"관련 청크 {doc['chunk_count']}개 · "
+                    f"관련도 {doc['score']:.2f}",
+                    muted=True,
+                )
+
+        with chunk_tab:
+            for chunk in chunks:
+                meta = chunk["metadata"]
+
+                show_text(
+                    f"{meta.get('title', '')} — "
+                    f"{meta.get('location', '')}",
+                    bold=True,
+                )
+
+                show_text(
+                    f"{meta.get('company_name', '')} · "
+                    f"{meta.get('file_name', '')} · "
+                    f"관련도 {chunk['score']:.2f}",
+                    muted=True,
+                )
+
+                show_text(chunk["text"][:PREVIEW_CHARS])
+                st.divider()
+
+    with source_col:
+        # 3. S-05 출처 패널
+        st.markdown("**출처**")
+
+        rag_result = saved.get("rag_result")
+
+        if rag_result is not None:
+            render_source_badge(
+                rag_result.get("sources") or []
+            )
+
+        # 4. 선택된 문서 원문
         if st.session_state.get(SELECTED_SOURCE_KEY):
-            with st.expander("선택한 문서 원문", expanded=True):
+            with st.expander(
+                "선택한 문서 원문",
+                expanded=True,
+            ):
                 render_selected_source(user)
 
-    # 기존 S-01 검색 결과 표시
-    documents = _group_by_document(chunks)
     doc_tab, chunk_tab = st.tabs([f"문서 {len(documents)}건", f"청크 {len(chunks)}건"])
     with doc_tab:
         for doc in documents:
