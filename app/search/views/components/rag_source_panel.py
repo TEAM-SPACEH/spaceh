@@ -7,6 +7,7 @@ import streamlit as st
 from app.common.ui import citation_html, company_tag_html, empty_state
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 
+
 def render_rag_source_panel(sources: list[dict]) -> None:
     """출처를 기업별 카드로 표시합니다."""
 

@@ -1,4 +1,3 @@
-
 """S-04 근거 기반 AI 답변 카드 UI."""
 
 import html
@@ -36,7 +35,6 @@ def render_rag_answer_card(result: dict) -> None:
             safe_answer,
         )
 
-        
         # 클립보드에 복사할 원본 답변
         # HTML 속성에 넣기 전에 특수문자 이스케이프
         copy_payload = html.escape(answer.strip(), quote=True)

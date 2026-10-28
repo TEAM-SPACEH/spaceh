@@ -1,9 +1,13 @@
+"""S-07 이어서 묻기 질문 버튼 UI."""
+
 import streamlit as st
+
 
 def _set_followup_query(question: str) -> None:
     """선택한 질문을 검색창에 반영하고 검색 실행을 요청합니다."""
     st.session_state["s61_query_input"] = question
     st.session_state["s61_followup_pending"] = True
+
 
 def render_followup_questions(query: str) -> None:
     """기존 검색어를 활용해 후속 질문 버튼을 표시합니다."""

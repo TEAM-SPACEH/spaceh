@@ -1,9 +1,10 @@
 """S-02 검색 필터 UI. 기업·문서 유형·기간을 고르는 다중 필터를 화면에 그린다."""
 
+from contextlib import nullcontext
 from datetime import date
 
 import streamlit as st
-from contextlib import nullcontext
+
 
 def render_search_filters(
     companies: list,
@@ -18,7 +19,8 @@ def render_search_filters(
         companies: 회사 id와 name을 포함한 딕셔너리 목록
         doc_types: 문서 유형 code와 label을 포함한 딕셔너리 목록
         dates: 선택 가능한 최소·최대 날짜
-        key: Streamlit 위젯 키 접두사
+        key: Streamlit 위젯 키 접두사. 같은 페이지에 필터를 두 번 그리면 Streamlit이 "중복 위젯"
+            오류를 내므로, 필터마다 다른 key를 주려고 받는다. 기본값 "search".
         compact: True면 가로형 팝오버, False면 기존 세로형 UI
 
     Returns:
@@ -115,6 +117,7 @@ def render_search_filters(
         "date_from": _to_yyyymmdd(start),
         "date_to": _to_yyyymmdd(end),
     }
+
 
 def _to_yyyymmdd(picked: date | None) -> int | None:
     """고른 날짜(date)를 YYYYMMDD 정수로 바꾼다. 안 골랐으면(None) None.
