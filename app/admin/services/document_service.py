@@ -79,6 +79,15 @@ def check_duplicate_document(file, company_id: str, user: dict) -> dict:
                 "error_message": _error(error, "중복 검사")}
 
 
+def _cleanup_failed_chunks(doc_id: str, message: str) -> str:
+    """DB 실패 상태가 확정된 문서만 정리하고 정리 오류를 안내한다."""
+    try:
+        repository.delete_document_chunks(doc_id)
+    except Exception:
+        return message + " / 색인 청크 정리 실패: 문서 상태를 확인한 뒤 재처리해 주세요."
+    return message
+
+
 def upload_document(file, metadata: dict, user: dict) -> dict:
     """A-01 권한·중복 확인 후 원본과 DB를 저장하고 색인 결과를 반영한다."""
     doc_id = ""
@@ -143,6 +152,8 @@ def upload_document(file, metadata: dict, user: dict) -> dict:
         stage = "색인 상태 저장"
         repository.update_index_status(doc_id, result["index_status"],
                                        result["chunk_count"], result["error_message"])
+        if result["index_status"] == "failed":
+            result["error_message"] = _cleanup_failed_chunks(doc_id, result["error_message"])
         return result
     except Exception as error:
         message = _error(error, stage)
@@ -151,6 +162,9 @@ def upload_document(file, metadata: dict, user: dict) -> dict:
                 repository.update_index_status(doc_id, "failed", 0, message)
             except Exception:
                 message = "DB 상태 저장 실패: 문서 상태를 확인한 뒤 재처리해 주세요."
+            else:
+                # 완료 커밋의 응답만 유실됐을 수 있어 실패 저장이 확인된 뒤 지운다.
+                message = _cleanup_failed_chunks(doc_id, message)
         elif registration_attempted:
             # commit 응답 유실이면 등록됐을 수 있으므로 원본을 지우지 않는다.
             message += " / DB 등록 여부와 보관된 원본을 확인해 주세요."

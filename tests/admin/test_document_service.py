@@ -68,6 +68,7 @@ class DocumentServiceTests(unittest.TestCase):
         self.assertEqual(len(document["doc_id"]), 32)
         self.repo.update_index_status.assert_any_call(result["doc_id"], "indexing", 0, "")
         self.repo.update_index_status.assert_called_with(result["doc_id"], "done", 2, "")
+        self.repo.delete_document_chunks.assert_not_called()
         self.indexer.return_value.__exit__.assert_called_once()
         self.assertEqual(self.metadata["title"], "")
 
@@ -110,6 +111,54 @@ class DocumentServiceTests(unittest.TestCase):
         self.assertEqual(len(list(self.root.iterdir())), 1)
         self.repo.update_index_status.assert_called_with(
             result["doc_id"], "failed", 0, result["error_message"])
+        self.repo.delete_document_chunks.assert_called_once_with(result["doc_id"])
+        calls = [call[0] for call in self.repo.mock_calls]
+        self.assertLess(calls.index("update_index_status", calls.index("update_index_status") + 1),
+                        calls.index("delete_document_chunks"))
+
+    def test_done_status_error_cleans_only_after_failed_status_is_saved(self):
+        """완료 상태 쓰기 오류 후 실패 저장이 성공한 경우에만 정리한다."""
+        def update(doc_id, status, count, message):
+            if status == "done":
+                raise RuntimeError("private commit response")
+            if status == "failed":
+                self.repo.delete_document_chunks.assert_not_called()
+        self.repo.update_index_status.side_effect = update
+        result = service.upload_document(self.file, self.metadata, self.user)
+        self.assertEqual(result["index_status"], "failed")
+        self.repo.delete_document_chunks.assert_called_once_with(result["doc_id"])
+        self.assertEqual(len(list(self.root.iterdir())), 1)
+
+    def test_failed_pipeline_db_error_keeps_chunks_when_status_is_uncertain(self):
+        """파이프라인 실패라도 DB 실패 저장이 확인되지 않으면 삭제하지 않는다."""
+        self.pipeline.side_effect = lambda path, doc_id, *args: {
+            "doc_id": doc_id, "index_status": "failed", "chunk_count": 0,
+            "error_message": "색인 저장 단계 실패 (RuntimeError)",
+        }
+        self.repo.update_index_status.side_effect = [None, RuntimeError(), RuntimeError()]
+        result = service.upload_document(self.file, self.metadata, self.user)
+        self.assertIn("DB 상태 저장 실패", result["error_message"])
+        self.repo.delete_document_chunks.assert_not_called()
+
+    def test_cleanup_error_is_reported_without_private_details(self):
+        """정리 실패를 숨기거나 원본을 지우지 않고 두 실패 경로에서 안내한다."""
+        for raised in (False, True):
+            with self.subTest(raised=raised):
+                self.repo.delete_document_chunks.reset_mock()
+                self.repo.delete_document_chunks.side_effect = RuntimeError("private/path/body")
+                if raised:
+                    self.pipeline.side_effect = RuntimeError("private pipeline error")
+                else:
+                    self.pipeline.side_effect = lambda path, doc_id, *args: {
+                        "doc_id": doc_id, "index_status": "failed", "chunk_count": 0,
+                        "error_message": "색인 저장 단계 실패 (RuntimeError)",
+                    }
+                result = service.upload_document(self.file, self.metadata, self.user)
+                self.assertEqual(result["index_status"], "failed")
+                self.assertIn("색인 청크 정리 실패", result["error_message"])
+                self.assertNotIn("private", result["error_message"])
+                self.repo.delete_document_chunks.assert_called_once_with(result["doc_id"])
+                self.assertTrue((self.root / (result["doc_id"] + ".docx")).exists())
 
     def test_setup_failure_is_safe_and_closes_indexer(self):
         """API 객체 생성 실패도 본문·키 없이 실패로 기록하고 Chroma를 닫는다."""
@@ -162,6 +211,7 @@ class DocumentServiceTests(unittest.TestCase):
         self.assertIn("DB 상태 저장 실패", result["error_message"])
         self.assertNotIn("secret", result["error_message"])
         self.assertEqual(len(list(self.root.iterdir())), 1)
+        self.repo.delete_document_chunks.assert_not_called()
 
     def test_existing_uuid_path_is_never_deleted(self):
         """배타적 파일 생성 실패 시 원래 있던 파일은 보존한다."""

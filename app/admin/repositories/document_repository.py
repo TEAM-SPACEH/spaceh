@@ -1,6 +1,20 @@
 """A-01 회사 조회와 중복 검사·문서 등록·색인 상태 저장."""
 
+from chromadb.errors import NotFoundError
+
+from core import config
+from core.chroma import open_chroma_client
 from core.database import get_connection
+
+
+def delete_document_chunks(doc_id: str) -> None:
+    """A-01 실패가 확정된 신규 업로드의 청크만 삭제한다."""
+    with open_chroma_client() as client:
+        try:
+            collection = client.get_collection(config.CHROMA_COLLECTION)
+        except NotFoundError:
+            return
+        collection.delete(where={"doc_id": doc_id})
 
 
 def find_active_admin(user_id: int) -> dict | None:
