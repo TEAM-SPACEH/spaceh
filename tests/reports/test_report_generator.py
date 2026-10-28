@@ -117,6 +117,17 @@ class GenerateSectionTest(unittest.TestCase):
         self.assertFalse(section.has_evidence)
         self.assertEqual(section.body, NO_EVIDENCE_TEXT)  # 정해진 문구 하나로 맞춰져요
 
+    def test_empty_answer_is_no_evidence(self):
+        # AI가 빈 답(빈칸·줄바꿈만)을 주면 근거 없는 섹션이어야 하고, 근거·출처를 붙이면 안 돼요.
+        with patch(GET_LLM, return_value=make_fake_llm("  \n ")):
+            section = report_generator.generate_section(
+                SectionType.STATUS, MOCK_COLLECTION.chunks, MOCK_REQUEST,
+            )
+        self.assertFalse(section.has_evidence)
+        self.assertEqual(section.body, NO_EVIDENCE_TEXT)
+        self.assertEqual(section.evidence, [])
+        self.assertEqual(section.sources, [])
+
     def test_sources_match_s04_format(self):
         with patch(GET_LLM, return_value=make_fake_llm("물류 수요가 늘고 있음.[1][2]")):
             section = report_generator.generate_section(
@@ -179,6 +190,15 @@ class GenerateDraftTest(unittest.TestCase):
 
         get_llm.assert_not_called()
         self.assertTrue(all(s.body == NO_EVIDENCE_TEXT for s in sections))
+
+    def test_llm_error_is_raised(self):
+        # AI 호출이 실패하면 오류를 잡지 않고 그대로 올려 보내야 해요.
+        # 그래야 보고서 생성 흐름이 "중간 실패 시 저장하지 않고 오류 반환"을 할 수 있어요.
+        fake_llm = MagicMock()
+        fake_llm.invoke.side_effect = RuntimeError("API 오류")  # side_effect: 부르면 이 오류를 내요
+        with patch(GET_LLM, return_value=fake_llm):
+            with self.assertRaises(RuntimeError):
+                report_generator.generate_draft(MOCK_REQUEST, MOCK_COLLECTION)
 
 
 if __name__ == "__main__":

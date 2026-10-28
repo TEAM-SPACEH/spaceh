@@ -196,8 +196,9 @@ def generate_section(
     response = _get_llm().invoke(prompt)
     body = response.content.strip()  # strip(): 앞뒤 빈칸·빈 줄 제거
 
-    # AI가 "근거 자료 없음"이라고 답했으면 근거 없는 섹션으로 표시해요.
-    has_evidence = not is_no_evidence(body)
+    # AI가 "근거 자료 없음"이라고 답했거나, 아무것도 쓰지 않았으면(빈 답) 근거 없는 섹션으로 표시해요.
+    # 빈 답을 그냥 두면 본문은 비었는데 근거·출처만 붙은 이상한 섹션이 돼요.
+    has_evidence = bool(body) and not is_no_evidence(body)
     if not has_evidence:
         body = NO_EVIDENCE_TEXT  # "근거 자료 없음." 같은 변형을 정해진 문구 하나로 맞춰요
 
