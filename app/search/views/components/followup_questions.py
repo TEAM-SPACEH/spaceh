@@ -42,5 +42,5 @@ def render_followup_questions(query: str) -> None:
                 key=f"s61_followup_{index}",
                 on_click=_set_followup_query,
                 args=(question,),
-                use_container_width=True,
+                width="stretch",
             )

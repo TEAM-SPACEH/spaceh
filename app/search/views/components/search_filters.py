@@ -12,8 +12,24 @@ def render_search_filters(
     key: str = "search",
     compact: bool = False,
 ) -> dict:
-    """S-02 검색 필터. compact=True면 가로형 필터 UI."""
+    """S-02 기업·문서 유형·기간 다중 검색 필터 UI.
 
+    Args:
+        companies: 회사 id와 name을 포함한 딕셔너리 목록
+        doc_types: 문서 유형 code와 label을 포함한 딕셔너리 목록
+        dates: 선택 가능한 최소·최대 날짜
+        key: Streamlit 위젯 키 접두사
+        compact: True면 가로형 팝오버, False면 기존 세로형 UI
+
+    Returns:
+        선택된 검색 조건 딕셔너리.
+        {
+            "companies": 선택한 회사 ID 목록,
+            "doc_types": 선택한 문서 유형 코드 목록,
+            "date_from": 시작일(YYYYMMDD) 또는 None,
+            "date_to": 종료일(YYYYMMDD) 또는 None,
+        }
+    """
     if compact:
         company_col, type_col, date_col, _ = st.columns(
             [1.3, 1.5, 1.3, 5],
@@ -41,7 +57,7 @@ def render_search_filters(
         date_box = date_col.popover(
             "기간 지정" if has_date else "기간 전체"
         )
-        
+
     else:
         st.subheader("검색 필터")
         company_box = nullcontext()
