@@ -32,6 +32,7 @@ def login(employee_no: str, password: str) -> bool:
         return False
 
     # 세션에는 비밀번호 해시를 빼고, S-03 권한 필터가 쓸 역할·소속까지 넣는다.
+    # 회사 이름은 공통 헤더·사이드바가 "현대무벡스 관리자"처럼 보여 줄 때 쓴다.
     session.set_current_user(
         {
             "id": user["id"],
@@ -39,6 +40,7 @@ def login(employee_no: str, password: str) -> bool:
             "name": user["name"],
             "role": user["role"],
             "company_id": user["company_id"],
+            "company_name": user.get("company_name"),
         }
     )
     logger.info("로그인 성공")

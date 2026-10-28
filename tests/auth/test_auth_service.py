@@ -17,6 +17,7 @@ def _user(**over) -> dict:
         "role": "employee",
         "company_id": "HRI",
         "is_active": 1,
+        "company_name": "현대경제연구원",
     }
     user.update(over)
     return user
@@ -34,6 +35,7 @@ class LoginTest(unittest.TestCase):
         self.assertEqual(saved["id"], 1)
         self.assertEqual(saved["role"], "employee")
         self.assertEqual(saved["company_id"], "HRI")  # 소속이 세션에 들어간다
+        self.assertEqual(saved["company_name"], "현대경제연구원")  # 헤더·사이드바 표시용
         self.assertNotIn("password_hash", saved)  # 해시는 세션에 넣지 않는다
 
     @mock.patch("app.auth.services.auth_service.session.set_current_user")
