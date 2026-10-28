@@ -15,7 +15,7 @@ import re
 from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25L
 
-from app.permissions.services.permission_service import apply_rbac_filter
+from app.permissions.services.permission_service import apply_rbac_filter, can_request_access
 from app.search.repositories.chunk_repository import get_chunks, query_chunks
 from core import config
 
@@ -222,6 +222,45 @@ def apply_metadata_filters(filters: dict) -> dict:
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def search_requestable_documents(query: str, user: dict) -> list[dict]:
+    """S-05·M-03 검색어에 맞지만 '권한이 없어 요청하면 볼 수 있는' 문서의 제목만 찾는다.
+
+    본문 검색(search_documents)은 권한 사전 필터로 권한 밖 문서를 아예 제외하고, 그 내용은
+    LLM에 넣지 않는다. 이 함수는 '제목 발견' 용도로만, 권한 필터 없이 검색해 후보 문서를 모은 뒤
+    can_request_access가 True인 문서(= 아직 못 보지만 요청하면 열 수 있는 문서)의 제목·회사만 돌려준다.
+    여기서 꺼낸 본문·청크는 화면이나 LLM에 쓰지 않는다(제목·회사명만 쓴다).
+    """
+    query = (query or "").strip()
+    if not query or not isinstance(user, dict) or "id" not in user:
+        return []
+
+    # 권한 필터 없이(where=None) 검색해 검색어에 맞는 문서 후보를 찾는다.
+    chunks = query_chunks(_embed_query(query), None, config.SEARCH_TOP_K)
+
+    results: list[dict] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        metadata = chunk.get("metadata", {})
+        doc_id = metadata.get("doc_id")
+        if not doc_id or doc_id in seen:
+            continue
+        seen.add(doc_id)
+
+        # 요청 가능한 문서만 남긴다. 이미 볼 수 있거나, 대기 중 요청이 있거나, 최종 어드민이면 False.
+        if not can_request_access(user["id"], doc_id):
+            continue
+
+        results.append(
+            {
+                "doc_id": doc_id,
+                "title": metadata.get("title", ""),
+                "company_id": metadata.get("company_id", ""),
+                "company_name": metadata.get("company_name", ""),
+            }
+        )
+    return results
 
 
 def _match_any(field: str, values: list) -> dict:

@@ -6,8 +6,13 @@ from datetime import date
 import streamlit as st
 
 from app.auth.session import get_current_user
-from app.common.ui import show_text
-from app.search.services.search_service import apply_metadata_filters, hybrid_search
+from app.common.ui import no_permission_notice, show_text
+from app.permissions.services.permission_service import request_document_access
+from app.search.services.search_service import (
+    apply_metadata_filters,
+    hybrid_search,
+    search_requestable_documents,
+)
 from app.search.views.components.search_filters import render_search_filters
 
 logger = logging.getLogger(__name__)
@@ -99,6 +104,56 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             # 청크 본문은 업로드 문서 내용 그대로라 st.write(Markdown 해석)로 보여 주지 않는다.
             show_text(chunk["text"][:PREVIEW_CHARS])
             st.divider()
+
+    # 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
+    _render_requestable_documents(query, user)
+
+
+def _render_requestable_documents(query: str, user: dict) -> None:
+    """검색어에 맞지만 권한 없는 문서를 '제목만' 보여 주고, 사유 입력 → 열람 권한 요청까지 연결한다.
+
+    본문·청크는 쓰지 않는다(제목·회사명만). overview.md §2.3-6 규칙.
+    """
+    try:
+        documents = search_requestable_documents(query, user)
+    except Exception:
+        logger.exception("요청 가능 문서 검색 실패")
+        return
+
+    if not documents:
+        return
+
+    st.divider()
+    st.subheader("열람 권한을 요청할 수 있는 문서")
+    for document in documents:
+        company = document["company_name"] or document["company_id"]
+        # 제목만 보여 주는 안내 + [열람 권한 요청] 버튼 (공통 컴포넌트). 버튼을 누르면 사유 입력을 연다.
+        if no_permission_notice(document["title"], company, key=document["doc_id"]):
+            st.session_state["request_open_doc"] = document["doc_id"]
+
+        if st.session_state.get("request_open_doc") == document["doc_id"]:
+            _render_request_form(user, document)
+
+
+def _render_request_form(user: dict, document: dict) -> None:
+    """선택한 문서에 사유를 적어 열람 권한 요청을 등록한다."""
+    reason = st.text_area("요청 사유 (5~500자)", key=f"reason-{document['doc_id']}")
+    if not st.button("요청 보내기", key=f"send-{document['doc_id']}"):
+        return
+
+    try:
+        registered = request_document_access(user["id"], document["doc_id"], reason)
+    except Exception:
+        # 동시 요청 시 DB 데드락(1213) 등으로 예외가 올라올 수 있다. 앱을 멈추지 않고 안내한다.
+        logger.exception("열람 권한 요청 등록 실패")
+        st.error("요청 처리 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
+        return
+
+    if registered:
+        st.success("열람 권한을 요청했습니다. 소유 회사 관리자의 승인 후 볼 수 있습니다.")
+        st.session_state.pop("request_open_doc", None)
+    else:
+        st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")
 
 
 def _group_by_document(chunks: list[dict]) -> list[dict]:
