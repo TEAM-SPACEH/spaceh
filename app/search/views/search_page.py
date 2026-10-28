@@ -18,6 +18,7 @@ from app.documents.views.components.source_badge import (
 from app.documents.views.components.document_viewer import render_selected_source
 from app.search.views.components.rag_source_panel import render_rag_source_panel
 from app.search.views.components.search_result_list import render_search_result_list
+from app.search.views.components.followup_questions import render_followup_questions
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 value=query or "",
                 placeholder="궁금한 내용을 검색해 보세요.",
                 label_visibility="collapsed",
+                key="s61_query_input",
             )
 
         with button_col:
@@ -205,6 +207,13 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
         elif saved.get("rag_result") is not None:
             render_rag_answer_card(saved["rag_result"])
+
+        # S-07 연동 전 기본 후속 질문 UI
+        if (
+            saved.get("rag_result") is not None
+            and saved["rag_result"].get("answer") != "찾을 수 없음"
+        ):
+            render_followup_questions(saved["query"])
 
         # 2. 기존 S-01 검색 결과
         render_search_result_list(chunks)
