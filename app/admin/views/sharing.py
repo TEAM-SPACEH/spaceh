@@ -10,7 +10,7 @@ from app.admin.services.access_service import (
     get_manageable_documents,
 )
 from app.admin.views.components.group_share_toggle import render_group_share_toggle
-from app.common.ui import ACCESS_LABELS, company_tag_html, empty_state, page_header, show_text
+from app.common.ui import company_tag_html, empty_state, page_header, security_badge_html, show_text
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ def _render_table(documents: list[dict], user: dict) -> None:
         with cols[0]:
             show_text(doc["title"])
         cols[1].html(company_tag_html(doc["company_id"]))
-        cols[2].write(ACCESS_LABELS.get(doc["access_level"], doc["access_level"]))
+        cols[2].html(security_badge_html(doc["access_level"]))
         with cols[3]:
             show_text(doc["file_format"])
         cols[4].write(doc["created_at"])
