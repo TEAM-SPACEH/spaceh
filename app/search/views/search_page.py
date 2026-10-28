@@ -7,7 +7,7 @@ import streamlit as st
 
 from app.auth.session import get_current_user
 from app.common.ui import page_header
-from app.search.services.search_service import apply_metadata_filters, search_documents
+from app.search.services.search_service import apply_metadata_filters, hybrid_search
 from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
 from app.search.views.components.search_filters import render_search_filters
 from app.search.views.components.rag_answer_card import render_rag_answer_card
@@ -162,9 +162,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
             fresh_user = get_fresh_search_user(user)
 
-            # S-01 문서 검색
+            # S-06 하이브리드 검색 (S-03 권한 필터는 검색 전에 적용된다)
             with st.spinner("문서를 검색하고 있습니다..."):
-                chunks = search_documents(
+                chunks = hybrid_search(
                     current_query,
                     where,
                     fresh_user,
