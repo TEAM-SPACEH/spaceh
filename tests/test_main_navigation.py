@@ -26,6 +26,7 @@ class MainNavigationTest(unittest.TestCase):
         with patch("streamlit.Page", side_effect=page), \
              patch("streamlit.navigation"), \
              patch("app.auth.session.is_authenticated", return_value=False), \
+             patch("app.admin.views.access_requests.render_admin_permissions") as render_permissions, \
              patch("app.admin.views.documents.render_admin_documents") as render:
             namespace = runpy.run_path(str(Path(__file__).resolve().parents[1] / "main.py"))
             for role in ("employee", "company_admin", "super_admin"):
@@ -37,3 +38,9 @@ class MainNavigationTest(unittest.TestCase):
                 if documents:
                     documents[0].render()
                     render.assert_called_with(user)
+                requests = [item for group in menus.values() for item in group
+                            if getattr(item, "url_path", None) == "admin-access-requests"]
+                self.assertEqual(len(requests), 0 if role == "employee" else 1)
+                if requests:
+                    requests[0].render()
+                    render_permissions.assert_called_with(user)
