@@ -268,23 +268,6 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             ):
                 render_selected_source(user)
 
-    doc_tab, chunk_tab = st.tabs([f"문서 {len(documents)}건", f"청크 {len(chunks)}건"])
-    with doc_tab:
-        for doc in documents:
-            meta = doc["metadata"]
-            # 제목·파일명은 업로드한 사람이 정하므로 Markdown으로 해석하지 않는다 (show_text).
-            show_text(meta.get("title") or meta.get("file_name", ""), bold=True)
-            show_text(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련 청크 {doc['chunk_count']}개 · 관련도 {doc['score']:.2f}", muted=True)
-    with chunk_tab:
-        for chunk in chunks:
-            meta = chunk["metadata"]
-            show_text(f"{meta.get('title', '')} — {meta.get('location', '')}", bold=True)
-            show_text(f"{meta.get('company_name', '')} · {meta.get('file_name', '')} · 관련도 {chunk['score']:.2f}", muted=True)
-            # 청크 본문은 업로드 문서 내용 그대로라 st.write(Markdown 해석)로 보여 주지 않는다.
-            show_text(chunk["text"][:PREVIEW_CHARS])
-            st.divider()
-
-
 def _group_by_document(chunks: list[dict]) -> list[dict]:
     """청크를 문서(doc_id)별로 묶는다. 문서 순서는 가장 관련도 높은 청크 기준."""
     documents: dict[str, dict] = {}
