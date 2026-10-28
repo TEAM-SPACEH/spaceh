@@ -17,23 +17,31 @@ def render_group_share_toggle(
     doc: dict,
     user: dict,
     on_toggle_callback: Callable[[str, bool], None] | None = None,
+    *,
+    key_prefix: str = "group-share",
 ) -> None:
     """A-03 문서 1건의 그룹사 공유 토글을 그린다.
 
     doc: get_manageable_documents() 결과의 문서 dict (doc_id·access_level·is_group_shared 필요)
     user: 로그인 사용자
     on_toggle_callback: 변경에 성공한 뒤 부르는 함수. (doc_id, 바뀐 공유 상태) 를 받는다
+    key_prefix: 같은 문서의 토글을 화면의 여러 곳(표·패널)에 둘 때 위젯 이름이 겹치지 않게 붙이는 접두어
     confidential 은 꺼진 채 잠그고, internal 만 바꿀 수 있다.
     """
-    # key: Streamlit 이 "이 토글은 이 문서의 것"이라고 구분하고 상태(켜짐/꺼짐)를 기억하는 이름표다.
-    # 목록에는 토글이 여러 개라 문서마다 달라야 한다 (같으면 오류).
-    key = f"group-share-{doc['doc_id']}"
+    state = bool(doc["is_group_shared"])
     level = doc["access_level"]
+    # key: Streamlit 이 "이 토글은 이 문서의 것"이라고 구분하고 상태(켜짐/꺼짐)를 기억하는 이름표다.
+    # 목록에는 토글이 여러 개라 문서마다 달라야 하고, 같은 문서를 표와 패널에 함께 그리면 접두어로도 달라야 한다.
+    # 현재 공유 상태를 키에 넣는 이유: 한 곳에서 바꾸면 다른 곳의 토글은 옛 값을 기억하고 있어 어긋난다.
+    # 상태가 바뀌면 키도 바뀌어 새 위젯으로 다시 그려지므로, 항상 DB 의 값을 따른다.
+    key = f"{key_prefix}-{doc['doc_id']}-{int(state)}"
 
     # 화면은 "무엇을 보여줄지"만 정한다. 실제로 바꿔도 되는지는 서비스(set_group_share)가 다시 확인하므로
     # 여기서 잠그는 것은 사용자 안내용이다. 화면만 믿고 권한을 판단하지 않는다.
     if level == ACCESS_CONFIDENTIAL:
-        st.toggle("그룹사 공유", value=False, key=key, disabled=True, help=_CONFIDENTIAL_NOTICE)
+        st.toggle(
+            "그룹사 공유", value=False, key=key, disabled=True, help=_CONFIDENTIAL_NOTICE, label_visibility="collapsed"
+        )
         st.caption(_CONFIDENTIAL_NOTICE)
         return
     if level != ACCESS_INTERNAL:
@@ -44,8 +52,9 @@ def render_group_share_toggle(
     # 목록을 새로 읽는 화면(sharing.py)은 바뀐 값을 바로 보여 준다.
     st.toggle(
         "그룹사 공유",
-        value=bool(doc["is_group_shared"]),
+        value=state,
         key=key,
+        label_visibility="collapsed",
         on_change=_on_change,
         args=(doc, user, key, on_toggle_callback),
     )
