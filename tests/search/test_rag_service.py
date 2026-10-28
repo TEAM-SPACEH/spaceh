@@ -1,243 +1,99 @@
-
-"""S-04 근거 기반 AI 답변 생성 단위 테스트."""
+"""S-07 generate_followup_questions 테스트. LLM 호출(_generate_followups_with_openai)은 목으로 바꾼다."""
 
 import unittest
-from unittest.mock import patch
+from unittest import mock
 
-from app.search.services import rag_service
+from app.search.services import rag_service as rag
 
-import httpx
-from openai import APIConnectionError
-
-
-NO_ANSWER = "찾을 수 없음"
+_GEN = "app.search.services.rag_service._generate_followups_with_openai"
 
 
-def make_chunk(company_id, company_name, doc_id, chunk_id, text, page):
-    """테스트용 가상 문서 청크 생성."""
+def _chunk(text: str = "3분기 스마트팩토리 수주 1,284억 원") -> dict:
+    """검색 결과 청크 한 개(prepare_context가 읽는 모양)."""
     return {
-        "chunk_id": chunk_id,
-        "doc_id": doc_id,
         "text": text,
         "metadata": {
-            "company_id": company_id,
-            "company_name": company_name,
-            "file_name": f"{company_id}_가상안내.pdf",
-            "page": page,
+            "company_name": "현대무벡스", "file_name": "q3.pdf",
+            "page": 3, "doc_id": "MVX-report-1", "chunk_id": "MVX-report-1#0000",
         },
     }
 
 
-class TestRagService(unittest.TestCase):
+class ParseFollowupsTest(unittest.TestCase):
+    def test_strips_numbering_and_bullets(self):
+        raw = "1. 수주 전망은?\n- 위험 요인은?\n• 경쟁사 비교는?"
+        self.assertEqual(rag._parse_followups(raw), ["수주 전망은?", "위험 요인은?", "경쟁사 비교는?"])
 
+    def test_preamble_without_question_mark_dropped(self):
+        # "다음은 추천 질문입니다:" 같은 머리말이 질문 자리를 차지하지 않아야 한다.
+        raw = "다음은 추천 질문입니다:\n1. 수주 전망은?\n2. 위험 요인은?\n3. 경쟁사 비교는?"
+        self.assertEqual(rag._parse_followups(raw), ["수주 전망은?", "위험 요인은?", "경쟁사 비교는?"])
+
+    def test_excludes_original_query(self):
+        # 모델이 원래 질문을 그대로 되내면 제외한다(공백 정규화 후 비교).
+        out = rag._parse_followups("수주   전망은?\n위험 요인은?", query="수주 전망은?")
+        self.assertEqual(out, ["위험 요인은?"])
+
+    def test_dedup_and_limit_three(self):
+        self.assertEqual(rag._parse_followups("A?\nA?\nB?\nC?\nD?"), ["A?", "B?", "C?"])
+
+    def test_returns_fewer_when_fewer(self):
+        # 적게 나오면 적은 대로 돌려준다(억지로 채우지 않는다).
+        self.assertEqual(rag._parse_followups("하나만 있나요?"), ["하나만 있나요?"])
+
+
+class SelectChunksWithinBudgetTest(unittest.TestCase):
+    def test_limits_by_budget_and_keeps_first(self):
+        chunks = [_chunk("A" * 300), _chunk("B" * 300), _chunk("C" * 300)]
+        self.assertEqual(len(rag._select_chunks_within_budget(chunks, 500)), 1)   # 300+300>500
+        self.assertEqual(len(rag._select_chunks_within_budget(chunks, 650)), 2)   # 300+300<=650
+        # 첫 청크가 예산보다 커도 하나는 넣는다(근거가 통째로 비지 않게).
+        self.assertEqual(len(rag._select_chunks_within_budget([_chunk("X" * 9999)], 10)), 1)
+
+
+class GenerateFollowupQuestionsTest(unittest.TestCase):
     def setUp(self):
-        """각 테스트에서 사용할 가상 문서 3개."""
-        self.chunks = [
-            make_chunk(
-                "HRI", "현대경제연구원",
-                "doc-001", "chunk-001",
-                "가상 프로젝트 정기 회의는 매주 월요일 오전 9시입니다.",
-                1,
-            ),
-            make_chunk(
-                "MVX", "현대무벡스",
-                "doc-002", "chunk-002",
-                "가상 프로젝트 정기 회의는 매주 화요일 오전 10시입니다.",
-                2,
-            ),
-            make_chunk(
-                "ELV", "현대엘리베이터",
-                "doc-003", "chunk-003",
-                "가상 프로젝트 정기 회의는 매주 수요일 오후 2시입니다.",
-                3,
-            ),
-        ]
+        self.chunks = [_chunk()]
 
-    def _generate_mock_answer(self, answer, chunks=None, grounded=True):
-        """실제 OpenAI 호출 없이 AI 답변 생성 과정을 테스트."""
-        if chunks is None:
-            chunks = self.chunks
+    def test_empty_query_or_answer_returns_empty(self):
+        self.assertEqual(rag.generate_followup_questions("", "답변[1]", self.chunks), [])
+        self.assertEqual(rag.generate_followup_questions("질문?", "", self.chunks), [])
 
-        with patch.object(
-            rag_service,
-            "_generate_with_openai",
-            return_value=answer,
-        ) as mock_llm:
-            with patch.object(
-                rag_service,
-                "_judge_grounding",
-                return_value="SUPPORTED" if grounded else "UNSUPPORTED",
-            ) as mock_grounding:
+    def test_no_answer_sentinel_returns_empty(self):
+        self.assertEqual(rag.generate_followup_questions("질문?", rag.NO_ANSWER, self.chunks), [])
 
-                result = rag_service.generate_answer(
-                    "가상 프로젝트 회의 일정은?",
-                    chunks,
-                )
+    def test_no_sources_returns_empty(self):
+        self.assertEqual(rag.generate_followup_questions("질문?", "답변[1]", []), [])
 
-        return result, mock_llm, mock_grounding
+    @mock.patch(_GEN)
+    def test_normal_returns_parsed_three(self, gen):
+        gen.return_value = "4분기 물량은?\n설비 투자 지연 시점은?\n2차전지 고객사 비중은?"
+        out = rag.generate_followup_questions("수주 현황은?", "3분기 수주 1,284억 [1]", self.chunks)
+        self.assertEqual(out, ["4분기 물량은?", "설비 투자 지연 시점은?", "2차전지 고객사 비중은?"])
 
-    # 1. 문서 청크 컨텍스트 변환
-    def test_prepare_context(self):
-        context, sources = rag_service.prepare_context(self.chunks)
+    @mock.patch(_GEN)
+    def test_fewer_than_three_returned_as_is_no_fallback(self, gen):
+        # 모델이 1개만 줘도 억지로 3개로 채우지 않고 1개만 돌려준다.
+        gen.return_value = "4분기 물량은?"
+        out = rag.generate_followup_questions("수주 현황은?", "답변[1]", self.chunks)
+        self.assertEqual(out, ["4분기 물량은?"])
 
-        self.assertIn("[문서 1]", context)
-        self.assertIn("현대경제연구원", context)
-        self.assertIn("페이지 1", context)
-        self.assertEqual(len(sources), 3)
+    @mock.patch(_GEN)
+    def test_called_once_no_retry(self, gen):
+        # 적게 나와도 재시도하지 않는다 → LLM 호출은 정확히 한 번.
+        gen.return_value = "하나만?"
+        rag.generate_followup_questions("수주 현황은?", "답변[1]", self.chunks)
+        self.assertEqual(gen.call_count, 1)
 
-    # 2. 정상 질문에 대한 답변 및 출처 반환
-    def test_generate_valid_answer(self):
-        result, mock_llm, mock_grounding = self._generate_mock_answer(
-            "정기 회의는 월요일 오전 9시입니다. [1]"
-        )
+    @mock.patch(_GEN)
+    def test_api_error_raises_service_error(self, gen):
+        from openai import APIError
 
-        self.assertNotEqual(result["answer"], NO_ANSWER)
-        self.assertEqual(len(result["sources"]), 1)
-        self.assertEqual(result["sources"][0]["citation_number"], 1)
-        self.assertEqual(result["sources"][0]["company"], "현대경제연구원")
+        # APIError 생성자 인자가 버전마다 달라, __new__로 인스턴스만 만들어 던진다.
+        gen.side_effect = APIError.__new__(APIError)
+        with self.assertRaises(rag.RAGServiceError):
+            rag.generate_followup_questions("질문?", "답변[1]", self.chunks)
 
-        mock_llm.assert_called_once()
-        mock_grounding.assert_called_once()
-
-    # 3. 근거 없는 질문 처리
-    def test_no_answer(self):
-        result, _, _ = self._generate_mock_answer(NO_ANSWER)
-
-        self.assertEqual(result["answer"], NO_ANSWER)
-        self.assertEqual(result["sources"], [])
-
-    # 4. 출처 번호가 없는 답변 차단
-    def test_missing_citation(self):
-        result, _, _ = self._generate_mock_answer(
-            "정기 회의는 매주 월요일입니다."
-        )
-
-        self.assertEqual(result["answer"], NO_ANSWER)
-        self.assertEqual(result["sources"], [])
-
-    # 5. 존재하지 않는 출처 번호 차단
-    def test_invalid_citation(self):
-        result, _, _ = self._generate_mock_answer(
-            "정기 회의는 월요일입니다. [99]"
-        )
-
-        self.assertEqual(result["answer"], NO_ANSWER)
-        self.assertEqual(result["sources"], [])
-
-    # 6. 근거 검증에 실패한 답변 차단
-    def test_unsupported_answer(self):
-        result, _, mock_grounding = self._generate_mock_answer(
-            "가상 프로젝트 매출은 100억 원입니다. [1]",
-            grounded=False,
-        )
-
-        self.assertEqual(result["answer"], NO_ANSWER)
-        self.assertEqual(result["sources"], [])
-        mock_grounding.assert_called_once()
-
-    # 7. 3개 기업의 출처 반환
-    def test_multiple_company_sources(self):
-        answer = (
-            "현대경제연구원은 월요일 오전 9시 [1], "
-            "현대무벡스는 화요일 오전 10시 [2], "
-            "현대엘리베이터는 수요일 오후 2시 [3]입니다."
-        )
-
-        result, _, _ = self._generate_mock_answer(answer)
-
-        self.assertEqual(result["answer"], answer)
-        self.assertEqual(len(result["sources"]), 3)
-
-        companies = {
-            source["company"]
-            for source in result["sources"]
-        }
-
-        self.assertEqual(
-            companies,
-            {"현대경제연구원", "현대무벡스", "현대엘리베이터"},
-        )
-
-    # 8. 인용하지 않은 출처는 반환하지 않음
-    def test_only_cited_sources(self):
-        result, _, _ = self._generate_mock_answer(
-            "월요일 오전 9시 [1], 수요일 오후 2시 [3]"
-        )
-
-        citation_numbers = [
-            source["citation_number"]
-            for source in result["sources"]
-        ]
-
-        self.assertEqual(citation_numbers, [1, 3])
-
-    # 9. 중복 인용 출처 제거
-    def test_duplicate_citations(self):
-        result, _, _ = self._generate_mock_answer(
-            "월요일 오전 9시입니다 [1]. 관련 안내도 동일합니다 [1]."
-        )
-
-        self.assertEqual(len(result["sources"]), 1)
-        self.assertEqual(result["sources"][0]["citation_number"], 1)
-
-    # 10. 검색 결과가 없을 때 LLM 미호출
-    def test_empty_chunks(self):
-        result, mock_llm, mock_grounding = self._generate_mock_answer(
-            "임의의 답변 [1]",
-            chunks=[],
-        )
-
-        self.assertEqual(result["answer"], NO_ANSWER)
-        self.assertEqual(result["sources"], [])
-
-        mock_llm.assert_not_called()
-        mock_grounding.assert_not_called()
-
-    
-    # 11. AI 답변 생성 API 연결 실패
-    def test_openai_generation_failure(self):
-        api_error = APIConnectionError(
-            request=httpx.Request(
-                "POST",
-                "https://api.openai.com/v1/chat/completions",
-            )
-        )
-
-        with patch.object(
-            rag_service,
-            "_generate_with_openai",
-            side_effect=api_error,
-        ):
-            with self.assertRaises(rag_service.RAGServiceError):
-                rag_service.generate_answer(
-                    "가상 프로젝트 회의 일정은?",
-                    self.chunks,
-                )
-
-    # 12. AI 근거 검증 API 연결 실패
-    def test_openai_grounding_failure(self):
-        api_error = APIConnectionError(
-            request=httpx.Request(
-                "POST",
-                "https://api.openai.com/v1/chat/completions",
-            )
-        )
-
-        with patch.object(
-            rag_service,
-            "_generate_with_openai",
-            return_value="월요일 오전 9시입니다. [1]",
-        ):
-            with patch.object(
-                rag_service,
-                "_judge_grounding",
-                side_effect=api_error,
-            ):
-                with self.assertRaises(rag_service.RAGServiceError):
-                    rag_service.generate_answer(
-                        "가상 프로젝트 회의 일정은?",
-                        self.chunks,
-                    )
 
 if __name__ == "__main__":
     unittest.main()

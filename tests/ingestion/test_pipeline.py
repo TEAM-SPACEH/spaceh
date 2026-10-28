@@ -4,6 +4,7 @@ import copy
 from datetime import datetime
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -16,13 +17,26 @@ from app.ingestion.pipeline import ingest_document
 from app.permissions.services.permission_service import apply_rbac_filter
 
 
+def _cleanup_chroma_directory(directory: tempfile.TemporaryDirectory) -> None:
+    """종료 직후 Windows 공유 잠금만 잠시 기다리고, 삭제 실패는 테스트에 알린다."""
+    # shortcut: 최대 0.95초만 기다리며, Chroma가 종료 완료 대기를 제공하면 대체한다.
+    for attempt in range(20):
+        try:
+            directory.cleanup()
+            return
+        except PermissionError as error:
+            if getattr(error, "winerror", None) != 32 or attempt == 19:
+                raise
+            time.sleep(0.05)
+
+
 class PipelineTest(unittest.TestCase):
     """임베딩만 대체하고 실제 로더·마스킹·메타데이터·청킹·색인을 연결한다."""
 
     def setUp(self):
         """업로드 원본과 Chroma를 서비스 데이터와 분리된 임시 경로에 만든다."""
         self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
+        self.addCleanup(_cleanup_chroma_directory, self.temp)
         self.path = Path(self.temp.name) / "sample.docx"
         document = Document()
         document.add_heading("설비 점검", level=1)
@@ -264,6 +278,43 @@ class PipelineTest(unittest.TestCase):
                          "failed")
         self.embedder.embed_chunks.assert_not_called()
         self.assertEqual(self.indexer.collection.count(), 0)
+
+
+class ChromaDirectoryCleanupTest(unittest.TestCase):
+    """일시 잠금은 삭제를 완료하고 지속 잠금·다른 오류는 숨기지 않는다."""
+
+    def test_transient_sharing_lock_retries_until_directory_is_deleted(self):
+        """WinError 32 뒤 재시도에서 실제 임시 폴더까지 삭제한다."""
+        with tempfile.TemporaryDirectory() as path:
+            directory = Mock()
+            locked = PermissionError("일시 공유 잠금")
+            locked.winerror = 32
+
+            def cleanup():
+                """첫 호출만 잠그고 다음 호출에서 실제 임시 파일을 삭제한다."""
+                if directory.cleanup.call_count == 1:
+                    raise locked
+                Path(path).rmdir()
+            directory.cleanup.side_effect = cleanup
+            with patch("tests.ingestion.test_pipeline.time.sleep") as sleep:
+                _cleanup_chroma_directory(directory)
+            self.assertFalse(Path(path).exists())
+            self.assertEqual(directory.cleanup.call_count, 2)
+            sleep.assert_called_once_with(0.05)
+
+    def test_persistent_lock_and_other_permission_errors_are_not_hidden(self):
+        """지속 잠금은 재시도 상한 뒤, 다른 권한 오류는 즉시 실패한다."""
+        for code, calls in ((32, 20), (5, 1)):
+            with self.subTest(winerror=code):
+                error = PermissionError("삭제 실패")
+                error.winerror = code
+                directory = Mock()
+                directory.cleanup.side_effect = error
+                with patch("tests.ingestion.test_pipeline.time.sleep") as sleep:
+                    with self.assertRaises(PermissionError):
+                        _cleanup_chroma_directory(directory)
+                self.assertEqual(directory.cleanup.call_count, calls)
+                self.assertEqual(sleep.call_count, calls - 1)
 
 
 if __name__ == "__main__":

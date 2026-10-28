@@ -13,21 +13,27 @@ from app.search.services.search_service import (
     hybrid_search,
     search_requestable_documents,
 )
+from app.common.ui import page_header
+from app.documents.views.components.document_viewer import render_selected_source
+from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
+from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
+from app.search.services.search_service import apply_metadata_filters, hybrid_search
+from app.search.views.components.followup_questions import render_followup_questions
+from app.search.views.components.rag_answer_card import render_rag_answer_card
+from app.search.views.components.rag_source_panel import render_rag_source_panel
 from app.search.views.components.search_filters import render_search_filters
+from app.search.views.components.search_result_list import render_search_result_list
 
 logger = logging.getLogger(__name__)
 
-# 청크 목록에서 본문을 미리 보여 줄 글자 수
-PREVIEW_CHARS = 200
-
 # S-02 필터 선택지 (관문 시연용 임시값).
-# TODO: 회사는 A-07 companies 테이블에서 읽고, 문서 유형 라벨은 공통 상수(core/constants.py 등)로
-#       옮긴다. 지금은 core/가 팀장 담당이라 화면 쪽에 임시로 둔다.
+# TODO: 회사는 A-07 companies 테이블에서 읽고, 문서 유형 라벨은 공통 상수로 이동
 _COMPANIES = [
     {"id": "HRI", "name": "현대경제연구원"},
     {"id": "MVX", "name": "현대무벡스"},
     {"id": "ELV", "name": "현대엘리베이터"},
 ]
+
 _DOC_TYPES = [
     {"code": "report", "label": "연구 보고서"},
     {"code": "disclosure", "label": "공시"},
@@ -36,53 +42,189 @@ _DOC_TYPES = [
     {"code": "intro", "label": "회사·제품 소개"},
     {"code": "memo", "label": "내부 메모"},
 ]
-# 기간 하한. documents.published_date에 하한이 없으니 오래된 문서(예: 2019년 이전)도
-# 고를 수 있게 넉넉히 잡는다. (상한=오늘은 고정하지 않고 그릴 때 계산한다 — 아래 render_search)
+
+# 오래된 문서도 검색할 수 있도록 기간 하한은 2000년으로 지정한다.
+# 종료일은 프로그램 실행 시 고정하지 않고 화면 렌더링 시점마다 오늘 날짜로 계산한다.
 _EARLIEST_DOC_DATE = date(2000, 1, 1)
+
+# 검색창 위젯 key. 후속 질문(followup_questions)도 이 key로 검색어를 바꾼다.
+_QUERY_KEY = "s61_query_input"
 
 
 def render_search(query: str | None = None, user: dict | None = None) -> None:
-    """S-01 3사 문서 통합 검색창과 검색 결과(청크·문서 목록)를 관련도 순으로 표시한다.
+    """S-01 통합 검색 및 S-04 근거 기반 AI 답변 화면.
 
-    query: 미리 채울 검색어 (후속 질문 S-07 등에서 넘김). 없으면 빈 검색창
-    user: 로그인 사용자. 없으면 세션의 현재 사용자를 쓴다
+    query: 미리 입력할 검색어
+    user: 로그인 사용자. 없으면 세션의 현재 사용자 사용
     """
+
     user = user or get_current_user()
+
     if not user:
         st.warning("로그인 후 검색할 수 있습니다.")
         return
 
-    st.title("통합 검색")
-    query = st.text_input(
-        "검색어",
-        value=query or "",
-        placeholder="현대무벡스·현대엘리베이터·현대경제연구원 문서에서 찾을 내용을 입력하세요",
+    # 공통 UI 헤더 사용
+    page_header("통합 검색")
+
+    date_range = (_EARLIEST_DOC_DATE, date.today())
+
+    # 미리 채울 검색어는 세션 값으로만 넣는다. text_input에 value=를 같이 주면
+    # 후속 질문이 세션 값을 바꿀 때 Streamlit이 "기본값과 세션 값이 함께 지정됨" 경고를 낸다.
+    if query and _QUERY_KEY not in st.session_state:
+        st.session_state[_QUERY_KEY] = query
+
+    # 1. 검색창
+    with st.form("s61_search_form", border=False):
+        search_col, button_col = st.columns(
+            [10, 1],
+            vertical_alignment="bottom",
+            gap="small",
+        )
+
+        with search_col:
+            search_query = st.text_input(
+                "검색어",
+                placeholder="궁금한 내용을 검색해 보세요.",
+                label_visibility="collapsed",
+                key=_QUERY_KEY,
+            )
+
+        with button_col:
+            submitted = st.form_submit_button(
+                "검색",
+                type="primary",
+            )
+
+    # 2. 검색 필터
+    # 폼 밖에 배치하여 후속 질문에서도 최신 필터 상태를 사용한다.
+    selection = render_search_filters(
+        _COMPANIES,
+        _DOC_TYPES,
+        date_range,
+        key="search",
+        compact=True,
     )
 
-    # S-02 필터를 그리고 선택값을 Chroma where 조건으로 바꾼다.
-    # 기간 상한(오늘)은 여기서 계산한다. 모듈 로드 때 한 번 고정하면 자정을 넘겨 실행될 때
-    # 바뀐 오늘 날짜를 시작일·종료일로 고를 수 없다.
-    date_range = (_EARLIEST_DOC_DATE, date.today())
-    selection = render_search_filters(_COMPANIES, _DOC_TYPES, date_range, key="search")
-    try:
-        where = apply_metadata_filters(selection)
-    except ValueError:
-        # 시작일이 종료일보다 늦는 등 잘못된 기간. 앱을 멈추지 않고 안내만 한다.
-        st.error("시작일이 종료일보다 늦습니다.")
+    # 3. 사용자별 검색 상태 관리
+    user_key = (
+        user.get("id"),
+        user.get("company_id"),
+        user.get("role"),
+    )
+
+    state_key = "s61_search_results"
+
+    # 후속 질문 자동 검색 여부
+    pending = st.session_state.pop("s61_followup_pending", False)
+
+    # 최초 질문을 유지하기 위해 이전 결과를 보관
+    previous_saved = st.session_state.get(state_key)
+
+    # 4. 검색 실행
+    if submitted or pending:
+        current_query = search_query.strip()
+        base_query = current_query
+
+        # 후속 질문일 때 최초 검색어 유지
+        if (
+            pending
+            and not submitted
+            and previous_saved
+            and previous_saved.get("user_key") == user_key
+        ):
+            base_query = (
+                previous_saved.get("base_query")
+                or previous_saved.get("query")
+                or current_query
+            )
+
+        # 이전 검색 결과 및 원문 선택 초기화
+        st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
+
+        if not current_query:
+            st.warning("검색어를 입력해 주세요.")
+            return
+
+        try:
+            # S-02 필터 변환
+            where = apply_metadata_filters(selection)
+
+            # S-06 하이브리드 검색 (S-03 권한 필터는 검색 전에 적용된다)
+            with st.spinner("문서를 검색하고 있습니다..."):
+                chunks = hybrid_search(
+                    current_query,
+                    where,
+                    user,
+                )
+
+            rag_result = None
+            rag_error = None
+
+            # S-04 기존 청크를 활용한 AI 답변 생성
+            if chunks:
+                try:
+                    with st.spinner("AI 답변을 생성하고 있습니다..."):
+                        rag_result = generate_answer(
+                            current_query,
+                            chunks,
+                        )
+
+                except PermissionError:
+                    logger.exception("S-04 답변 생성 권한 오류")
+                    rag_error = (
+                        "AI 답변에 사용할 문서의 접근 권한을 "
+                        "확인할 수 없습니다."
+                    )
+
+                except RAGServiceError:
+                    logger.exception("S-04 AI 서비스 오류")
+                    rag_error = (
+                        "AI 답변 서비스에 문제가 발생했습니다. "
+                        "잠시 후 다시 시도해 주세요."
+                    )
+
+                except Exception:
+                    logger.exception("S-04 답변 생성 실패")
+                    rag_error = "AI 답변 생성 중 문제가 발생했습니다."
+
+            # 검색 결과 및 최초 질문 저장
+            st.session_state[state_key] = {
+                "user_key": user_key,
+                "query": current_query,
+                "base_query": base_query,
+                "chunks": chunks,
+                "rag_result": rag_result,
+                "rag_error": rag_error,
+            }
+
+        except ValueError:
+            st.error("검색 기간을 다시 확인해 주세요.")
+            return
+
+        except PermissionError:
+            st.error("검색 권한을 확인할 수 없습니다.")
+            return
+
+        except Exception:
+            logger.exception("S-06 하이브리드 검색 실패")
+            st.error("검색 중 문제가 발생했습니다.")
+            return
+
+    # 5. 저장된 결과 표시
+    saved = st.session_state.get(state_key)
+
+    if not saved:
         return
 
-    if not query.strip():
+    # 로그인 사용자 변경 시 기존 검색 결과 폐기
+    if saved.get("user_key") != user_key:
+        st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
         return
 
-    try:
-        chunks = hybrid_search(query, where, user)
-    except PermissionError:
-        st.error("검색 권한을 확인할 수 없습니다. 다시 로그인해 주세요.")
-        return
-    except Exception:
-        logger.exception("S-06 하이브리드 검색 실패")
-        st.error("검색 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
-        return
+    chunks = saved["chunks"]
 
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
@@ -163,6 +305,46 @@ def _group_by_document(chunks: list[dict]) -> list[dict]:
     for chunk in chunks:
         doc = documents.setdefault(
             chunk["doc_id"], {"metadata": chunk["metadata"], "score": chunk["score"], "chunk_count": 0}
+    # 6. AI 답변 및 출처 2열 레이아웃
+    content_col, source_col = st.columns(
+        [2.2, 1],
+        gap="medium",
+        vertical_alignment="top",
+    )
+
+    # 왼쪽: AI 답변, 이어서 묻기, 검색 결과
+    with content_col:
+        if saved.get("rag_error"):
+            st.error(saved["rag_error"])
+
+        elif saved.get("rag_result") is not None:
+            render_rag_answer_card(saved["rag_result"])
+
+        # 후속 질문은 최초 질문을 기준으로 생성
+        if (
+            saved.get("rag_result") is not None
+            and not is_no_answer(saved["rag_result"].get("answer") or "")
+        ):
+            render_followup_questions(
+                saved.get("base_query") or saved["query"]
+            )
+
+        render_search_result_list(chunks)
+
+    # 오른쪽: AI 인용 출처 및 원문 뷰어
+    with source_col:
+        rag_result = saved.get("rag_result")
+
+        render_rag_source_panel(
+            rag_result.get("sources") or []
+            if rag_result is not None
+            else []
         )
-        doc["chunk_count"] += 1
-    return list(documents.values())
+
+        if st.session_state.get(SELECTED_SOURCE_KEY):
+            with st.expander(
+                "선택한 문서 원문",
+                expanded=True,
+            ):
+                # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
+                render_selected_source(user)
