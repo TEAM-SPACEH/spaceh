@@ -188,9 +188,11 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                     rag_error = "AI 답변 생성 중 문제가 발생했습니다."
 
             # M-03 요청 가능 문서(제목만)도 '검색할 때 한 번만' 찾아 결과와 함께 저장한다.
-            # 요청 버튼 클릭 등으로 화면이 재실행될 때마다 임베딩·Chroma·DB를 다시 호출하지 않게 캐시한다.
+            # 요청 버튼 클릭 등으로 화면이 재실행될 때마다 DB를 다시 호출하지 않게 캐시한다.
+            # 요청 후보는 본문(Chroma)이 아니라 제목·메타데이터(MySQL)로 찾으므로, Chroma where가
+            # 아니라 S-02 선택값(selection) 그대로 넘긴다(권한 사전 필터 원칙 — overview.md §2.3).
             try:
-                requestable = search_requestable_documents(current_query, where, user)
+                requestable = search_requestable_documents(current_query, selection, user)
             except Exception:
                 logger.exception("요청 가능 문서 검색 실패")
                 requestable = []
