@@ -13,7 +13,7 @@ import streamlit as st
 from app.auth.session import get_current_user_id
 from app.common.ui import company_tag_html, empty_state, page_header, show_text
 from app.permissions.services.permission_service import get_access_request_history
-from app.users.services.user_service import change_password, get_user_info
+from app.users.services.user_service import change_password, get_user_info, validate_password
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ def render_mypage() -> None:
 
     page_header("내 정보")
     _render_profile(info)
+    # 비밀번호 변경 성공 안내는 폼을 닫고 재실행한 '다음 화면'에서 한 번만 보여 준다(아래 폼 참고).
+    if st.session_state.pop("password_changed_flash", False):
+        st.success("비밀번호를 변경했습니다.")
     # M-02 비밀번호 바꾸기 폼은 '비밀번호 바꾸기' 버튼을 눌렀을 때만 연다.
     if st.session_state.get("change_password_open"):
         _render_change_password_form(info["user_id"])
@@ -78,7 +81,8 @@ def _render_profile(info: dict) -> None:
 
 def _render_change_password_form(user_id: int) -> None:
     """M-02 현재 비밀번호 확인 → 새 비밀번호 검증 → 변경. user_service에 맡기고 결과만 안내한다."""
-    with st.form("change_password_form"):
+    # clear_on_submit=True: 제출하면 입력칸을 비운다(비밀번호를 화면에 남기지 않는다. 기본값은 False).
+    with st.form("change_password_form", clear_on_submit=True):
         st.markdown("**비밀번호 바꾸기**")
         current = st.text_input("현재 비밀번호", type="password")
         new = st.text_input("새 비밀번호 (8~20자, 영문·숫자 포함, 공백 없음)", type="password")
@@ -88,12 +92,18 @@ def _render_change_password_form(user_id: int) -> None:
     if not submitted:
         return
 
-    # 새 비밀번호와 확인이 다르면 서비스를 부르기 전에 먼저 걸러 준다(화면에서 바로 안내).
+    # 서비스를 부르기 전에 화면에서 먼저 거른다. 실패 원인마다 메시지를 나눠 안내한다.
+    # 1) 새 비밀번호와 확인이 다름
     if new != confirm:
         st.error("새 비밀번호와 확인이 일치하지 않습니다.")
         return
+    # 2) 새 비밀번호 규칙 위반. 먼저 여기서 걸러야 아래 서비스 False를 '현재 비밀번호 불일치'로 좁힐 수 있다.
+    if not validate_password(new):
+        st.error("새 비밀번호가 규칙(8~20자, 영문·숫자 포함, 공백 없음)에 맞지 않습니다.")
+        return
 
     try:
+        # 서비스도 같은 검증을 다시 한다(화면 검사를 통과해도 서비스가 최종 판단 — 검증은 유지한다).
         changed = change_password(user_id, current, new)
     except Exception:
         # DB 오류 등은 화면 밖으로 터뜨리지 않고 쉬운 말로 안내한다(스택 트레이스는 로그에만).
@@ -102,11 +112,13 @@ def _render_change_password_form(user_id: int) -> None:
         return
 
     if changed:
-        st.success("비밀번호를 변경했습니다.")
+        # 폼을 즉시 닫고(입력도 비움) 성공 안내는 다음 재실행 화면에서 한 번 보여 준다.
         st.session_state.pop("change_password_open", None)
+        st.session_state["password_changed_flash"] = True
+        st.rerun()
     else:
-        # change_password는 현재 비밀번호 불일치·새 비밀번호 규칙 위반 모두 False로 알려 준다.
-        st.error("현재 비밀번호가 올바르지 않거나, 새 비밀번호가 규칙(8~20자, 영문·숫자 포함, 공백 없음)에 맞지 않습니다.")
+        # 위에서 규칙 위반은 이미 걸렀으므로, 서비스가 False면 현재 비밀번호 불일치다.
+        st.error("현재 비밀번호가 올바르지 않습니다.")
 
 
 def _render_access_requests(user_id: int) -> None:
