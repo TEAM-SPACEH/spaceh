@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from app.admin.views.audit_logs import render_admin_audit_logs
+from app.admin.views.companies import render_admin_companies
 from app.admin.views.documents import render_admin_documents
 from app.auth import session
 from app.auth.views.login_page import render_login
@@ -40,14 +42,23 @@ def build_pages(user: dict) -> dict:
         """A-01 로그인한 관리자의 문서 업로드 화면을 연다."""
         render_admin_documents(user)
 
+    def audit_logs() -> None:
+        """A-04 로그인한 관리자의 감사 로그 화면을 연다."""
+        render_admin_audit_logs(user)
+
+    def companies() -> None:
+        """A-07 로그인한 최종 어드민의 계열사 관리 화면을 연다."""
+        render_admin_companies(user)
+
     manage = [
         st.Page(documents, title="문서", url_path="admin-documents", icon=":material/description:"),
         coming_soon_page("열람 권한 요청", "admin-access-requests", ":material/inbox:"),
-        coming_soon_page("감사 로그", "admin-audit-logs", ":material/format_list_bulleted:"),
+        st.Page(audit_logs, title="감사 로그", url_path="admin-audit-logs",
+                icon=":material/format_list_bulleted:"),
     ]
     if user["role"] == ROLE_SUPER_ADMIN:
         pages["전체 관리"] = [
-            coming_soon_page("계열사", "admin-companies", ":material/apartment:"),
+            st.Page(companies, title="계열사", url_path="admin-companies", icon=":material/apartment:"),
             *manage,
             coming_soon_page("DART 수집", "admin-dart", ":material/cloud_download:"),
         ]
