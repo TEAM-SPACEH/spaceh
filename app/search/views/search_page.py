@@ -9,7 +9,7 @@ from app.auth.session import get_current_user
 from app.common.ui import DOC_TYPE_LABELS, page_header
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
-from app.search.services.rag_service import RAGServiceError, generate_answer_with_audit, is_no_answer, record_blocked_ask
+from app.search.services.rag_service import RAGServiceError, generate_answer, generate_answer_with_audit, is_no_answer, record_blocked_ask
 from app.search.services.search_service import apply_metadata_filters, hybrid_search
 from app.search.services.search_access_service import get_fresh_search_user, inspect_search_access
 from app.search.views.components.followup_questions import render_followup_questions
@@ -202,12 +202,17 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             # 검색 결과가 없어도 "찾을 수 없음"과 ask 로그를 생성한다.
             try:
                 with st.spinner("AI 답변을 생성하고 있습니다..."):
-                    rag_result = generate_answer_with_audit(
-                        current_query,
-                        chunks,
-                        fresh_user,
-                        filters=where,
-                    )
+                    if refresh_request is not None:
+                        # 권한 변경에 따른 자동 재검색은 감사 로그 중복 기록 방지
+                        rag_result = generate_answer(current_query, chunks)
+                    else:
+                        # 사용자 질문에 대해서만 ask 감사 로그 기록
+                        rag_result = generate_answer_with_audit(
+                            current_query,
+                            chunks,
+                            fresh_user,
+                            filters=where,
+                        )
 
             except PermissionError as exc:
                 # 답변 생성 단계에서 차단된 질의응답 기록
