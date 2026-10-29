@@ -14,6 +14,7 @@ from app.reports.models.report_models import Chunk, Section, SectionType
 from app.reports.services.citation_mapper import build_section_anchor
 from app.reports.services.prompts import NO_EVIDENCE_TEXT
 from app.reports.services.report_generator import build_section_sources
+from app.reports.services.citation_mapper import build_section_anchor, map_footnotes
 
 # build_section_sources()가 쓰는 S-04 prepare_context()는 DB를 안 써요. 회사 목록만 가짜로 바꿔요.
 COMPANY_OPTIONS = "app.reports.services.report_generator.get_company_options"
@@ -102,3 +103,48 @@ class BuildMockReportTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MapFootnotesTest(unittest.TestCase):
+
+    def test_map_footnotes(self):
+        sections = [
+            make_section(
+                SectionType.OVERVIEW,
+                "가 사실임.[1] 나 사실임.[2]",
+                [ELV, HRI],
+            ),
+            make_section(
+                SectionType.STATUS,
+                "다 사실임.[1] 라 사실임.[2][9]",
+                [MVX, ELV],
+            ),
+        ]
+
+        mapped_sections, footnotes = map_footnotes(
+            sections,
+            MOCK_COLLECTION.chunks,
+        )
+
+        # 섹션별 번호가 보고서 전체 번호로 변경되는지
+        self.assertEqual(
+            mapped_sections[0].body,
+            "가 사실임.[1] 나 사실임.[2]",
+        )
+        self.assertEqual(
+            mapped_sections[1].body,
+            "다 사실임.[3] 라 사실임.[1]",
+        )
+
+        # 같은 청크는 하나의 각주로 통합되는지
+        self.assertEqual(len(footnotes), 3)
+        self.assertEqual(
+            [note.chunk_id for note in footnotes],
+            [ELV.chunk_id, HRI.chunk_id, MVX.chunk_id],
+        )
+
+        # 출처 패널 번호도 변경되는지
+        self.assertEqual(
+            [s["citation_number"] for s in mapped_sections[1].sources],
+            [3, 1],
+        )
