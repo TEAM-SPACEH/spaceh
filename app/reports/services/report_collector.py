@@ -1,9 +1,11 @@
 """R-01 주제 기반 연관 문서 수집 및 회사별 균형 수집."""
+import re
 
 from app.reports.models.report_models import (
     Chunk,
     CollectionResult,
     ReportRequest,
+    SectionType,
 )
 from app.search.services.search_service import (
     apply_metadata_filters,
@@ -144,3 +146,102 @@ def balance_by_company(
         chunks=balanced_chunks,
         empty_companies=empty_companies,
     )
+
+# 섹션별 근거 선별에 사용할 키워드
+SECTION_KEYWORDS = {
+    SectionType.OVERVIEW: (
+        "개요", "배경", "시장", "산업", "동향",
+        "전망", "환경", "연구", "기술",
+    ),
+    SectionType.STATUS: (
+        "현황", "사업", "제품", "공급", "생산",
+        "운영", "수주", "도입", "설비",
+        "투자", "구축", "개발", "확대",
+    ),
+    SectionType.PERFORMANCE: (
+        "매출", "영업이익", "순이익", "실적",
+        "매출액", "영업수익", "재무",
+        "분기", "전년 대비",
+    ),
+}
+
+
+def _get_chunk_body(chunk: Chunk) -> str:
+    """출처 접두어를 제외하고 근거 본문을 가져온다."""
+    text = chunk.text.strip()
+
+    # '[회사 · 문서 · 위치] 본문' 형식에서 본문만 추출
+    if text.startswith("[") and "] " in text:
+        text = text.split("] ", 1)[1]
+
+    section = chunk.metadata.get("section", "")
+    return f"{section} {text}".lower()
+
+
+def select_section_evidence(
+    section_type: SectionType,
+    collection: CollectionResult,
+) -> list[Chunk]:
+    """R-01 섹션 목적에 맞는 근거 청크를 선별한다."""
+
+    chunks = [
+        chunk for chunk in collection.chunks
+        if chunk.text and chunk.text.strip()
+    ]
+
+    if not chunks:
+        return []
+
+    # 1. 시너지: 2개 이상 기업의 관련 근거가 필요
+    if section_type == SectionType.SYNERGY:
+        companies = {
+            chunk.metadata.get("company_id")
+            for chunk in chunks
+            if chunk.metadata.get("company_id")
+        }
+
+        if len(companies) < 2:
+            return []
+
+        # 기존 회사별 균형 순서를 유지
+        return chunks.copy()
+
+    # 2. 제언: 수집된 근거를 활용해 제안 작성
+    if section_type == SectionType.ADVICE:
+        return chunks.copy()
+
+    # 3. 나머지 섹션: 관련 키워드 기반 선별
+    keywords = SECTION_KEYWORDS.get(section_type)
+    if not keywords:
+        return []
+
+    selected = []
+
+    for chunk in chunks:
+        body = _get_chunk_body(chunk)
+
+        if not any(keyword in body for keyword in keywords):
+            continue
+
+        # 실적 비교는 공시 수치 근거만 사용
+        if section_type == SectionType.PERFORMANCE:
+            metadata = chunk.metadata
+
+            if (
+                metadata.get("source_type") != "dart"
+                and metadata.get("doc_type") != "disclosure"
+            ):
+                continue
+
+            # 연도만 있는 자료가 아니라 실제 수치가 있는지 확인
+            if not re.search(
+                r"\d[\d,.]*\s*(?:%|조|억|만|원)",
+                body,
+            ):
+                continue
+
+        selected.append(chunk)
+
+    # 적합한 근거가 없으면 빈 목록 반환
+    # R-02가 AI 호출 없이 '근거 자료 없음' 처리
+    return selected

@@ -31,7 +31,7 @@ from app.reports.services.prompts import (
 )
 # 지금은 가짜예요. 김소은의 R-01이 완성되면 이 줄만 아래처럼 바꿔요.
 #   from app.reports.services.report_collector import select_section_evidence
-from app.reports.mock_data import select_section_evidence
+from app.reports.services.report_collector import select_section_evidence
 
 logger = logging.getLogger(__name__)
 
