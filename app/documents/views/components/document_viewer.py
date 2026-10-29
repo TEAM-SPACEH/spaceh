@@ -24,6 +24,9 @@ MIME_TYPES = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
+# 열람 감사 로그를 이미 남긴 출처 (문서 ID, 위치). 화면이 다시 그려져도 같은 출처면 또 남기지 않아요.
+AUDITED_SOURCE_KEY = "s05_audited_source"
+
 
 def render_selected_source(user: dict | None = None) -> None:
     """S-05 출처 배지에서 고른 출처를 원문 뷰어로 연다. 고른 출처가 없으면 안내만 표시한다."""
@@ -48,6 +51,8 @@ def render_selected_source(user: dict | None = None) -> None:
     # 닫기를 누르면 세션의 출처를 지우고 다시 그려서 뷰어를 닫아요.
     if st.button("원문 닫기", key="s05_close_viewer"):
         del st.session_state[SELECTED_SOURCE_KEY]
+        # 기록 표시도 지워요. 닫았다가 다시 열면 새 열람이라 다시 1건 남아야 해서예요.
+        st.session_state.pop(AUDITED_SOURCE_KEY, None)
         st.rerun()
 
 
@@ -58,7 +63,12 @@ def render_document_viewer(doc_id: str, location: dict, user: dict) -> None:
     # 📌 명세서에는 location 모양이 없어서 이렇게 정했어요. 팀에 공유가 필요해요.
 
     # ① 권한 재확인 + 문서 정보 (판단은 services가 해요)
-    document = get_viewer_document(doc_id, user)
+    # Streamlit은 버튼을 누를 때마다 이 함수를 다시 실행해요. 권한 확인은 매번 하되,
+    # 열람 감사 로그는 "새로 연 출처"일 때만 남겨요. (같은 출처를 보는 동안에는 1건)
+    opened = (doc_id, location.get("location"))                       # 지금 연 출처
+    first_open = st.session_state.get(AUDITED_SOURCE_KEY) != opened    # 아직 기록 안 한 출처면 True
+    document = get_viewer_document(doc_id, user, audit=first_open)
+    st.session_state[AUDITED_SOURCE_KEY] = opened                      # 이 출처는 기록했다고 표시
     if document is None:
         st.error("문서를 찾을 수 없습니다. 삭제되었거나 다시 색인 중일 수 있습니다.")
         return
