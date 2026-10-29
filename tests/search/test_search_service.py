@@ -17,7 +17,11 @@ from unittest.mock import patch
 
 import chromadb
 
-from app.search.services.search_service import apply_metadata_filters, search_documents
+from app.search.services.search_service import (
+    apply_metadata_filters,
+    search_documents,
+    search_requestable_documents,
+)
 from core import config
 from core.chroma import open_chroma_client
 
@@ -230,6 +234,50 @@ class ApplyMetadataFiltersTest(unittest.TestCase):
             apply_metadata_filters({"date_from": 20250101, "date_to": 20250101}),
             {"$and": [{"published_date": {"$gte": 20250101}}, {"published_date": {"$lte": 20250101}}]},
         )
+
+
+class SearchRequestableDocumentsTest(unittest.TestCase):
+    """M-03 요청 후보: 본문 청크(Chroma)를 조회하지 않고 MySQL 제목·메타데이터만 쓰는지 확인.
+
+    권한 밖 문서의 본문을 벡터 검색으로 끌어오면 '벡터 검색 전에 권한을 건다'는 원칙(overview.md §2.3)을
+    어긴다. 그래서 이 경로에서는 query_chunks·_embed_query가 호출되지 않아야 한다(회귀 방지).
+    """
+
+    # render_search_filters()가 돌려주는 '선택값' 모양 (Chroma where가 아니다).
+    SELECTION = {"companies": ["ELV"], "doc_types": [], "date_from": None, "date_to": None}
+    USER = {"id": 1, "role": "employee", "company_id": "MVX"}
+    CANDIDATES = [
+        {"doc_id": "elvC", "title": "계약 단가표", "company_id": "ELV",
+         "company_name": "현대엘리베이터", "access_level": "confidential", "is_group_shared": 0},
+    ]
+
+    def test_uses_mysql_not_chunk_search(self):
+        """요청 후보는 MySQL 제목 조회로만 찾고, 본문 청크 조회·임베딩은 부르지 않는다."""
+        with patch("app.search.services.search_service.search_requestable_candidates",
+                   return_value=self.CANDIDATES) as candidates, \
+             patch("app.search.services.search_service.filter_requestable_documents",
+                   return_value=self.CANDIDATES) as filter_requestable, \
+             patch("app.search.services.search_service.query_chunks") as query_chunks_mock, \
+             patch(EMBED_PATH) as embed:
+            out = search_requestable_documents("단가", self.SELECTION, self.USER)
+
+        # 핵심: 본문 청크 조회(query_chunks)·질문 임베딩(_embed_query)을 한 번도 부르지 않는다.
+        query_chunks_mock.assert_not_called()
+        embed.assert_not_called()
+        # MySQL 제목 조회는 선택값을 풀어서, 고정 상한(50)과 함께 호출한다.
+        candidates.assert_called_once_with("단가", ["ELV"], [], None, None, 50)
+        # 권한 판정은 서비스에 맡기고, 화면에는 제목·회사만 돌려준다(본문 없음).
+        filter_requestable.assert_called_once()
+        self.assertEqual(
+            out,
+            [{"doc_id": "elvC", "title": "계약 단가표", "company_id": "ELV", "company_name": "현대엘리베이터"}],
+        )
+
+    def test_blank_query_skips_db(self):
+        """빈 검색어는 MySQL 조회 없이 빈 목록."""
+        with patch("app.search.services.search_service.search_requestable_candidates") as candidates:
+            self.assertEqual(search_requestable_documents("   ", self.SELECTION, self.USER), [])
+        candidates.assert_not_called()
 
 
 if __name__ == "__main__":

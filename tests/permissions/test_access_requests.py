@@ -152,5 +152,49 @@ class RequestDocumentAccessTest(unittest.TestCase):
         self.assertEqual(find_document.call_count, 1)
 
 
+@mock.patch("app.permissions.services.permission_service.get_pending_doc_ids")
+@mock.patch("app.permissions.services.permission_service.get_approved_doc_ids")
+class FilterRequestableDocumentsTest(unittest.TestCase):
+    """배치 판정: 후보 문서마다 DB를 다시 열지 않고 승인·대기 요청을 한 번만 조회하는지 확인."""
+
+    # Chroma 메타데이터 모양의 후보 문서들
+    _DOCS = [
+        {"doc_id": "mvx-int", "company_id": "MVX", "access_level": "internal", "is_group_shared": False},    # 자사 내부 → 이미 봄
+        {"doc_id": "pub", "company_id": "HRI", "access_level": "public", "is_group_shared": False},          # 공개 → 이미 봄
+        {"doc_id": "elv-conf", "company_id": "ELV", "access_level": "confidential", "is_group_shared": False}, # 못 봄 → 요청 가능
+        {"doc_id": "elv-pending", "company_id": "ELV", "access_level": "confidential", "is_group_shared": False}, # 대기 중 → 제외
+        {"doc_id": "approved-1", "company_id": "ELV", "access_level": "confidential", "is_group_shared": False}, # 승인됨 → 이미 봄
+    ]
+
+    def test_only_requestable_and_batched(self, approved, pending):
+        approved.return_value = ["approved-1"]
+        pending.return_value = ["elv-pending"]
+
+        out = ps.filter_requestable_documents(EMPLOYEE, self._DOCS)
+
+        self.assertEqual([d["doc_id"] for d in out], ["elv-conf"])  # 요청 가능한 것만
+        # 배치: 문서가 5개라도 승인·대기 조회는 각각 딱 한 번
+        self.assertEqual(approved.call_count, 1)
+        self.assertEqual(pending.call_count, 1)
+
+    def test_super_admin_has_nothing_to_request(self, approved, pending):
+        self.assertEqual(ps.filter_requestable_documents(SUPER_ADMIN, self._DOCS), [])
+        approved.assert_not_called()  # 어드민은 조회조차 하지 않는다
+        pending.assert_not_called()
+
+    def test_own_company_confidential_not_exposed(self, approved, pending):
+        """자사 기밀 문서는 못 봐도 요청 목록(제목)에 노출하지 않는다 (§2.3-6: 타사만)."""
+        approved.return_value = []
+        pending.return_value = []
+        docs = [
+            # 자사(MVX) 기밀 → 못 보지만 '자사'라 요청 목록에서 제외돼야 한다
+            {"doc_id": "mvx-conf", "company_id": "MVX", "access_level": "confidential", "is_group_shared": False},
+            # 타사(ELV) 기밀 → 요청 가능
+            {"doc_id": "elv-conf", "company_id": "ELV", "access_level": "confidential", "is_group_shared": False},
+        ]
+        out = ps.filter_requestable_documents(EMPLOYEE, docs)
+        self.assertEqual([d["doc_id"] for d in out], ["elv-conf"])  # 자사 기밀은 빠지고 타사만
+
+
 if __name__ == "__main__":
     unittest.main()
