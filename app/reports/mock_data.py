@@ -27,7 +27,7 @@ def select_section_evidence(section_type: SectionType, collection: CollectionRes
 MOCK_REQUEST = ReportRequest(
     template=ReportTemplate.COMPREHENSIVE,
     topic="스마트 물류",
-    companies=["현대엘리베이터", "현대무벡스", "현대경제연구원"],
+    company_ids=["ELV", "MVX", "HRI"],  # 회사 코드 (이름은 get_company_names()가 찾아요)
     start_date=date(2025, 1, 1),
     end_date=date(2025, 12, 31),
 )

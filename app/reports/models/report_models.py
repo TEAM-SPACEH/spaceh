@@ -46,7 +46,10 @@ class ReportRequest:
     """R-01 보고서 생성 조건 (양식·주제·회사·기간)."""
     template: ReportTemplate  # 양식
     topic: str                # 주제 (예: "스마트 물류")
-    companies: list[str]      # 대상 회사 이름 목록
+    # 대상 회사 코드 목록 (예: ["ELV", "MVX", "HRI"]).
+    # 이름이 아니라 코드를 쓰는 이유: A-07로 계열사를 추가·수정하면 이름은 바뀔 수 있지만 코드는 그대로예요.
+    # #80(통합 검색 출처)도 회사를 company_id로 구분해요. 📌 R-01(김소은)도 이 모양으로 채워 줘야 해요.
+    company_ids: list[str]
     start_date: date          # 기간 시작일
     end_date: date            # 기간 종료일
 
@@ -57,7 +60,7 @@ class CollectionResult:
     chunks: list[Chunk]  # 모아 온 근거 청크 전체
     # field(default_factory=list): 값을 안 넣으면 "새 빈 리스트"로 시작해요.
     # 그냥 = [] 로 쓰면 모든 객체가 리스트 하나를 같이 써 버리는 버그가 생겨서 이렇게 써요.
-    empty_companies: list[str] = field(default_factory=list)  # 근거가 0건인 회사
+    empty_companies: list[str] = field(default_factory=list)  # 근거가 0건인 회사 코드
 
 
 @dataclass

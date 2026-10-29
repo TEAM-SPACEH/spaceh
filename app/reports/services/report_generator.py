@@ -17,6 +17,9 @@ import re  # 정규식: 글자 속에서 "[숫자]" 같은 패턴을 찾을 때 
 from langchain_openai import ChatOpenAI  # OpenAI 모델을 부르는 LangChain 도구 (requirements.txt에 있음)
 
 from core import config  # 모델 이름·API 키는 반드시 여기서 읽어요 (팀 규칙)
+# A-07 계열사 목록 {"id": 코드, "name": 회사명}. "보고서 대상 선택지용"으로 만들어진 공통 함수예요.
+# 회사 목록을 코드에 직접 적지 말고 이 함수를 쓰는 게 팀 규칙이에요.
+from app.admin.services.company_service import get_company_options
 # S-04(김소은)가 청크를 출처 모양으로 바꿀 때 쓰는 함수예요.
 # 같은 함수를 써야 답변 출처와 보고서 출처의 회사·파일·위치 표기가 똑같아져요.
 from app.search.services.rag_service import prepare_context
@@ -31,6 +34,22 @@ from app.reports.services.prompts import (
 from app.reports.mock_data import select_section_evidence
 
 logger = logging.getLogger(__name__)
+
+# 본문 속 근거 번호 [1], [12] ... 를 찾는 패턴. (\d+) 부분이 숫자만 따로 꺼내 줘요.
+CITATION_PATTERN = re.compile(r"\[(\d+)\]")
+
+# 본문을 "문장 + 뒤에 붙은 근거 번호" 단위로 자르는 패턴.
+#   (?:\.(?=\d)|[^.!?。\n])+  문장 내용. 마침표는 "3.5%"처럼 뒤에 숫자가 올 때만 내용으로 봐요.
+#   [.!?。]*                 문장 끝 기호
+#   (?:\s*\[\d+\])*          문장 끝에 붙은 근거 번호들 ("있음.[1][3]")
+# 예: "증가함.[1] 확대 중임.[2]" → ["증가함.[1]", " 확대 중임.[2]"]
+SENTENCE_PATTERN = re.compile(r"(?:\.(?=\d)|[^.!?。\n])+[.!?。]*(?:\s*\[\d+\])*")
+
+# 섹션 하나의 프롬프트에 넣을 근거 글자 수 한도.
+# 청크가 너무 많으면 AI 모델이 한 번에 받을 수 있는 양을 넘어 요청이 실패해요.
+# S-04 후속 질문(#60)처럼 토큰 대신 글자 수로 어림잡아요. (토큰 계산 패키지를 따로 들이지 않으려고)
+# 보고서는 여러 회사 근거를 함께 보므로 #60(8000자)보다 넉넉하게 잡았어요.
+EVIDENCE_CHAR_BUDGET = 12000
 
 # 양식별 섹션 순서표. 이 순서대로 보고서를 써요.
 TEMPLATE_SECTIONS = {
@@ -57,6 +76,15 @@ def get_template_sections(template: ReportTemplate) -> list[SectionType]:
     # list(...)로 복사본을 돌려줘요.
     # 원본을 그대로 주면, 받은 쪽에서 실수로 목록을 고쳤을 때 순서표 자체가 망가져요.
     return list(TEMPLATE_SECTIONS[template])
+
+
+def get_company_names(company_ids: list[str]) -> list[str]:
+    """R-02 회사 코드 목록을 회사 이름 목록으로 바꾼다. 이름을 모르는 코드는 코드 그대로 둔다."""
+    # {"ELV": "현대엘리베이터", ...} 처럼 코드 → 이름 사전을 만들어요.
+    names = {option["id"]: option["name"] for option in get_company_options()}
+    # names.get(코드, 코드): 사전에 있으면 이름, 없으면(사용 중지된 회사 등) 코드를 그대로 써요.
+    # 이름을 못 찾았다고 보고서 전체를 멈추는 것보다, 코드라도 보여 주는 게 나아요.
+    return [names.get(company_id, company_id) for company_id in company_ids]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -109,7 +137,8 @@ def build_section_prompt(
     return SECTION_PROMPT_TEMPLATE.format(
         rules=COMMON_RULES,
         topic=request.topic,
-        companies=", ".join(request.companies),     # ["A", "B"] → "A, B"
+        # AI는 "ELV"보다 "현대엘리베이터"를 더 잘 알아들어서, 프롬프트에는 회사 이름을 넣어요.
+        companies=", ".join(get_company_names(request.company_ids)),  # ["ELV", "MVX"] → "현대엘리베이터, 현대무벡스"
         start_date=request.start_date.isoformat(),  # date(2025, 1, 1) → "2025-01-01"
         end_date=request.end_date.isoformat(),
         title=SECTION_TITLES[section_type.value],   # "status" → "현황"
@@ -130,6 +159,57 @@ def is_no_evidence(body: str) -> bool:
     # 화면에서도 이 함수로 판정하도록 밖에서 쓸 수 있게 공개 함수로 뒀어요.
     normalized = body.strip().rstrip(".!。").strip()
     return normalized == NO_EVIDENCE_TEXT
+
+
+def has_valid_citations(body: str, evidence_count: int) -> bool:
+    """R-02 본문의 모든 문장에 근거 번호가 있고, 번호가 1 ~ 근거 개수 안에 있는지 검사한다."""
+    # S-04 validate_answer()처럼 AI 답을 그대로 믿지 않고 한 번 더 확인해요.
+    # 막는 경우:
+    #   "문장 하나.[99]"                  → 근거가 3개뿐인데 99번 → 연결할 출처가 없음
+    #   "인용 없는 문장. 다음 문장.[1]"     → 첫 문장에 번호가 없음 → 근거 없는 내용일 수 있음
+    sentences = SENTENCE_PATTERN.findall(body)
+    checked = 0  # 실제로 검사한 문장 수
+
+    for sentence in sentences:
+        # 글자(한글·영어)가 하나도 없는 조각은 문장이 아니라서 건너뛰어요.
+        # 예: 빈칸, 목록 번호 "1." → 이걸 문장으로 보면 번호가 없다고 잘못 막아요.
+        # [^\W\d_] = "글자이면서 숫자·밑줄이 아닌 것" = 한글·영어 같은 문자
+        if not re.search(r"[^\W\d_]", sentence):
+            continue
+        checked += 1
+
+        numbers = [int(number) for number in CITATION_PATTERN.findall(sentence)]
+        if not numbers:  # 이 문장에 근거 번호가 하나도 없어요
+            return False
+        # any(...)는 하나라도 조건에 맞으면 True예요. 범위 밖 번호가 하나라도 있으면 실패.
+        if any(number < 1 or number > evidence_count for number in numbers):
+            return False
+
+    # 검사할 문장이 하나도 없었다면 쓸 만한 본문이 아니에요.
+    return checked > 0
+
+
+def select_chunks_within_budget(chunks: list[Chunk], budget_chars: int = EVIDENCE_CHAR_BUDGET) -> list[Chunk]:
+    """R-02 글자 예산 안에 드는 앞쪽 근거 청크만 고른다. 첫 청크는 예산을 넘어도 넣는다."""
+    # S-04 _select_chunks_within_budget()(#60)과 같은 방식이에요.
+    # 앞쪽 청크부터 담아요. R-01이 중요한 근거를 앞에 두도록 순서를 정해 줘야 해요.
+    # 📌 회사별로 몰아서(A사 전부 → B사 전부) 주면 뒤쪽 회사가 잘릴 수 있어서 R-01과 순서를 맞춰야 해요.
+    selected: list[Chunk] = []
+    used = 0  # 지금까지 담은 글자 수
+
+    for chunk in chunks:
+        length = len(chunk.text)
+        # 이미 하나 이상 담았고, 이번 청크까지 넣으면 한도를 넘으면 멈춰요.
+        # (첫 청크는 길어도 넣어요. 안 그러면 근거가 통째로 비어 버려요.)
+        if selected and used + length > budget_chars:
+            break
+        selected.append(chunk)
+        used += length
+
+    if len(selected) < len(chunks):
+        # 팀 규칙: 본문은 로그에 남기지 않아요. 개수만 남겨요.
+        logger.warning("R-02 근거 글자 예산 초과 used=%d/%d chunks", len(selected), len(chunks))
+    return selected
 
 
 def build_section_sources(chunks: list[Chunk]) -> list[dict]:
@@ -174,6 +254,10 @@ def generate_section(
     # 프롬프트에는 남기고 출처에서만 빠지면 [2]가 엉뚱한 출처를 가리켜서, 처음부터 같이 빼요.
     chunks = [chunk for chunk in chunks if chunk.text and chunk.text.strip()]
 
+    # ── 글자 예산 안의 청크만 남겨요 ──
+    # 여기서 잘라야 프롬프트 번호 [n], evidence, sources가 모두 같은 청크 목록을 써요.
+    chunks = select_chunks_within_budget(chunks)
+
     # ── 근거가 0개면 AI를 부르지 않아요 ──
     # 근거 없이 쓰라고 하면 AI가 지어낼 위험이 크고, 비용도 아까워요.
     if not chunks:
@@ -199,6 +283,15 @@ def generate_section(
     # AI가 "근거 자료 없음"이라고 답했거나, 아무것도 쓰지 않았으면(빈 답) 근거 없는 섹션으로 표시해요.
     # 빈 답을 그냥 두면 본문은 비었는데 근거·출처만 붙은 이상한 섹션이 돼요.
     has_evidence = bool(body) and not is_no_evidence(body)
+
+    # 근거 번호 검사: 번호 없는 문장이나 범위 밖 번호가 있으면 섹션 전체를 "근거 자료 없음"으로 바꿔요.
+    # S-04도 검증에 실패한 답변은 통째로 "찾을 수 없음"으로 바꿔요.
+    # 일부 문장만 지우면 남은 글의 앞뒤가 안 맞을 수 있어서, 섹션 단위로 처리해요.
+    if has_evidence and not has_valid_citations(body, len(chunks)):
+        # 팀 규칙: 본문은 로그에 남기지 않아요. 섹션 이름만 남겨요.
+        logger.warning("R-02 근거 번호 검증 실패 section=%s", section_type.value)
+        has_evidence = False
+
     if not has_evidence:
         body = NO_EVIDENCE_TEXT  # "근거 자료 없음." 같은 변형을 정해진 문구 하나로 맞춰요
 
