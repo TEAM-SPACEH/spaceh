@@ -6,12 +6,16 @@ from datetime import date
 import streamlit as st
 
 from app.auth.session import get_current_user
-from app.common.ui import no_permission_notice, page_header
-from app.common.ui import DOC_TYPE_LABELS, page_header
+from app.common.ui import DOC_TYPE_LABELS, no_permission_notice, page_header
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.permissions.services.permission_service import request_document_access
-from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
+from app.search.services.rag_service import (
+    RAGServiceError,
+    generate_answer_with_audit,
+    is_no_answer,
+    record_blocked_ask,
+)
 from app.search.services.search_service import (
     apply_metadata_filters,
     hybrid_search,
@@ -140,11 +144,15 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.warning("검색어를 입력해 주세요.")
             return
 
+        # 권한 오류 발생 시 감사 로그에 검색 조건을 전달하기 위한 초기값
+        where = None
+
         try:
             # S-02 필터 변환
             where = apply_metadata_filters(selection)
 
             # S-06 하이브리드 검색 (S-03 권한 필터는 검색 전에 적용된다)
+            # search 감사 로그는 기본값(audit=True)을 유지한다.
             with st.spinner("문서를 검색하고 있습니다..."):
                 chunks = hybrid_search(
                     current_query,
@@ -155,32 +163,35 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             rag_result = None
             rag_error = None
 
-            # S-04 검색된 청크를 활용한 AI 답변 생성
-            if chunks:
-                try:
-                    with st.spinner("AI 답변을 생성하고 있습니다..."):
-                        rag_result = generate_answer(
-                            current_query,
-                            chunks,
-                        )
-
-                except PermissionError:
-                    logger.exception("S-04 답변 생성 권한 오류")
-                    rag_error = (
-                        "AI 답변에 사용할 문서의 접근 권한을 "
-                        "확인할 수 없습니다."
+            # S-04 검색된 청크를 활용한 AI 답변 생성 및 ask 감사 로그 기록
+            # 결과가 0건이어도 일반 무결과 질의로 기록한다.
+            try:
+                with st.spinner("AI 답변을 생성하고 있습니다..."):
+                    rag_result = generate_answer_with_audit(
+                        current_query,
+                        chunks,
+                        user,
+                        filters=where,
                     )
 
-                except RAGServiceError:
-                    logger.exception("S-04 AI 서비스 오류")
-                    rag_error = (
-                        "AI 답변 서비스에 문제가 발생했습니다. "
-                        "잠시 후 다시 시도해 주세요."
-                    )
+            except PermissionError as exc:
+                record_blocked_ask(user, current_query, where, str(exc))
+                logger.exception("S-04 답변 생성 권한 오류")
+                rag_error = (
+                    "AI 답변에 사용할 문서의 접근 권한을 "
+                    "확인할 수 없습니다."
+                )
 
-                except Exception:
-                    logger.exception("S-04 답변 생성 실패")
-                    rag_error = "AI 답변 생성 중 문제가 발생했습니다."
+            except RAGServiceError:
+                logger.exception("S-04 AI 서비스 오류")
+                rag_error = (
+                    "AI 답변 서비스에 문제가 발생했습니다. "
+                    "잠시 후 다시 시도해 주세요."
+                )
+
+            except Exception:
+                logger.exception("S-04 답변 생성 실패")
+                rag_error = "AI 답변 생성 중 문제가 발생했습니다."
 
             # M-03 요청 가능 문서(제목만)도 '검색할 때 한 번만' 찾아 결과와 함께 저장한다.
             # 요청 버튼 클릭 등으로 화면이 재실행될 때마다 DB를 다시 호출하지 않게 캐시한다.
@@ -208,7 +219,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.error("검색 기간을 다시 확인해 주세요.")
             return
 
-        except PermissionError:
+        except PermissionError as exc:
+            record_blocked_ask(user, current_query, where, str(exc))
+            logger.exception("S-06 검색 권한 확인 실패")
             st.error("검색 권한을 확인할 수 없습니다.")
             return
 
