@@ -178,11 +178,12 @@ def claim_document(doc_id: str, stale_minutes: int) -> dict | None:
 
     선점할 수 있는 상태: 색인 완료(done)·실패(failed), 또는 stale_minutes보다 오래 멈춘 대기(pending)·처리 중(indexing).
     행을 잠근 채 확인하고 바꾸므로 서버가 여러 개여도 같은 문서에 두 작업이 동시에 들어가지 못한다.
-    선점하면 바꾸기 전 값({"index_status", "chunk_count", "error_message"})을, 못 하면 None을 반환한다.
+    선점하면 바꾸기 전 값({"index_status", "chunk_count", "error_message", "updated_at"})을, 못 하면 None을 반환한다.
+    updated_at 은 작업이 실패했을 때 restore_claimed_document 가 선점 전 값으로 되돌리려고 함께 돌려준다.
     """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT index_status, chunk_count, error_message, "
+            "SELECT index_status, chunk_count, error_message, updated_at, "
             "(updated_at < NOW() - INTERVAL %s MINUTE) AS is_stale "
             "FROM documents WHERE doc_id = %s FOR UPDATE",
             (stale_minutes, doc_id),
@@ -204,7 +205,23 @@ def claim_document(doc_id: str, stale_minutes: int) -> dict | None:
             "UPDATE documents SET index_status = 'indexing', updated_at = NOW() WHERE doc_id = %s", (doc_id,)
         )
         return {"index_status": row["index_status"], "chunk_count": row["chunk_count"],
-                "error_message": row["error_message"]}
+                "error_message": row["error_message"], "updated_at": row["updated_at"]}
+
+
+def restore_claimed_document(doc_id: str, previous: dict) -> None:
+    """A-02 선점해 둔 문서를 선점하기 전 값(claim_document 가 돌려준 previous)으로 되돌린다.
+
+    상태·청크 수·오류 문구와 함께 updated_at 도 되돌린다. updated_at 을 적지 않으면 선점 때 찍힌 현재 시각이 남아,
+    멈춘 작업(indexing)이었던 문서가 실패 뒤에도 STALE_MINUTES 동안 다시 삭제·재색인할 수 없게 된다.
+    updated_at 을 직접 적으면 ON UPDATE CURRENT_TIMESTAMP 가 그 값을 덮어쓰지 않는다.
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE documents SET index_status = %s, chunk_count = %s, error_message = %s, updated_at = %s "
+            "WHERE doc_id = %s",
+            (previous["index_status"], previous["chunk_count"], previous["error_message"] or "",
+             previous["updated_at"], doc_id),
+        )
 
 
 def delete_document_row(doc_id: str) -> bool:

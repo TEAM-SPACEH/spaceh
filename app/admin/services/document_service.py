@@ -361,9 +361,9 @@ def _remove_original(document: dict) -> str:
 def _restore_status(doc_id: str, previous: dict) -> None:
     """A-02 선점해 둔 처리 중 표시를 이전 상태로 되돌린다. 되돌리지 못해도 오래되면 다시 시도할 수 있다."""
     try:
-        repository.update_index_status(
-            # 선점하기 전의 상태·청크 수·오류 문구로 되돌린다. 삭제 단계가 실패해 "처리 중"으로 남는 문서가 생기지 않게 한다.
-            doc_id, previous["index_status"], previous["chunk_count"], previous["error_message"] or "")
+        # 선점하기 전의 상태·청크 수·오류 문구·갱신 시각으로 되돌린다. 삭제 단계가 실패해 "처리 중"으로 남는 문서가 생기지 않게 하고,
+        # 멈춘 작업이던 문서는 갱신 시각도 옛 값이어야 바로 다시 시도할 수 있다.
+        repository.restore_claimed_document(doc_id, previous)
     except Exception:
         logger.exception("A-02 처리 중 표시를 되돌리지 못했습니다: doc_id=%s", doc_id)
 

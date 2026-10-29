@@ -2,7 +2,7 @@
 
 import unittest
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -127,8 +127,9 @@ class DocumentDeleteTests(_Base):
         self.original = self.root / "agv.pdf"
         self.original.write_bytes(b"pdf")
         self.repo.get_managed_document.return_value = _document()
-        self.repo.claim_document.return_value = {"index_status": "done", "chunk_count": 5,
-                                                 "error_message": None}
+        self.previous = {"index_status": "done", "chunk_count": 5, "error_message": None,
+                         "updated_at": datetime(2026, 10, 29, 9, 0)}
+        self.repo.claim_document.return_value = self.previous
         self.order = []
         self.repo.delete_document_chunks.side_effect = lambda doc_id: self.order.append("chroma")
         self.repo.delete_document_row.side_effect = lambda doc_id: self.order.append("mysql") or True
@@ -174,8 +175,27 @@ class DocumentDeleteTests(_Base):
         self.assertEqual(result["status"], "failed")
         self.assertNotIn("secret", result["error_message"])
         self.repo.delete_document_row.assert_not_called()
-        self.repo.update_index_status.assert_called_once_with("doc-1", "done", 5, "")
+        self.repo.restore_claimed_document.assert_called_once_with("doc-1", self.previous)
+        self.repo.update_index_status.assert_not_called()
         self.assertTrue(self.original.exists())
+
+    def test_chroma_failure_restores_updated_at_of_stale_indexing_document(self):
+        """멈춘 indexing 문서를 선점했다가 삭제에 실패하면, 옛 갱신 시각까지 돌려줘 바로 다시 시도할 수 있게 한다."""
+        stale = {"index_status": "indexing", "chunk_count": 0, "error_message": None,
+                 "updated_at": datetime(2026, 10, 29, 8, 0)}
+        self.repo.claim_document.return_value = stale
+        self.repo.delete_document_chunks.side_effect = RuntimeError("chroma down")
+        service.delete_document("doc-1", SUPER)
+        previous = self.repo.restore_claimed_document.call_args.args[1]
+        self.assertEqual((previous["index_status"], previous["updated_at"]), ("indexing", datetime(2026, 10, 29, 8, 0)))
+
+    def test_restore_failure_is_logged_not_raised(self):
+        """되돌리기에 실패해도 삭제 실패 결과가 그대로 돌아가고 예외가 새지 않는다."""
+        self.repo.delete_document_chunks.side_effect = RuntimeError("chroma down")
+        self.repo.restore_claimed_document.side_effect = RuntimeError("db down")
+        with self.assertLogs("app.admin.services.document_service", level="ERROR"):
+            result = service.delete_document("doc-1", SUPER)
+        self.assertEqual(result["status"], "failed")
 
     def test_mysql_failure_after_chroma_marks_failed_and_keeps_file(self):
         self.repo.delete_document_row.side_effect = RuntimeError("db down")
