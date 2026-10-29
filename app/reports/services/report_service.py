@@ -41,7 +41,7 @@ def validate_request(request: ReportRequest) -> list[str]:
             )
 
     # 4. 보고서 기간 검증
-    if not isinstance(request.start_date, date) or not isinstance(request.end_date, date):
+    if type(request.start_date) is not date or type(request.end_date) is not date:
         errors.append("올바른 보고서 기간을 선택해 주세요.")
     elif request.start_date > request.end_date:
         errors.append("시작일은 종료일보다 늦을 수 없습니다.")

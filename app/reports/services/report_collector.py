@@ -148,6 +148,7 @@ def balance_by_company(
     )
 
 # 섹션별 근거 선별에 사용할 키워드
+MAX_SECTION_CHUNKS = 12
 SECTION_KEYWORDS = {
     SectionType.OVERVIEW: (
         "개요", "배경", "시장", "산업", "동향",
@@ -204,11 +205,11 @@ def select_section_evidence(
             return []
 
         # 기존 회사별 균형 순서를 유지
-        return chunks.copy()
+        return chunks[:MAX_SECTION_CHUNKS]
 
     # 2. 제언: 수집된 근거를 활용해 제안 작성
     if section_type == SectionType.ADVICE:
-        return chunks.copy()
+        return chunks[:MAX_SECTION_CHUNKS]
 
     # 3. 나머지 섹션: 관련 키워드 기반 선별
     keywords = SECTION_KEYWORDS.get(section_type)
@@ -244,4 +245,4 @@ def select_section_evidence(
 
     # 적합한 근거가 없으면 빈 목록 반환
     # R-02가 AI 호출 없이 '근거 자료 없음' 처리
-    return selected
+    return selected[:MAX_SECTION_CHUNKS]
