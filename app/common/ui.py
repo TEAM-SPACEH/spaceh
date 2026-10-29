@@ -10,11 +10,31 @@ import html
 
 import streamlit as st
 
-from core.constants import ACCESS_CONFIDENTIAL, ACCESS_INTERNAL, ACCESS_PUBLIC
+from core.constants import (
+    ACCESS_CONFIDENTIAL,
+    ACCESS_INTERNAL,
+    ACCESS_PUBLIC,
+    DOC_TYPE_DISCLOSURE,
+    DOC_TYPE_INTRO,
+    DOC_TYPE_MANUAL,
+    DOC_TYPE_MEMO,
+    DOC_TYPE_REPORT,
+    DOC_TYPE_SPEC,
+)
 
 # 보안 등급 화면 이름과 배지 색 (design.md 2.3: 공개 그린, 사내 옐로, 기밀 빨강)
 ACCESS_LABELS = {ACCESS_PUBLIC: "공개", ACCESS_INTERNAL: "사내", ACCESS_CONFIDENTIAL: "기밀"}
 _ACCESS_CLASS = {ACCESS_PUBLIC: "sh-pub", ACCESS_INTERNAL: "sh-int", ACCESS_CONFIDENTIAL: "sh-con"}
+
+# 문서 유형 화면 이름 (data-model.md 1장). 선택지 순서도 이 순서를 쓴다.
+DOC_TYPE_LABELS = {
+    DOC_TYPE_REPORT: "연구 보고서",
+    DOC_TYPE_DISCLOSURE: "공시",
+    DOC_TYPE_MANUAL: "매뉴얼",
+    DOC_TYPE_SPEC: "사양서",
+    DOC_TYPE_INTRO: "회사·제품 소개",
+    DOC_TYPE_MEMO: "내부 메모",
+}
 
 _CSS = """
 <style>

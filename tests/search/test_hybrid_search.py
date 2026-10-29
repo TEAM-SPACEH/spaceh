@@ -23,6 +23,7 @@ from core.chroma import open_chroma_client
 
 EMBED_PATH = "app.search.services.search_service._embed_query"
 APPROVED_PATH = "app.permissions.services.permission_service.get_approved_doc_ids"
+AUDIT_PATH = "app.search.services.search_service.record_audit_log"
 GET_CHUNKS_PATH = "app.search.services.search_service.get_chunks"
 VECTOR_PATH = "app.search.services.search_service.vector_search"
 BM25_PATH = "app.search.services.search_service.bm25_search"
@@ -59,6 +60,10 @@ class HybridSearchTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
+        # 감사 로그는 MySQL에 쓰므로 막아 두고, 호출 인자는 self.audit로 확인한다.
+        audit_patcher = patch(AUDIT_PATH)
+        self.audit = audit_patcher.start()
+        self.addCleanup(audit_patcher.stop)
 
     def _index_chunks(self):
         # 검색 코드와 같은 잠금으로 열고, 임시 폴더를 지우기 전에 닫는다 (Windows 파일 잠금).
@@ -176,6 +181,25 @@ class HybridSearchTest(unittest.TestCase):
     def test_no_collection_returns_empty(self):
         """색인(I-02) 전이라 컬렉션이 없으면 오류 대신 빈 목록."""
         self.assertEqual(self._hybrid(QUERY, MVX_EMPLOYEE), [])
+
+    def test_search_is_audited(self):
+        """A-04 검색 화면이 부르는 하이브리드 검색도 결합한 최종 결과 기준으로 search를 기록한다."""
+        self._index_chunks()
+        results = self._hybrid(QUERY, MVX_EMPLOYEE)
+        doc_ids = list(dict.fromkeys(result["doc_id"] for result in results))
+        self.audit.assert_called_once_with(
+            1, "search", None, None, False, None,
+            query=QUERY, filters=None,
+            doc_ids=doc_ids, doc_companies=["ELV", "MVX"], result_count=len(doc_ids),
+        )
+
+    def test_blank_query_and_audit_false_are_not_audited(self):
+        """빈 검색어와 audit=False는 기록하지 않는다."""
+        self._index_chunks()
+        self._hybrid("   ", MVX_EMPLOYEE)
+        with patch(EMBED_PATH, return_value=QUERY_VECTOR), patch(APPROVED_PATH, return_value=[]):
+            hybrid_search(QUERY, None, MVX_EMPLOYEE, audit=False)
+        self.audit.assert_not_called()
 
 
 class TokenizeTest(unittest.TestCase):

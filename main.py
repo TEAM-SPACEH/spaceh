@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from app.admin.views.audit_logs import render_admin_audit_logs
+from app.admin.views.companies import render_admin_companies
 from app.admin.views.documents import render_admin_documents
 from app.admin.views.access_requests import render_admin_permissions
 from app.auth import session
@@ -9,6 +11,7 @@ from app.auth.views.login_page import render_login
 from app.common.layout import company_label, render_header, render_sidebar
 from app.common.ui import apply_theme, empty_state, page_header
 from app.search.views.search_page import render_search
+from app.users.views.mypage import render_mypage
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_EMPLOYEE, ROLE_SUPER_ADMIN
 
 st.set_page_config(page_title="spaceH", layout="wide")
@@ -35,7 +38,9 @@ def build_pages(user: dict) -> dict:
     }
     # UI v4는 일반 사원에게만 내 정보 메뉴를 두고, 관리자는 위쪽 헤더의 계정 메뉴를 쓴다.
     if user["role"] == ROLE_EMPLOYEE:
-        pages[""].append(coming_soon_page("내 정보", "mypage", ":material/person:"))
+        pages[""].append(
+            st.Page(render_mypage, title="내 정보", url_path="mypage", icon=":material/person:")
+        )
 
     def documents() -> None:
         """A-01 로그인한 관리자의 문서 업로드 화면을 연다."""
@@ -45,14 +50,23 @@ def build_pages(user: dict) -> dict:
         """A-05 로그인한 관리자의 열람 요청 승인·반려 화면을 연다."""
         render_admin_permissions(user)
 
+    def audit_logs() -> None:
+        """A-04 로그인한 관리자의 감사 로그 화면을 연다."""
+        render_admin_audit_logs(user)
+
+    def companies() -> None:
+        """A-07 로그인한 최종 어드민의 계열사 관리 화면을 연다."""
+        render_admin_companies(user)
+
     manage = [
         st.Page(documents, title="문서", url_path="admin-documents", icon=":material/description:"),
         st.Page(access_requests, title="열람 권한 요청", url_path="admin-access-requests", icon=":material/inbox:"),
-        coming_soon_page("감사 로그", "admin-audit-logs", ":material/format_list_bulleted:"),
+        st.Page(audit_logs, title="감사 로그", url_path="admin-audit-logs",
+                icon=":material/format_list_bulleted:"),
     ]
     if user["role"] == ROLE_SUPER_ADMIN:
         pages["전체 관리"] = [
-            coming_soon_page("계열사", "admin-companies", ":material/apartment:"),
+            st.Page(companies, title="계열사", url_path="admin-companies", icon=":material/apartment:"),
             *manage,
             coming_soon_page("DART 수집", "admin-dart", ":material/cloud_download:"),
         ]

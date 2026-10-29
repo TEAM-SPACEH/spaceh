@@ -6,11 +6,17 @@ from datetime import date
 import streamlit as st
 
 from app.auth.session import get_current_user
-from app.common.ui import page_header
+from app.common.ui import no_permission_notice, page_header
+from app.common.ui import DOC_TYPE_LABELS, page_header
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
+from app.permissions.services.permission_service import request_document_access
 from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
-from app.search.services.search_service import apply_metadata_filters, hybrid_search
+from app.search.services.search_service import (
+    apply_metadata_filters,
+    hybrid_search,
+    search_requestable_documents,
+)
 from app.search.views.components.followup_questions import render_followup_questions
 from app.search.views.components.rag_answer_card import render_rag_answer_card
 from app.search.views.components.rag_source_panel import render_rag_source_panel
@@ -19,22 +25,16 @@ from app.search.views.components.search_result_list import render_search_result_
 
 logger = logging.getLogger(__name__)
 
-# S-02 필터 선택지 (관문 시연용 임시값).
-# TODO: 회사는 A-07 companies 테이블에서 읽고, 문서 유형 라벨은 공통 상수로 이동
+# S-02 필터 선택지. 회사는 관문 시연용 임시값이다.
+# TODO: 회사는 A-07 companies 테이블에서 읽는다
 _COMPANIES = [
     {"id": "HRI", "name": "현대경제연구원"},
     {"id": "MVX", "name": "현대무벡스"},
     {"id": "ELV", "name": "현대엘리베이터"},
 ]
 
-_DOC_TYPES = [
-    {"code": "report", "label": "연구 보고서"},
-    {"code": "disclosure", "label": "공시"},
-    {"code": "manual", "label": "매뉴얼"},
-    {"code": "spec", "label": "사양서"},
-    {"code": "intro", "label": "회사·제품 소개"},
-    {"code": "memo", "label": "내부 메모"},
-]
+# 문서 유형은 공통 상수(DOC_TYPE_LABELS)에서 만든다.
+_DOC_TYPES = [{"code": code, "label": label} for code, label in DOC_TYPE_LABELS.items()]
 
 # 오래된 문서도 검색할 수 있도록 기간 하한은 2000년으로 지정한다.
 # 종료일은 프로그램 실행 시 고정하지 않고 화면 렌더링 시점마다 오늘 날짜로 계산한다.
@@ -155,7 +155,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             rag_result = None
             rag_error = None
 
-            # S-04 기존 청크를 활용한 AI 답변 생성
+            # S-04 검색된 청크를 활용한 AI 답변 생성
             if chunks:
                 try:
                     with st.spinner("AI 답변을 생성하고 있습니다..."):
@@ -182,14 +182,26 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                     logger.exception("S-04 답변 생성 실패")
                     rag_error = "AI 답변 생성 중 문제가 발생했습니다."
 
-            # 검색 결과 및 최초 질문 저장
+            # M-03 요청 가능 문서(제목만)도 '검색할 때 한 번만' 찾아 결과와 함께 저장한다.
+            # 요청 버튼 클릭 등으로 화면이 재실행될 때마다 DB를 다시 호출하지 않게 캐시한다.
+            # 요청 후보는 본문(Chroma)이 아니라 제목·메타데이터(MySQL)로 찾으므로, Chroma where가
+            # 아니라 S-02 선택값(selection) 그대로 넘긴다(권한 사전 필터 원칙 — overview.md §2.3).
+            try:
+                requestable = search_requestable_documents(current_query, selection, user)
+            except Exception:
+                logger.exception("요청 가능 문서 검색 실패")
+                requestable = []
+
+            # 검색 결과 및 최초 질문 저장.
             st.session_state[state_key] = {
                 "user_key": user_key,
                 "query": current_query,
                 "base_query": base_query,
+                "where": where,
                 "chunks": chunks,
                 "rag_result": rag_result,
                 "rag_error": rag_error,
+                "requestable": requestable,
             }
 
         except ValueError:
@@ -221,6 +233,8 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
+        # 결과가 없어도, 권한 때문에 가려졌을 수 있는 문서는 제목만 보여 주고 요청을 받는다 (M-03).
+        _render_requestable_documents(saved, user)
         return
 
     # 6. AI 답변 및 출처 2열 레이아웃
@@ -249,6 +263,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
         render_search_result_list(chunks)
 
+        # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
+        _render_requestable_documents(saved, user)
+
     # 오른쪽: AI 인용 출처 및 원문 뷰어
     with source_col:
         rag_result = saved.get("rag_result")
@@ -266,3 +283,51 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             ):
                 # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
                 render_selected_source(user)
+
+
+def _render_requestable_documents(saved: dict, user: dict) -> None:
+    """권한 없는 문서를 '제목만' 보여 주고, 사유 입력 → 열람 권한 요청까지 연결한다.
+
+    목록은 검색할 때 한 번 구해 saved["requestable"]에 저장해 둔 것을 쓴다(재실행마다 재조회하지
+    않는다). 그래서 요청 버튼을 눌러 화면이 재실행돼도 목록·요청 양식이 그대로 유지된다.
+    본문·청크는 쓰지 않는다(제목·회사명만). overview.md §2.3-6 규칙.
+    """
+    documents = saved.get("requestable") or []
+    if not documents:
+        return
+
+    st.divider()
+    st.subheader("열람 권한을 요청할 수 있는 문서")
+    for document in documents:
+        company = document["company_name"] or document["company_id"]
+        # 제목만 보여 주는 안내 + [열람 권한 요청] 버튼 (공통 컴포넌트). 버튼을 누르면 사유 입력을 연다.
+        if no_permission_notice(document["title"], company, key=document["doc_id"]):
+            st.session_state["request_open_doc"] = document["doc_id"]
+
+        if st.session_state.get("request_open_doc") == document["doc_id"]:
+            _render_request_form(saved, user, document)
+
+
+def _render_request_form(saved: dict, user: dict, document: dict) -> None:
+    """선택한 문서에 사유를 적어 열람 권한 요청을 등록한다. 성공하면 캐시 목록에서 그 문서를 뺀다."""
+    reason = st.text_area("요청 사유 (5~500자)", key=f"reason-{document['doc_id']}")
+    if not st.button("요청 보내기", key=f"send-{document['doc_id']}"):
+        return
+
+    try:
+        registered = request_document_access(user["id"], document["doc_id"], reason)
+    except Exception:
+        # 동시 요청 시 DB 데드락(1213) 등으로 예외가 올라올 수 있다. 앱을 멈추지 않고 안내한다.
+        logger.exception("열람 권한 요청 등록 실패")
+        st.error("요청 처리 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
+        return
+
+    if registered:
+        st.success("열람 권한을 요청했습니다. 소유 회사 관리자의 승인 후 볼 수 있습니다.")
+        st.session_state.pop("request_open_doc", None)
+        # 이미 요청했으니 캐시 목록에서 빼서 다시 안 보이게 한다(재조회 없이).
+        saved["requestable"] = [
+            item for item in saved.get("requestable", []) if item["doc_id"] != document["doc_id"]
+        ]
+    else:
+        st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")

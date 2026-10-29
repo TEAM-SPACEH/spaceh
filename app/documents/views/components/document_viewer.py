@@ -1,5 +1,7 @@
 """S-05 내부 문서 뷰어: 권한 재확인 후 PDF 해당 페이지 이미지와 근거 문단을 보여 준다."""
 
+import logging
+
 import streamlit as st
 
 from app.auth.session import get_current_user
@@ -11,6 +13,9 @@ from app.documents.services.document_service import (
     get_viewer_document,
 )
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
+from app.permissions.services.permission_service import request_document_access
+
+logger = logging.getLogger(__name__)
 
 # 파일 형식 → 다운로드할 때 브라우저에 알려 줄 파일 종류
 MIME_TYPES = {
@@ -60,9 +65,13 @@ def render_document_viewer(doc_id: str, location: dict, user: dict) -> None:
 
     # ② 권한이 없으면 제목만 보여 주고 본문·근거 문단은 보여 주지 않아요.
     if not document["can_view"]:
+        # [열람 권한 요청] 버튼을 누르면 사유 입력 폼을 연다(M-03). 연 상태를 세션에 저장해
+        # 사유를 적다가 화면이 재실행돼도 폼이 닫히지 않게 한다.
+        open_key = f"s05_request_open_{doc_id}"
         if no_permission_notice(document["title"], location["company"], key=f"s05_{doc_id}"):
-            # 📌 열람 권한 요청(M-03)은 이상훈님 담당이라, 완성되면 여기서 연결해요.
-            st.info("열람 권한 요청 기능은 준비 중입니다.")
+            st.session_state[open_key] = True
+        if st.session_state.get(open_key):
+            _render_access_request_form(doc_id, user)
         return
 
     # ③ 제목과 근거 문단. 데이터에서 온 글자라 공통 UI 함수로만 보여 줘요.
@@ -90,6 +99,33 @@ def render_document_viewer(doc_id: str, location: dict, user: dict) -> None:
         st.info("이 형식은 페이지 이미지를 지원하지 않습니다. 근거 문단만 표시합니다.")
 
     _render_download(document, user)
+
+
+def _render_access_request_form(doc_id: str, user: dict) -> None:
+    """S-05 뷰어에서 권한 없는 문서의 열람 권한을 요청한다(M-03).
+
+    사유(5~500자)를 받아 permission_service에 넘긴다. 판단·검증·저장은 모두 서비스가 하고,
+    여기서는 입력을 받아 넘기고 결과만 안내한다(계층 규칙: views → services). 검색 화면의
+    요청 폼과 같은 흐름이다.
+    """
+    reason = st.text_area("요청 사유 (5~500자)", key=f"s05_reason_{doc_id}")
+    if not st.button("요청 보내기", key=f"s05_send_{doc_id}"):
+        return
+
+    try:
+        registered = request_document_access(user["id"], doc_id, reason)
+    except Exception:
+        # 동시 요청 시 DB 데드락(1213) 등으로 예외가 올라올 수 있다. 앱을 멈추지 않고 안내한다.
+        logger.exception("S-05 열람 권한 요청 등록 실패")
+        st.error("요청 처리 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
+        return
+
+    if registered:
+        st.success("열람 권한을 요청했습니다. 소유 회사 관리자의 승인 후 볼 수 있습니다.")
+        # 이미 요청했으니 폼을 닫는다(같은 문서에 또 열지 않게).
+        st.session_state.pop(f"s05_request_open_{doc_id}", None)
+    else:
+        st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")
 
 
 def _render_download(document: dict, user: dict) -> None:

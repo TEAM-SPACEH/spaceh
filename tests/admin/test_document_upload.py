@@ -50,7 +50,7 @@ class DocumentUploadViewTest(unittest.TestCase):
         with patch("app.admin.views.components.document_upload.get_upload_companies",
                    return_value=[{"company_id": "MVX", "name": "현대무벡스"}]), \
              patch("app.admin.views.documents.get_upload_companies",
-                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]):
+                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]),              patch("app.admin.views.documents.render_document_list"),              patch("app.admin.views.documents.render_admin_sharing"):
             app = AppTest.from_function(page).run()
             app.button[0].click().run()
             self.assertFalse(app.exception)
