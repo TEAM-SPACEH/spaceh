@@ -155,6 +155,16 @@ class DocumentServiceTest(unittest.TestCase):
             document_service.get_viewer_document("doc-elv", MVX_EMPLOYEE)
         self.assert_audit("view_document", MVX_EMPLOYEE, blocked=True, reason="권한 없음")
 
+    def test_audit_false_not_recorded(self, _approved):
+        # audit=False면 허용·차단 모두 기록하지 않아요. (화면이 다시 그려질 때 쓰는 방식)
+        with patch(FIND_BY_ID, return_value=make_document()):
+            allowed = document_service.get_viewer_document("doc-elv", ELV_EMPLOYEE, audit=False)
+            blocked = document_service.get_viewer_document("doc-elv", MVX_EMPLOYEE, audit=False)
+        self.audit.assert_not_called()
+        # 기록만 안 할 뿐, 권한 판단 결과는 그대로예요.
+        self.assertTrue(allowed["can_view"])
+        self.assertFalse(blocked["can_view"])
+
     def test_audit_download_allowed(self, _approved):
         with patch(FIND_BY_ID, return_value=make_document()):
             document_service.download_document("doc-elv", ELV_EMPLOYEE)
@@ -213,6 +223,50 @@ class DocumentServiceTest(unittest.TestCase):
         self.assertEqual(document_service.get_source_page({"location": "페이지 12"}), 12)
         self.assertEqual(document_service.get_source_page({"location": "슬라이드 5"}), 0)
         self.assertEqual(document_service.get_source_page({"page": 7, "location": "p.3"}), 7)
+
+
+def _viewer_app():
+    """AppTest로 띄울 화면: 원문 뷰어 + 화면을 다시 그리게 하는 아무 버튼."""
+    import streamlit as st
+
+    from app.documents.views.components.document_viewer import render_selected_source
+
+    render_selected_source({"id": 1, "role": "employee", "company_id": "ELV"})
+    st.button("다른 버튼", key="other")  # 누르면 화면 전체가 다시 실행돼요
+
+
+@patch(APPROVED_DOC_IDS, return_value=[])
+@patch(RECORD_AUDIT_LOG)
+@patch(FIND_BY_ID, return_value=make_document(file_path=""))  # 파일 없이 근거 문단만 보여 줘요
+class ViewerAuditOnceTest(unittest.TestCase):
+    """화면이 다시 그려져도 같은 출처의 열람 기록은 1건만 남는지 확인한다."""
+    # 클래스 위 @patch 3개는 아래에서 위 순서로 가짜 객체가 들어와요: find_by_id, record_audit_log, 승인 목록
+
+    SOURCE = {"text": "근거 문단", "company": "현대엘리베이터", "filename": "elv_report.pdf",
+              "location": "p.2", "doc_id": "doc-elv", "chunk_id": "doc-elv#0001", "citation_number": 1}
+
+    def view_logs(self, audit) -> int:
+        """지금까지 남은 view_document 기록 수."""
+        return sum(1 for call in audit.call_args_list if call.args[1] == "view_document")
+
+    def test_rerun_records_once(self, _find, audit, _approved):
+        from streamlit.testing.v1 import AppTest
+
+        from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
+
+        # default_timeout: 전체 테스트를 같이 돌리면 컴퓨터가 바빠 기본 3초를 넘길 수 있어 넉넉히 줘요.
+        app = AppTest.from_function(_viewer_app, default_timeout=15)
+        app.session_state[SELECTED_SOURCE_KEY] = self.SOURCE  # [원문 보기]를 누른 상태
+        app.run()
+        app.button(key="other").click().run()  # 다른 버튼 2번 → 화면 2번 다시 그림
+        app.button(key="other").click().run()
+        self.assertEqual(self.view_logs(audit), 1)
+
+        # [원문 닫기] 뒤 같은 출처를 다시 열면 새 열람이라 1건 더 남아요.
+        app.button(key="s05_close_viewer").click().run()
+        app.session_state[SELECTED_SOURCE_KEY] = self.SOURCE
+        app.run()
+        self.assertEqual(self.view_logs(audit), 2)
 
 
 if __name__ == "__main__":

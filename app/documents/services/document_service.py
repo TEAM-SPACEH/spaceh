@@ -49,8 +49,12 @@ def get_source_page(source: dict) -> int:
     return int(match.group(1)) if match else 0
 
 
-def get_viewer_document(doc_id: str, user: dict) -> dict | None:
+def get_viewer_document(doc_id: str, user: dict, *, audit: bool = True) -> dict | None:
     """S-05 권한을 다시 확인해 원문 뷰어에 보여 줄 문서 정보를 돌려준다. 문서가 없으면 None."""
+    # audit: 감사 로그를 남길지. Streamlit은 버튼을 누를 때마다 화면 코드를 처음부터 다시 실행해서
+    #   뷰어가 열려 있는 동안 이 함수가 계속 불려요. 그때마다 기록하면 1번 연 게 여러 건으로 쌓여요.
+    #   그래서 화면은 "새로 연 출처"일 때만 audit=True로 불러요. (search_documents(audit=)와 같은 방식)
+    # * 뒤의 인자는 이름을 꼭 써서 넘겨야 해요(audit=False). 숫자·순서 실수를 막아요.
     document = find_by_id(doc_id)
     if document is None:
         logger.warning("S-05 문서 없음 doc_id=%s", doc_id)
@@ -62,7 +66,8 @@ def get_viewer_document(doc_id: str, user: dict) -> dict | None:
     if not check_search_permission(user, document):
         logger.warning("S-05 열람 차단 user_id=%s doc_id=%s", user.get("id"), doc_id)
         # 막힌 열람도 감사 로그에 남겨요. 관리자가 "누가 남의 문서를 열려 했는지" 볼 수 있게요.
-        _record_audit(user, AUDIT_VIEW, document, blocked=True, reason=BLOCK_NO_PERMISSION)
+        if audit:
+            _record_audit(user, AUDIT_VIEW, document, blocked=True, reason=BLOCK_NO_PERMISSION)
         return {
             "can_view": False,
             "doc_id": document["doc_id"],
@@ -71,7 +76,8 @@ def get_viewer_document(doc_id: str, user: dict) -> dict | None:
         }
 
     # 권한 확인을 통과한 열람을 감사 로그에 남겨요.
-    _record_audit(user, AUDIT_VIEW, document, blocked=False)
+    if audit:
+        _record_audit(user, AUDIT_VIEW, document, blocked=False)
     return {
         "can_view": True,
         "doc_id": document["doc_id"],
