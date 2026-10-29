@@ -20,6 +20,8 @@ from app.documents.services import document_service
 FIND_BY_ID = "app.documents.services.document_service.find_by_id"
 # 승인 문서 목록은 DB를 읽으므로 "승인 문서 없음"으로 바꿔 끼워요.
 APPROVED_DOC_IDS = "app.permissions.services.permission_service.get_approved_doc_ids"
+# 감사 로그(A-04)도 DB에 쓰므로 가짜로 바꿔 끼워요. 안 막으면 DB를 찾다 실패해요.
+RECORD_AUDIT_LOG = "app.documents.services.document_service.record_audit_log"
 
 ELV_EMPLOYEE = {"id": 1, "role": "employee", "company_id": "ELV"}
 MVX_EMPLOYEE = {"id": 2, "role": "employee", "company_id": "MVX"}
@@ -68,6 +70,18 @@ class DocumentServiceTest(unittest.TestCase):
             patcher = patch(f"core.config.{name}", value)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+        # 감사 로그 기록 함수를 가짜로 바꿔요. self.audit로 "어떤 인자로 불렸는지" 확인할 수 있어요.
+        audit_patcher = patch(RECORD_AUDIT_LOG)
+        self.audit = audit_patcher.start()
+        self.addCleanup(audit_patcher.stop)
+
+    def assert_audit(self, action: str, user: dict, blocked: bool, reason=None):
+        """감사 로그가 정확히 1번, 이 인자로 기록됐는지 확인한다."""
+        self.audit.assert_called_once_with(
+            user.get("id"), action, "doc-elv", None, blocked, reason,
+            target_type="document", doc_ids=["doc-elv"], doc_companies=["ELV"],
+        )
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -127,6 +141,55 @@ class DocumentServiceTest(unittest.TestCase):
         document = make_document(file_path="elv_report.pdf")
         with patch(FIND_BY_ID, return_value=document):
             self.assertIsNotNone(document_service.download_document("doc-elv", ELV_EMPLOYEE))
+
+    # ── 감사 로그 (A-04) ──────────────────────────────────────
+
+    def test_audit_view_allowed(self, _approved):
+        with patch(FIND_BY_ID, return_value=make_document()):
+            document_service.get_viewer_document("doc-elv", ELV_EMPLOYEE)
+        self.assert_audit("view_document", ELV_EMPLOYEE, blocked=False)
+
+    def test_audit_view_blocked(self, _approved):
+        # 막힌 열람도 "권한 없음"으로 남아야 해요.
+        with patch(FIND_BY_ID, return_value=make_document()):
+            document_service.get_viewer_document("doc-elv", MVX_EMPLOYEE)
+        self.assert_audit("view_document", MVX_EMPLOYEE, blocked=True, reason="권한 없음")
+
+    def test_audit_download_allowed(self, _approved):
+        with patch(FIND_BY_ID, return_value=make_document()):
+            document_service.download_document("doc-elv", ELV_EMPLOYEE)
+        self.assert_audit("download", ELV_EMPLOYEE, blocked=False)
+
+    def test_audit_download_blocked(self, _approved):
+        with patch(FIND_BY_ID, return_value=make_document()):
+            document_service.download_document("doc-elv", MVX_EMPLOYEE)
+        self.assert_audit("download", MVX_EMPLOYEE, blocked=True, reason="권한 없음")
+
+    def test_page_image_not_audited(self, _approved):
+        # 페이지를 넘길 때마다 불리므로 허용·차단 모두 기록하지 않아요.
+        with patch(FIND_BY_ID, return_value=make_document()):
+            document_service.get_page_image("doc-elv", 1, ELV_EMPLOYEE)
+            document_service.get_page_image("doc-elv", 1, MVX_EMPLOYEE)
+        self.audit.assert_not_called()
+
+    def test_unknown_document_not_audited(self, _approved):
+        # 없는 문서는 권한 차단이 아니라서 기록하지 않아요(경고 로그만).
+        with patch(FIND_BY_ID, return_value=None):
+            document_service.get_viewer_document("nope", ELV_EMPLOYEE)
+            document_service.download_document("nope", ELV_EMPLOYEE)
+        self.audit.assert_not_called()
+
+    def test_audit_failure_does_not_block(self, _approved):
+        # 기록이 오류를 내도 열람·다운로드 결과는 그대로여야 해요.
+        self.audit.side_effect = RuntimeError("DB 연결 실패")
+        with patch(FIND_BY_ID, return_value=make_document()), \
+             self.assertLogs("app.documents.services.document_service", level="ERROR"):
+            viewer = document_service.get_viewer_document("doc-elv", ELV_EMPLOYEE)
+            result = document_service.download_document("doc-elv", ELV_EMPLOYEE)
+            blocked = document_service.get_viewer_document("doc-elv", MVX_EMPLOYEE)
+        self.assertTrue(viewer["can_view"])
+        self.assertEqual(result, self.pdf_path.read_bytes())
+        self.assertFalse(blocked["can_view"])
 
     # ── DART ──────────────────────────────────────────────────
 
