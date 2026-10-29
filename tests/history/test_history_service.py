@@ -23,27 +23,53 @@ def _log(log_id, action, **fields):
 @mock.patch(f"{_MODULE}.get_current_user_id", return_value=1)
 @mock.patch(f"{_MODULE}.history_repository")
 class GetUserHistoryTest(unittest.TestCase):
-    def test_all_types_with_summaries(self, repo, _current):
+    def test_all_types_merge_logs_and_reports_newest_first(self, repo, _current):
         repo.list_user_logs.return_value = [
-            _log(3, "report_create", target_type="report", target_id="7"),
-            _log(2, "view_document", target_type="document", target_id="d1"),
+            _log(3, "ask", query="무벡스 매출", created_at=datetime(2026, 10, 27, 11, 0)),
+            _log(2, "view_document", target_type="document", target_id="d1", created_at=datetime(2026, 10, 27, 9, 30, 30)),
             _log(1, "search", query="엘리베이터 사양", result_count=4),
         ]
         repo.find_documents.return_value = {"d1": {"doc_id": "d1", "title": "WBST-500 사양서"}}
-        repo.find_report_titles.return_value = {7: "3분기 실적 보고서"}
+        # 보고서는 감사 로그가 아니라 reports 에서 온다. 같은 분이라도 초까지 비교해 순서를 정한다.
+        repo.list_user_reports.return_value = [
+            {"id": 7, "title": "3분기 실적 보고서", "created_at": datetime(2026, 10, 27, 9, 30, 10)},
+        ]
 
         items = history_service.get_user_history(1, None)
 
-        repo.list_user_logs.assert_called_once_with(1, list(history_service.HISTORY_TYPES), history_service.HISTORY_LIMIT)
-        self.assertEqual([item["summary"] for item in items], ["3분기 실적 보고서", "WBST-500 사양서", "엘리베이터 사양"])
-        self.assertEqual(items[0]["report_id"], 7)
-        self.assertEqual(items[2]["created_at"], "2026-10-27 09:30")
-        self.assertEqual(items[2]["type_label"], "검색")
+        repo.list_user_logs.assert_called_once_with(1, ["search", "ask", "view_document"], history_service.HISTORY_LIMIT)
+        repo.list_user_reports.assert_called_once_with(1, history_service.HISTORY_LIMIT)
+        self.assertEqual(
+            [item["summary"] for item in items],
+            ["무벡스 매출", "WBST-500 사양서", "3분기 실적 보고서", "엘리베이터 사양"],
+        )
+        report = items[2]
+        self.assertEqual((report["history_id"], report["report_id"], report["type_label"]), (None, 7, "보고서 생성"))
+        self.assertEqual(items[3]["created_at"], "2026-10-27 09:30")
+        # 검색·질문만 다시 검색할 수 있다.
+        self.assertEqual([item["can_rerun"] for item in items], [True, False, False, True])
 
     def test_type_filter(self, repo, _current):
         repo.list_user_logs.return_value = []
         history_service.get_user_history(1, "ask")
         self.assertEqual(repo.list_user_logs.call_args.args[1], ["ask"])
+        repo.list_user_reports.assert_not_called()
+
+    def test_report_filter_reads_reports_only(self, repo, _current):
+        repo.list_user_logs.return_value = []
+        repo.list_user_reports.return_value = [{"id": 7, "title": "3분기 실적 보고서", "created_at": datetime(2026, 10, 27)}]
+        items = history_service.get_user_history(1, "report_create")
+        self.assertEqual(repo.list_user_logs.call_args.args[1], [])
+        self.assertEqual([item["report_id"] for item in items], [7])
+
+    def test_limit_applies_after_merge(self, repo, _current):
+        repo.list_user_logs.return_value = [_log(i, "search", query="q") for i in range(3)]
+        repo.find_documents.return_value = {}
+        repo.list_user_reports.return_value = [{"id": 1, "title": "r", "created_at": datetime(2026, 10, 28)}]
+        with mock.patch.object(history_service, "HISTORY_LIMIT", 2):
+            items = history_service.get_user_history(1, None)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["report_id"], 1)
 
     def test_unknown_type_returns_empty(self, repo, _current):
         self.assertEqual(history_service.get_user_history(1, "login"), [])
@@ -63,7 +89,7 @@ class GetHistoryDetailTest(unittest.TestCase):
 
         detail = history_service.get_history_detail(1, 5)
 
-        repo.get_user_log.assert_called_once_with(1, 5, list(history_service.HISTORY_TYPES))
+        repo.get_user_log.assert_called_once_with(1, 5, ["search", "ask", "view_document"])
         self.assertEqual(detail["query"], "무벡스 매출")
         # 지금은 지워진 문서는 제목 대신 id 로 보여 준다.
         self.assertEqual(detail["documents"], [{"doc_id": "d1", "title": "실적 보고서"}, {"doc_id": "gone", "title": "gone"}])
@@ -89,10 +115,18 @@ class RerunSearchTest(unittest.TestCase):
 
         result = history_service.rerun_search(1, 1)
 
-        repo.get_user_log.assert_called_once_with(1, 1, ["search"])
+        repo.get_user_log.assert_called_once_with(1, 1, ["search", "ask"])
         # 저장된 결과가 아니라 DB 의 지금 역할·소속으로 검색을 새로 한다.
         search.assert_called_once_with("물류 자동화", where, {"id": 1, "role": "employee", "company_id": "MVX"})
         self.assertEqual(result["results"], [{"chunk_id": "d2#0001", "doc_id": "d2"}])
+
+    def test_reruns_ask_history(self, repo, _current, _info, search):
+        # 통합 검색 화면은 검색+답변을 ask 로만 남긴다 (#100). 질문도 같은 검색어·필터로 다시 검색한다.
+        repo.get_user_log.return_value = _log(4, "ask", query="무벡스 매출", filters=None)
+        search.return_value = []
+        result = history_service.rerun_search(1, 4)
+        search.assert_called_once_with("무벡스 매출", None, {"id": 1, "role": "employee", "company_id": "MVX"})
+        self.assertEqual(result["query"], "무벡스 매출")
 
     def test_not_search_history(self, repo, _current, _info, search):
         repo.get_user_log.return_value = None
