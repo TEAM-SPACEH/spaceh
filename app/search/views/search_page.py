@@ -1,12 +1,13 @@
 """S-01 통합 검색 화면: render_search(). S-02 필터(기업·문서 유형·기간)를 함께 건다."""
 
+import html
 import logging
 from datetime import date
 
 import streamlit as st
 
 from app.auth.session import get_current_user
-from app.common.ui import DOC_TYPE_LABELS, no_permission_notice, page_header
+from app.common.ui import DOC_TYPE_LABELS, card, no_permission_notice
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.permissions.services.permission_service import request_document_access
@@ -47,6 +48,9 @@ _EARLIEST_DOC_DATE = date(2000, 1, 1)
 # 검색창 위젯 key. 후속 질문(followup_questions)도 이 key로 검색어를 바꾼다.
 _QUERY_KEY = "s61_query_input"
 
+# 초기 화면(Figma 02-0)의 인사말·검색 상자 폭
+_START_WIDTH = 760
+
 
 def render_search(query: str | None = None, user: dict | None = None) -> None:
     """S-01 통합 검색 및 S-04 근거 기반 AI 답변 화면.
@@ -61,9 +65,6 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.warning("로그인 후 검색할 수 있습니다.")
         return
 
-    # 공통 UI 헤더 사용
-    page_header("통합 검색")
-
     date_range = (_EARLIEST_DOC_DATE, date.today())
 
     # 미리 채울 검색어는 세션 값으로만 넣는다. text_input에 value=를 같이 주면
@@ -71,39 +72,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     if query and _QUERY_KEY not in st.session_state:
         st.session_state[_QUERY_KEY] = query
 
-    # 1. 검색창
-    with st.form("s61_search_form", border=False):
-        search_col, button_col = st.columns(
-            [10, 1],
-            vertical_alignment="bottom",
-            gap="small",
-        )
-
-        with search_col:
-            search_query = st.text_input(
-                "검색어",
-                placeholder="궁금한 내용을 검색해 보세요.",
-                label_visibility="collapsed",
-                key=_QUERY_KEY,
-            )
-
-        with button_col:
-            submitted = st.form_submit_button(
-                "검색",
-                type="primary",
-            )
-
-    # 2. 검색 필터
-    # 폼 밖에 배치하여 후속 질문에서도 최신 필터 상태를 사용한다.
-    selection = render_search_filters(
-        _COMPANIES,
-        _DOC_TYPES,
-        date_range,
-        key="search",
-        compact=True,
-    )
-
-    # 3. 사용자별 검색 상태 관리
+    # 사용자별 검색 상태 관리
     user_key = (
         user.get("id"),
         user.get("company_id"),
@@ -114,6 +83,53 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
     # 후속 질문 자동 검색 여부
     pending = st.session_state.pop("s61_followup_pending", False)
+
+    # 아직 검색 결과가 없으면 초기 화면(Figma 02-0): 인사말 아래 가운데에 검색 상자와 필터를 둔다.
+    # 검색 결과가 있으면 검색 화면(Figma 02): 맨 위 검색 상자, 그 아래 필터와 결과.
+    saved_before = st.session_state.get(state_key)
+    is_start = not pending and not (saved_before and saved_before.get("user_key") == user_key)
+
+    with st.container(key="search-hero" if is_start else "search-top", horizontal_alignment="center"):
+        with st.container(width=_START_WIDTH if is_start else "stretch"):
+            if is_start:
+                st.html(
+                    f'<div class="sh-hero-title">안녕하세요, <b>{html.escape(user.get("name") or "")}</b>님</div>'
+                    '<div class="sh-hero-sub">무엇을 찾아볼까요?</div>'
+                    '<div class="sh-hero-desc">현대경제연구원 · 현대무벡스 · 현대엘리베이터 문서 중 '
+                    "내 권한 안의 문서에서 찾아, 근거와 함께 답합니다.</div>"
+                )
+
+            # 1. 검색창
+            with card("search-box"):
+                with st.form("s61_search_form", border=False):
+                    search_col, button_col = st.columns(
+                        [10, 1],
+                        vertical_alignment="center",
+                        gap="small",
+                    )
+
+                    with search_col:
+                        search_query = st.text_input(
+                            "검색어",
+                            placeholder="예: 현대무벡스 3분기 스마트팩토리 수주 현황과 위험 요인은?",
+                            label_visibility="collapsed",
+                            key=_QUERY_KEY,
+                        )
+
+                    with button_col:
+                        submitted = st.form_submit_button(
+                            "검색",
+                            type="primary",
+                        )
+
+                # 2. 검색 필터 (초기 화면은 검색 상자 안)
+                # 폼 밖에 배치하여 후속 질문에서도 최신 필터 상태를 사용한다.
+                if is_start:
+                    selection = _render_filters(date_range)
+
+            # 2. 검색 필터 (검색 화면은 검색 상자 아래)
+            if not is_start:
+                selection = _render_filters(date_range)
 
     # 최초 질문을 유지하기 위해 이전 결과를 보관
     previous_saved = st.session_state.get(state_key)
@@ -230,6 +246,10 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.error("검색 중 문제가 발생했습니다.")
             return
 
+        # 초기 화면에서 검색했으면 검색 화면 배치로 다시 그린다.
+        if is_start:
+            st.rerun()
+
     # 5. 저장된 결과 표시
     saved = st.session_state.get(state_key)
 
@@ -296,6 +316,17 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             ):
                 # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
                 render_selected_source(user)
+
+
+def _render_filters(date_range: tuple[date, date]) -> dict:
+    """S-02 기업·문서 유형·기간 필터. 초기 화면과 검색 화면에서 놓이는 자리만 다르다."""
+    return render_search_filters(
+        _COMPANIES,
+        _DOC_TYPES,
+        date_range,
+        key="search",
+        compact=True,
+    )
 
 
 def _render_requestable_documents(saved: dict, user: dict) -> None:
