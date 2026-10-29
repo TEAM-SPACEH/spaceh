@@ -11,6 +11,7 @@ from app.documents.views.components.document_viewer import render_selected_sourc
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.search.services.rag_service import RAGServiceError, generate_answer_with_audit, is_no_answer
 from app.search.services.search_service import apply_metadata_filters, hybrid_search
+from app.search.services.search_access_service import get_fresh_search_user, inspect_search_access
 from app.search.views.components.followup_questions import render_followup_questions
 from app.search.views.components.rag_answer_card import render_rag_answer_card
 from app.search.views.components.rag_source_panel import render_rag_source_panel
@@ -28,7 +29,10 @@ _COMPANIES = [
 ]
 
 # 문서 유형은 공통 상수(DOC_TYPE_LABELS)에서 만든다.
-_DOC_TYPES = [{"code": code, "label": label} for code, label in DOC_TYPE_LABELS.items()]
+_DOC_TYPES = [
+    {"code": code, "label": label}
+    for code, label in DOC_TYPE_LABELS.items()
+]
 
 # 오래된 문서도 검색할 수 있도록 기간 하한은 2000년으로 지정한다.
 # 종료일은 프로그램 실행 시 고정하지 않고 화면 렌더링 시점마다 오늘 날짜로 계산한다.
@@ -51,13 +55,23 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.warning("로그인 후 검색할 수 있습니다.")
         return
 
+    # 권한 변경으로 검색 결과를 다시 생성해야 하는 경우
+    refresh_request = st.session_state.pop(
+        "s61_refresh_request",
+        None,
+    )
+
+    # text_input이 생성되기 전에 검색어를 복원한다.
+    if refresh_request is not None:
+        st.session_state[_QUERY_KEY] = refresh_request["query"]
+
     # 공통 UI 헤더 사용
     page_header("통합 검색")
 
     date_range = (_EARLIEST_DOC_DATE, date.today())
 
-    # 미리 채울 검색어는 세션 값으로만 넣는다. text_input에 value=를 같이 주면
-    # 후속 질문이 세션 값을 바꿀 때 Streamlit이 "기본값과 세션 값이 함께 지정됨" 경고를 낸다.
+    # 미리 채울 검색어는 세션 값으로만 넣는다.
+    # text_input에 value=를 같이 주면 Streamlit 경고가 발생할 수 있다.
     if query and _QUERY_KEY not in st.session_state:
         st.session_state[_QUERY_KEY] = query
 
@@ -103,20 +117,35 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     state_key = "s61_search_results"
 
     # 후속 질문 자동 검색 여부
-    pending = st.session_state.pop("s61_followup_pending", False)
+    pending = st.session_state.pop(
+        "s61_followup_pending",
+        False,
+    )
 
     # 최초 질문을 유지하기 위해 이전 결과를 보관
     previous_saved = st.session_state.get(state_key)
 
     # 4. 검색 실행
-    if submitted or pending:
-        current_query = search_query.strip()
-        base_query = current_query
+    if submitted or pending or refresh_request is not None:
+
+        # 권한 변경에 의한 재검색이면 이전 검색어를 복원한다.
+        current_query = (
+            refresh_request["query"]
+            if refresh_request is not None
+            else search_query.strip()
+        )
+
+        base_query = (
+            refresh_request["base_query"]
+            if refresh_request is not None
+            else current_query
+        )
 
         # 후속 질문일 때 최초 검색어 유지
         if (
             pending
             and not submitted
+            and refresh_request is None
             and previous_saved
             and previous_saved.get("user_key") == user_key
         ):
@@ -136,52 +165,64 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
         try:
             # S-02 필터 변환
-            where = apply_metadata_filters(selection)
+            # 권한 변경 재검색 시에는 기존 질문에 사용한 필터를 유지한다.
+            where = (
+                refresh_request["where"]
+                if refresh_request is not None
+                else apply_metadata_filters(selection)
+            )
 
-            # S-06 하이브리드 검색 (S-03 권한 필터는 검색 전에 적용된다)
+            # 최신 DB 사용자 정보 조회
+            # 세션의 역할·소속 회사가 오래되었을 가능성을 차단한다.
+            fresh_user = get_fresh_search_user(user)
+
+            # S-06 하이브리드 검색
+            # S-03 권한 필터는 검색 전에 적용된다.
             with st.spinner("문서를 검색하고 있습니다..."):
                 chunks = hybrid_search(
                     current_query,
                     where,
-                    user,
+                    fresh_user,
                     audit=False,
+                )
+
+                # 검색 결과를 최신 MySQL 문서 권한으로 재검증
+                chunks, access_snapshot = inspect_search_access(
+                    fresh_user,
+                    chunks,
                 )
 
             rag_result = None
             rag_error = None
 
-            # S-04 기존 청크를 활용한 AI 답변 생성
-            if chunks:
-                rag_result = None
-                rag_error = None
-
-                # S-04 AI 답변 생성 및 감사 로그 기록
-                try:
-                    with st.spinner("AI 답변을 생성하고 있습니다..."):
-                        rag_result = generate_answer_with_audit(
-                            current_query,
-                            chunks,
-                            user,
-                            filters=where,
-                        )
-
-                except PermissionError:
-                    logger.exception("S-04 답변 생성 권한 오류")
-                    rag_error = (
-                        "AI 답변에 사용할 문서의 접근 권한을 "
-                        "확인할 수 없습니다."
+            # S-04 AI 답변 생성 및 ask 감사 로그 기록
+            # 검색 결과가 없어도 "찾을 수 없음"과 ask 로그를 생성한다.
+            try:
+                with st.spinner("AI 답변을 생성하고 있습니다..."):
+                    rag_result = generate_answer_with_audit(
+                        current_query,
+                        chunks,
+                        fresh_user,
+                        filters=where,
                     )
 
-                except RAGServiceError:
-                    logger.exception("S-04 AI 서비스 오류")
-                    rag_error = (
-                        "AI 답변 서비스에 문제가 발생했습니다. "
-                        "잠시 후 다시 시도해 주세요."
-                    )
+            except PermissionError:
+                logger.exception("S-04 답변 생성 권한 오류")
+                rag_error = (
+                    "AI 답변에 사용할 문서의 접근 권한을 "
+                    "확인할 수 없습니다."
+                )
 
-                except Exception:
-                    logger.exception("S-04 답변 생성 실패")
-                    rag_error = "AI 답변 생성 중 문제가 발생했습니다."
+            except RAGServiceError:
+                logger.exception("S-04 AI 서비스 오류")
+                rag_error = (
+                    "AI 답변 서비스에 문제가 발생했습니다. "
+                    "잠시 후 다시 시도해 주세요."
+                )
+
+            except Exception:
+                logger.exception("S-04 답변 생성 실패")
+                rag_error = "AI 답변 생성 중 문제가 발생했습니다."
 
             # 검색 결과 및 최초 질문 저장
             st.session_state[state_key] = {
@@ -191,6 +232,8 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 "chunks": chunks,
                 "rag_result": rag_result,
                 "rag_error": rag_error,
+                "where": where,
+                "access_snapshot": access_snapshot,
             }
 
         except ValueError:
@@ -198,6 +241,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             return
 
         except PermissionError:
+            logger.exception("S-06 검색 권한 확인 실패")
             st.error("검색 권한을 확인할 수 없습니다.")
             return
 
@@ -206,7 +250,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.error("검색 중 문제가 발생했습니다.")
             return
 
-    # 5. 저장된 결과 표시
+    # 5. 저장된 검색 결과 표시
     saved = st.session_state.get(state_key)
 
     if not saved:
@@ -218,7 +262,51 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.session_state.pop(SELECTED_SOURCE_KEY, None)
         return
 
-    chunks = saved["chunks"]
+    # 기존 검색 결과를 화면에 표시하기 전에 최신 권한을 재검증한다.
+    try:
+        fresh_user = get_fresh_search_user(user)
+
+        authorized_chunks, current_snapshot = inspect_search_access(
+            fresh_user,
+            saved["chunks"],
+        )
+
+    except Exception:
+        logger.exception("검색 결과 권한 재검증 실패")
+
+        # DB 조회 실패 시 기존 답변·출처를 보여주지 않는다.
+        st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
+
+        st.error("문서 접근 권한을 확인할 수 없습니다.")
+        return
+
+    # 사용자 역할, 승인 내역, 문서 권한 변경 감지
+    access_changed = (
+        current_snapshot != saved.get("access_snapshot")
+        or len(authorized_chunks) != len(saved["chunks"])
+    )
+
+    if access_changed:
+        # 권한 변경 전의 검색 결과·AI 답변·출처 폐기
+        st.session_state.pop(state_key, None)
+        st.session_state.pop(SELECTED_SOURCE_KEY, None)
+
+        # 기존 질문 및 필터를 유지하면서 최신 권한으로 재검색
+        st.session_state["s61_refresh_request"] = {
+            "query": saved["query"],
+            "base_query": (
+                saved.get("base_query")
+                or saved["query"]
+            ),
+            "where": saved.get("where") or {},
+        }
+
+        st.rerun()
+        return
+
+    # 재검증된 청크만 화면에서 사용한다.
+    chunks = authorized_chunks
 
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
@@ -242,7 +330,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         # 후속 질문은 최초 질문을 기준으로 생성
         if (
             saved.get("rag_result") is not None
-            and not is_no_answer(saved["rag_result"].get("answer") or "")
+            and not is_no_answer(
+                saved["rag_result"].get("answer") or ""
+            )
         ):
             render_followup_questions(
                 saved.get("base_query") or saved["query"]
@@ -265,5 +355,5 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 "선택한 문서 원문",
                 expanded=True,
             ):
-                # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
-                render_selected_source(user)
+                # 원문 뷰어(S-05)도 최신 사용자 정보로 권한 확인
+                render_selected_source(fresh_user)
