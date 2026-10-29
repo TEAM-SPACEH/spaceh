@@ -216,7 +216,7 @@ class DocumentsPageTest(unittest.TestCase):
 
             render_admin_documents({"id": 1})
 
-        options = {"doc_types": {"report": "보고서"}, "security_levels": {"internal": "사내"},
+        options = {"doc_types": ("report", "spec"), "security_levels": ("public", "confidential"),
                    "index_statuses": {"done": "완료"}}
         patcher = patch(PAGE + "get_upload_companies", return_value=[{"company_id": "MVX", "name": "현대무벡스"}])
         patcher.start()
@@ -232,6 +232,29 @@ class DocumentsPageTest(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertEqual([t.label for t in at.tabs], ["문서 목록", "그룹사 공유"])
         self.assertTrue(any(b.label == "문서 올리기" for b in at.button))
+
+    def test_filter_choices_use_shared_labels(self):
+        """서비스가 준 코드에 공통 화면 이름(DOC_TYPE_LABELS·ACCESS_LABELS)이 붙어 필터에 보인다."""
+        def app():
+            from app.admin.views.documents import render_admin_documents
+
+            render_admin_documents({"id": 1})
+
+        options = {"doc_types": ("report", "spec"), "security_levels": ("public", "confidential"),
+                   "index_statuses": {"done": "완료"}}
+        for target, kwargs in ((PAGE + "get_upload_companies", {"return_value": [{"company_id": "MVX", "name": "현대무벡스"}]}),
+                               (PAGE + "get_document_filter_options", {"return_value": options}),
+                               (PAGE + "render_document_list", {}), (PAGE + "render_admin_sharing", {})):
+            patcher = patch(target, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        at = AppTest.from_function(app).run(timeout=30)
+        self.assertFalse(at.exception)
+        by_label = {s.label: s.options for s in at.selectbox}
+        self.assertIn("연구 보고서", by_label["문서 유형"])
+        self.assertIn("사양서", by_label["문서 유형"])
+        self.assertIn("기밀", by_label["보안 등급"])
+        self.assertNotIn("보고서", by_label["문서 유형"])  # 옛 이름("보고서")이 아니라 공통 이름이다
 
     def test_non_admin_sees_warning_and_no_tabs(self):
         def app():

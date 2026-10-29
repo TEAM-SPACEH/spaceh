@@ -18,7 +18,7 @@ from app.ingestion.pipeline import ingest_document
 from app.ingestion.preprocessing.metadata import build_metadata
 from core import config
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN
-from core.constants import ACCESS_CONFIDENTIAL, ACCESS_INTERNAL, ACCESS_LEVELS, ACCESS_PUBLIC
+from core.constants import ACCESS_LEVELS, DOC_TYPES
 
 
 def _admin(user: dict) -> dict:
@@ -195,12 +195,8 @@ MAX_PAGE_SIZE = 100
 # 대기(pending)·처리 중(indexing)으로 이 시간(분) 넘게 멈춘 문서는 서버가 중간에 죽은 것으로 보고 삭제·재색인을 허용한다.
 STALE_MINUTES = 30
 
-# 문서 유형 코드와 화면 이름. 코드는 DB(documents.doc_type)와 Chroma 에 그대로 저장되는 값이고, 이름은 화면에만 쓴다.
-# 업로드 화면(A-01)의 선택지와 같은 값이다.
-DOC_TYPES = {"report": "보고서", "disclosure": "공시", "manual": "매뉴얼",
-             "spec": "사양서", "intro": "소개자료", "memo": "메모"}
-# 보안 등급 코드와 화면 이름. 화면 용어는 "기밀"이다 ("대외비" 아님).
-SECURITY_LEVELS = {ACCESS_PUBLIC: "공개", ACCESS_INTERNAL: "사내", ACCESS_CONFIDENTIAL: "기밀"}
+# 문서 유형(DOC_TYPES)·보안 등급(ACCESS_LEVELS) 코드는 core/constants.py 에, 화면 이름은 app/common/ui.py 에 있다.
+# 서비스는 코드만 다루고, 이름은 화면(views/documents.py)이 붙인다.
 # 색인 상태: 대기 → 색인 중 → 완료/실패. 화면에는 이름으로 보여 주고, 필터에도 이 값을 쓴다.
 INDEX_STATUS_LABELS = {"pending": "대기", "indexing": "색인 중", "done": "완료", "failed": "실패"}
 
@@ -279,11 +275,12 @@ def _filter_value(value, allowed) -> str:
 
 
 def get_document_filter_options() -> dict:
-    """A-02 필터 화면용 문서 유형·보안 등급·색인 상태 선택지({코드: 화면 이름})를 반환한다.
+    """A-02 필터 화면용 선택지를 반환한다.
 
+    doc_types·security_levels 는 코드 튜플이고, 화면 이름은 화면이 붙인다. index_statuses 는 {코드: 화면 이름}이다.
     기업 선택지는 권한에 따라 달라서 get_upload_companies(user)로 따로 받는다.
     """
-    return {"doc_types": DOC_TYPES, "security_levels": SECURITY_LEVELS,
+    return {"doc_types": DOC_TYPES, "security_levels": ACCESS_LEVELS,
             "index_statuses": INDEX_STATUS_LABELS}
 
 

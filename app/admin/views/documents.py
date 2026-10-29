@@ -7,7 +7,7 @@ from app.admin.views.components.document_filters import render_document_filters
 from app.admin.views.components.document_list import render_document_list
 from app.admin.views.components.document_upload import clear_upload_files, render_document_upload
 from app.admin.views.sharing import render_admin_sharing
-from app.common.ui import page_header
+from app.common.ui import ACCESS_LABELS, DOC_TYPE_LABELS, page_header
 
 
 def render_admin_documents(user: dict) -> None:
@@ -30,10 +30,12 @@ def render_admin_documents(user: dict) -> None:
         if st.button("문서 올리기", type="primary", icon=":material/upload:"):
             clear_upload_files()
             render_document_upload(user)
-        # 문서 유형·보안 등급·색인 상태 선택지({코드: 화면 이름}). 기업 선택지는 권한에 따라 달라서 위에서 따로 받았다.
+        # 문서 유형·보안 등급은 서비스가 준 코드에 공통 화면 이름(DOC_TYPE_LABELS·ACCESS_LABELS)을 붙여 {코드: 화면 이름}으로 만든다.
+        # 기업 선택지는 권한에 따라 달라서 위에서 따로 받았다.
         options = get_document_filter_options()
-        filters = render_document_filters(
-            companies, options["doc_types"], options["security_levels"], options["index_statuses"])
+        doc_types = {code: DOC_TYPE_LABELS[code] for code in options["doc_types"]}
+        security_levels = {code: ACCESS_LABELS[code] for code in options["security_levels"]}
+        filters = render_document_filters(companies, doc_types, security_levels, options["index_statuses"])
         # 필터 값으로 목록을 조회해 표시한다. 삭제·재색인 요청도 이 안에서 서비스를 부른다. 이 화면은 SQL 을 직접 실행하지 않는다.
         render_document_list(user, filters)
     with share_tab:

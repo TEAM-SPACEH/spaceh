@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from app.admin.services import document_service as service
+from core.constants import ACCESS_LEVELS, DOC_TYPES
 
 SUPER = {"id": 1}
 COMPANY_ADMIN = {"id": 7}
@@ -112,11 +113,12 @@ class DocumentListTests(_Base):
         result = service.get_document_list(SUPER, {}, page="abc", size=100000)
         self.assertEqual((result["page"], result["size"]), (1, service.MAX_PAGE_SIZE))
 
-    def test_filter_options_are_code_to_label_maps(self):
+    def test_filter_options_are_codes_from_shared_constants(self):
+        """문서 유형·보안 등급은 공통 상수의 코드 그대로이고(이름은 화면이 붙인다), 색인 상태만 {코드: 이름}이다."""
         options = service.get_document_filter_options()
-        self.assertEqual(options["security_levels"]["confidential"], "기밀")
+        self.assertEqual(options["doc_types"], DOC_TYPES)
+        self.assertEqual(options["security_levels"], ACCESS_LEVELS)
         self.assertEqual(options["index_statuses"]["failed"], "실패")
-        self.assertEqual(options["doc_types"]["spec"], "사양서")
 
 
 class DocumentDeleteTests(_Base):
