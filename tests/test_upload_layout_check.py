@@ -9,7 +9,7 @@ from scripts.check_upload_layout import validate_report
 class UploadLayoutCheckTest(unittest.TestCase):
     def test_rejects_alignment_clipping_missing_font_and_missing_cases(self):
         """A-01 문구 처짐·스피너 처짐·잘림·폰트 및 측정 누락을 거부한다."""
-        report = {"fontLoaded": True, "controlsOk": True, "controlContrast": [4.5] * 5, "rows": [
+        report = {"fontLoaded": True, "controlsOk": True, "controlContrast": [4.5] * 5, "primaryContrast": 3.6, "rows": [
             {"fits": True, "textDelta": 0, "spinnerDelta": 0, "contrast": 4.5} for _ in range(16)
         ]}
         validate_report(report)
@@ -22,6 +22,8 @@ class UploadLayoutCheckTest(unittest.TestCase):
         for bad in ({**report, "controlsOk": False},
                     {**report, "controlContrast": [4.49] * 5},
                     {**report, "controlContrast": []},
+                    {**report, "primaryContrast": 2.9},
+                    {**report, "primaryContrast": None},
                     {"fontLoaded": False, "rows": report["rows"]},
                     {"fontLoaded": True, "rows": []}):
             with self.assertRaises(ValueError):
