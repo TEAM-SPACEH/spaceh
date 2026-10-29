@@ -285,6 +285,32 @@ def generate_answer_with_audit(
     # 6. 기존 AI 답변 반환
     return result
 
+def record_blocked_ask(
+    user: dict | None,
+    query: str,
+    filters: dict | None,
+    reason: str,
+) -> None:
+    """권한으로 차단된 AI 질의응답을 감사 로그에 기록한다."""
+
+    try:
+        record_audit_log(
+            user_id=user.get("id") if isinstance(user, dict) else None,
+            action_type="ask",
+            target_id=None,
+            ip_address=None,
+            blocked=True,
+            block_reason=reason,
+            query=query.strip() if isinstance(query, str) else None,
+            filters=filters or None,
+            doc_ids=[],
+            doc_companies=[],
+            result_count=0,
+        )
+
+    except Exception:
+        logger.exception("감사 로그 기록 실패(ask blocked)")
+
 def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
     """AI 답변의 출처 번호가 실제 검색 청크에 존재하는지 검증합니다."""
 
@@ -438,40 +464,45 @@ def _search_documents_for_user(
     return search_documents(query, filters, user, audit=False)
 
 def answer_question(
-        query: str,
-        filters: dict | None,
-        user: dict
+    query: str,
+    filters: dict | None,
+    user: dict,
 ) -> dict[str, Any]:
-    """기존 검색 서비스와 AI 질의응답 기능을 연결합니다."""
+    """권한이 적용된 검색 결과로 AI 답변을 생성하고 감사 로그를 기록한다."""
 
-    # 1. 로그인 사용자 확인
     if not isinstance(user, dict) or not user:
         raise PermissionError("로그인이 필요합니다.")
 
-    # 2. 질문 유효성 검사
     if not isinstance(query, str) or not query.strip():
         raise ValueError("질문을 입력해 주세요.")
 
     query = query.strip()
 
-    # 3. 권한 필터가 적용된 검색 결과 조회
-    chunks = _search_documents_for_user(
-        query,
-        filters,
-        user
-    )
+    try:
+        chunks = _search_documents_for_user(
+            query,
+            filters,
+            user,
+        )
 
-    # 4. 검색 결과 형식 확인
-    if not isinstance(chunks, list):
-        raise TypeError("검색 결과는 리스트여야 합니다.")
+        if not isinstance(chunks, list):
+            raise TypeError("검색 결과는 리스트여야 합니다.")
 
-    # 5. 검색 결과를 기반으로 AI 답변 생성 및 감사 로그 기록
-    return generate_answer_with_audit(
-        query,
-        chunks,
-        user,
-        filters,
-    )
+        return generate_answer_with_audit(
+            query,
+            chunks,
+            user,
+            filters,
+        )
+
+    except PermissionError as exc:
+        record_blocked_ask(
+            user,
+            query,
+            filters,
+            str(exc),
+        )
+        raise
 
 FOLLOWUP_COUNT = 3
 

@@ -4,6 +4,7 @@ from unittest.mock import patch
 from app.search.services.rag_service import (
     answer_question,
     generate_answer_with_audit,
+    record_blocked_ask,
 )
 
 
@@ -77,8 +78,17 @@ class TestRAGAudit(unittest.TestCase):
             )
 
         self.assertEqual(actual, result)
-        self.assertEqual(mock_audit.call_args.kwargs["doc_ids"], [])
-        self.assertEqual(mock_audit.call_args.kwargs["result_count"], 0)
+        self.assertEqual(
+            mock_audit.call_args.kwargs["doc_ids"],
+            [],
+        )
+        self.assertEqual(
+            mock_audit.call_args.kwargs["result_count"],
+            0,
+        )
+        self.assertFalse(
+            mock_audit.call_args.kwargs["blocked"]
+        )
 
     def test_audit_failure_does_not_block_answer(self):
         """감사 로그 저장에 실패해도 AI 답변을 반환하는지 확인"""
@@ -133,16 +143,100 @@ class TestRAGAudit(unittest.TestCase):
             )
 
         self.assertEqual(actual, result)
+
         mock_search.assert_called_once_with(
             "테스트 질문",
             self.filters,
             self.user,
         )
+
         mock_answer.assert_called_once_with(
             "테스트 질문",
             chunks,
             self.user,
             self.filters,
+        )
+
+    def test_blocked_ask_audit(self):
+        """권한 차단 시 blocked=True로 기록되는지 확인"""
+
+        with patch(
+            "app.search.services.rag_service.record_audit_log"
+        ) as mock_audit:
+
+            record_blocked_ask(
+                self.user,
+                "테스트 질문",
+                self.filters,
+                "접근 권한 없음",
+            )
+
+        mock_audit.assert_called_once_with(
+            user_id=1,
+            action_type="ask",
+            target_id=None,
+            ip_address=None,
+            blocked=True,
+            block_reason="접근 권한 없음",
+            query="테스트 질문",
+            filters=self.filters,
+            doc_ids=[],
+            doc_companies=[],
+            result_count=0,
+        )
+
+    def test_answer_question_permission_denied(self):
+        """기존 질의응답에서 권한 거부 시 차단 로그가 기록되는지 확인"""
+
+        with patch(
+            "app.search.services.rag_service._search_documents_for_user",
+            side_effect=PermissionError("검색 권한 없음"),
+        ), patch(
+            "app.search.services.rag_service.record_blocked_ask"
+        ) as mock_blocked:
+
+            with self.assertRaisesRegex(
+                PermissionError,
+                "검색 권한 없음",
+            ):
+                answer_question(
+                    "테스트 질문",
+                    self.filters,
+                    self.user,
+                )
+
+        mock_blocked.assert_called_once_with(
+            self.user,
+            "테스트 질문",
+            self.filters,
+            "검색 권한 없음",
+        )
+
+    def test_blocked_audit_failure(self):
+        """차단 로그 저장 실패가 기존 권한 오류를 변경하지 않는지 확인"""
+
+        with patch(
+            "app.search.services.rag_service._search_documents_for_user",
+            side_effect=PermissionError("검색 권한 없음"),
+        ), patch(
+            "app.search.services.rag_service.record_audit_log",
+            side_effect=RuntimeError("DB 오류"),
+        ), patch(
+            "app.search.services.rag_service.logger"
+        ) as mock_logger:
+
+            with self.assertRaisesRegex(
+                PermissionError,
+                "검색 권한 없음",
+            ):
+                answer_question(
+                    "테스트 질문",
+                    self.filters,
+                    self.user,
+                )
+
+        mock_logger.exception.assert_called_once_with(
+            "감사 로그 기록 실패(ask blocked)"
         )
 
 

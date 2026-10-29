@@ -9,7 +9,7 @@ from app.auth.session import get_current_user
 from app.common.ui import DOC_TYPE_LABELS, page_header
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
-from app.search.services.rag_service import RAGServiceError, generate_answer_with_audit, is_no_answer
+from app.search.services.rag_service import RAGServiceError, generate_answer_with_audit, is_no_answer, record_blocked_ask
 from app.search.services.search_service import apply_metadata_filters, hybrid_search
 from app.search.services.search_access_service import get_fresh_search_user, inspect_search_access
 from app.search.views.components.followup_questions import render_followup_questions
@@ -163,6 +163,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.warning("검색어를 입력해 주세요.")
             return
 
+        # 검색 과정에서 권한 오류가 발생할 경우 감사 로그에 사용할 조건
+        where = None
+
         try:
             # S-02 필터 변환
             # 권한 변경 재검색 시에는 기존 질문에 사용한 필터를 유지한다.
@@ -206,7 +209,15 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                         filters=where,
                     )
 
-            except PermissionError:
+            except PermissionError as exc:
+                # 답변 생성 단계에서 차단된 질의응답 기록
+                record_blocked_ask(
+                    fresh_user,
+                    current_query,
+                    where,
+                    str(exc),
+                )
+
                 logger.exception("S-04 답변 생성 권한 오류")
                 rag_error = (
                     "AI 답변에 사용할 문서의 접근 권한을 "
@@ -240,7 +251,15 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.error("검색 기간을 다시 확인해 주세요.")
             return
 
-        except PermissionError:
+        except PermissionError as exc:
+            # 검색 또는 최신 사용자 권한 확인 단계에서 차단된 질문 기록
+            record_blocked_ask(
+                user,
+                current_query,
+                where,
+                str(exc),
+            )
+
             logger.exception("S-06 검색 권한 확인 실패")
             st.error("검색 권한을 확인할 수 없습니다.")
             return
