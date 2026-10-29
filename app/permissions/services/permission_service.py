@@ -239,12 +239,16 @@ def filter_requestable_documents(user: dict, documents: list[dict]) -> list[dict
     '한 번만' 읽고, 각 문서에 열람 매트릭스를 적용한다. 권한 규칙은 여전히 여기(permission_service)
     한 곳에서만 판정한다. documents는 Chroma 메타데이터 모양이어야 한다
     ({doc_id, company_id, access_level, is_group_shared, ...}).
+
+    '요청 가능 문서'는 타사 문서만이다(overview.md §2.3-6: 권한이 없는 '타사' 문서만 제목을 보여 준다).
+    자사 문서는 못 보더라도 제목을 요청 목록에 노출하지 않는다 — 자사 기밀 문서 제목이 새지 않도록.
     """
     # 요청 대상이 아닌 경우(어드민은 전부 열람 가능, 알 수 없는 사용자)엔 요청할 문서가 없다.
     if not user or user.get("role") not in ROLES or user["role"] == ROLE_SUPER_ADMIN:
         return []
 
     user_id = user["id"]
+    user_company = user.get("company_id")
     try:
         approved = get_approved_doc_ids(user_id)      # 승인 문서: 한 번만
         pending = set(get_pending_doc_ids(user_id))   # 대기 요청: 한 번만
@@ -259,6 +263,9 @@ def filter_requestable_documents(user: dict, documents: list[dict]) -> list[dict
         if not doc_id or doc_id in seen:
             continue
         seen.add(doc_id)
+        # 자사 문서는 제목도 노출하지 않는다 (§2.3-6: 요청 목록은 '타사' 문서만).
+        if document.get("company_id") == user_company:
+            continue
         if doc_id in pending:  # 이미 대기 중인 요청이 있으면 제외
             continue
         if any(_matches(condition, document) for condition in conditions):  # 이미 볼 수 있으면 제외

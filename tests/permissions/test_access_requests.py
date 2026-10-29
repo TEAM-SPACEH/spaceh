@@ -182,6 +182,19 @@ class FilterRequestableDocumentsTest(unittest.TestCase):
         approved.assert_not_called()  # 어드민은 조회조차 하지 않는다
         pending.assert_not_called()
 
+    def test_own_company_confidential_not_exposed(self, approved, pending):
+        """자사 기밀 문서는 못 봐도 요청 목록(제목)에 노출하지 않는다 (§2.3-6: 타사만)."""
+        approved.return_value = []
+        pending.return_value = []
+        docs = [
+            # 자사(MVX) 기밀 → 못 보지만 '자사'라 요청 목록에서 제외돼야 한다
+            {"doc_id": "mvx-conf", "company_id": "MVX", "access_level": "confidential", "is_group_shared": False},
+            # 타사(ELV) 기밀 → 요청 가능
+            {"doc_id": "elv-conf", "company_id": "ELV", "access_level": "confidential", "is_group_shared": False},
+        ]
+        out = ps.filter_requestable_documents(EMPLOYEE, docs)
+        self.assertEqual([d["doc_id"] for d in out], ["elv-conf"])  # 자사 기밀은 빠지고 타사만
+
 
 if __name__ == "__main__":
     unittest.main()
