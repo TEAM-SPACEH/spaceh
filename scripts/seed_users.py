@@ -15,7 +15,7 @@ SEED_USERS = [
     # (사원번호, 이름, 역할, 소속)
     ("HRI-0001", "김연구", ROLE_EMPLOYEE, "HRI"),
     ("HRI-0002", "박관리", ROLE_COMPANY_ADMIN, "HRI"),
-    ("MVX-0001", "이물류", ROLE_EMPLOYEE, "MVX"),
+    ("MVX-0001", "이승준", ROLE_EMPLOYEE, "MVX"),
     ("MVX-0002", "최관리", ROLE_COMPANY_ADMIN, "MVX"),
     ("ELV-0001", "정승강", ROLE_EMPLOYEE, "ELV"),
     ("ELV-0002", "한관리", ROLE_COMPANY_ADMIN, "ELV"),
