@@ -459,7 +459,7 @@ def request_reindex(doc_id: str, user: dict) -> dict:
         # 공유가 바뀌었을 때 옛 공유 값이 Chroma 에 실려 MySQL 과 어긋난다 (공유를 껐는데 타사 검색에 남는 방향).
         # 선점한 뒤에는 A-03 이 이 문서를 못 바꾸므로, 이때 다시 읽은 값이 색인이 끝날 때까지 유효하다.
         # (이 잠금은 한 프로세스 안의 요청만 직렬화한다. 서버를 여러 개 띄우면 분산 잠금이 필요하다.)
-        with access_service._GROUP_SHARE_LOCK:
+        with access_service.GROUP_SHARE_LOCK:
             claimed = repository.claim_document(doc_id, STALE_MINUTES)
             if claimed is None:
                 raise ValueError("이미 색인 중이거나 처리 중인 문서입니다. 잠시 후 다시 시도해 주세요.")

@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 # 같은 문서의 켜기·끄기 요청이 겹치면 두 요청이 각자 읽은 옛 값을 믿고 MySQL·Chroma 를 서로 다른 순서로 갱신해,
 # 끈 문서가 타사 직원 검색에 남을 수 있다 (실제 MySQL·Chroma 로 재현: 겹친 40번 중 38번 어긋남).
 # 이 잠금은 한 프로세스(서버) 안의 요청만 직렬화한다. 서버를 여러 개 띄우면 분산 잠금이 필요하다.
-_GROUP_SHARE_LOCK = threading.Lock()
+# A-02(document_service 의 재색인)도 이 잠금을 쓴다. 재색인이 문서를 선점하고 다시 읽는 동안 공유 변경이 끼어들지 못하게 하려는 것이라,
+# 다른 파일에서 쓰도록 공개 이름(GROUP_SHARE_LOCK)으로 둔다. 이름·동작을 바꾸면 A-02 와 함께 고친다.
+GROUP_SHARE_LOCK = threading.Lock()
 
 # documents.index_status 값 중 색인이 끝난 상태. 이때만 공유를 바꿀 수 있다 (docs/architecture/data-model.md).
 INDEX_STATUS_DONE = "done"
@@ -172,7 +174,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     # 문서를 읽는 순간부터 저장이 끝날 때까지 한 번에 하나만 실행한다. 읽은 값(document)이 저장할 때까지 유효해야
     # 하고(이전 값으로 되돌리기), 두 저장소의 갱신 순서가 다른 요청과 섞이지 않아야 한다.
     # 감사 로그 기록은 잠금 밖에서 한다 (잠금을 오래 쥐지 않으려고).
-    with _GROUP_SHARE_LOCK:
+    with GROUP_SHARE_LOCK:
         # 1단계 검증: 바꾸기 전에 (1) 관리자인가 → (2) 문서가 있는가 → (3) 내 회사 문서이고 internal 인가 순으로 본다.
         # 관리자 확인이 가장 먼저라서 일반 사원은 문서가 있는지조차 알 수 없다.
         try:

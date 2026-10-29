@@ -254,12 +254,12 @@ class DocumentReindexTests(_Base):
 
         held = []
         self.repo.get_managed_document.side_effect = [_document(is_group_shared=1), _document(is_group_shared=0)]
-        self.repo.claim_document.side_effect = lambda *a: held.append(access_service._GROUP_SHARE_LOCK.locked()) or {
+        self.repo.claim_document.side_effect = lambda *a: held.append(access_service.GROUP_SHARE_LOCK.locked()) or {
             "index_status": "done", "chunk_count": 5, "error_message": None}
         service.request_reindex("doc-1", SUPER)
         self.assertIs(self.ingest.call_args.args[2]["is_group_shared"], False)
         self.assertEqual(held, [True])  # 선점은 A-03 과 같은 잠금 안에서 이뤄진다
-        self.assertFalse(access_service._GROUP_SHARE_LOCK.locked())  # 끝난 뒤에는 풀려 있다
+        self.assertFalse(access_service.GROUP_SHARE_LOCK.locked())  # 끝난 뒤에는 풀려 있다
 
     def test_failure_cleans_chunks_and_marks_failed(self):
         self.ingest.return_value = {"doc_id": "doc-1", "index_status": "failed", "chunk_count": 0,
