@@ -4,7 +4,7 @@ import streamlit as st
 
 from app.admin.services.document_service import get_upload_companies, upload_document
 from app.admin.views.components.duplicate_notice import render_duplicate_notice
-from app.common.ui import ACCESS_LABELS, company_tag_html, show_text, upload_status_html
+from app.common.ui import ACCESS_LABELS, DOC_TYPE_LABELS, company_tag_html, show_text, upload_status_html
 
 
 def clear_upload_files() -> None:
@@ -104,9 +104,7 @@ def render_document_upload(user: dict) -> None:
     with st.container(key="upload-registration"):
         with st.expander("등록 정보"):
             st.caption("그룹사 공유 OFF · 등록 정보는 선택한 모든 파일에 적용합니다.")
-            doc_types = {"report": "보고서", "disclosure": "공시", "manual": "매뉴얼",
-                         "spec": "사양서", "intro": "소개서", "memo": "메모"}
-            doc_type = st.selectbox("문서 유형", list(doc_types), format_func=doc_types.get)
+            doc_type = st.selectbox("문서 유형", list(DOC_TYPE_LABELS), format_func=DOC_TYPE_LABELS.get)
             published = st.date_input("작성일 (비워 두면 업로드일을 사용합니다)", value=None)
             is_mock = st.checkbox("직접 만든 목데이터입니다")
             st.caption("문서 제목은 각 파일명에서 확장자를 뺀 이름으로 등록합니다.")
