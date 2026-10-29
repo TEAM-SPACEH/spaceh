@@ -54,9 +54,19 @@ def render_rag_answer_card(result: dict) -> None:
             f'<div class="sh-rag-body">{formatted_answer}</div>'
         )
 
+        # S-05 답변 하단 [회사명 · 파일명 · 위치] 배지 (Figma 02). 데이터에서 온 글자라 escape한다.
+        source_chips = "".join(
+            '<span class="sh-rag-src">'
+            f'{citation_html(int(source.get("citation_number") or 0))}'
+            f'{html.escape(" · ".join(str(source.get(k) or "") for k in ("company", "filename", "location")))}'
+            "</span>"
+            for source in sources
+        )
+        sources_html = f'<div class="sh-rag-sources">{source_chips}</div>' if sources else ""
+
         footer_html = (
             '<div class="sh-rag-footer">'
-            '✓ 검색된 문서를 기반으로 생성된 답변입니다.'
+            '검색된 문서만 근거로 답합니다. 근거가 없으면 모른다고 답합니다.'
             '</div>'
         )
 
@@ -82,6 +92,6 @@ def render_rag_answer_card(result: dict) -> None:
         """
 
         st.html(
-            header_html + body_html + footer_html + copy_script,
+            header_html + body_html + sources_html + footer_html + copy_script,
             unsafe_allow_javascript=True,
         )
