@@ -1,4 +1,4 @@
-"""R-02·R-03·R-04 보고서 결과 화면: [1페이지 요약]/[상세보고서] 탭, 요약, 상세보고서, 각주."""
+"""R-02~R-05 보고서 결과 화면: 내보내기 버튼, [1페이지 요약]/[상세보고서] 탭, 요약, 상세보고서, 각주."""
 
 # ─────────────────────────────────────────────────────────────
 # views 파일 = "홀 직원"이에요. 화면에 보여 주고 클릭을 받기만 하고,
@@ -8,8 +8,10 @@
 #   - render_result_tabs(), render_exec_summary(), go_to_detail() ... R-04 (박예원)
 #   - render_report() ................................................ R-02 (박예원)
 #   - render_footnotes() ............................................. R-03 (김소은) ← 합의 후 박예원이 먼저 만듦
+#   - render_export_buttons() ........................................ R-05 (박예원)
 #
 # 화면 흐름
+#   맨 위 [Markdown 다운로드] / [DOCX 다운로드] 버튼 (R-05)
 #   [1페이지 요약] 탭 (처음 열리는 탭)
 #      항목마다 [상세 보기] → go_to_detail() → [상세보고서] 탭으로 바꾸고 그 섹션으로 스크롤
 #   [상세보고서] 탭
@@ -25,6 +27,7 @@ from app.common.ui import citation_html, company_tag_html, empty_state, show_tex
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.reports.models.report_models import Footnote, Report, SectionType
+from app.reports.services import report_exporter
 from app.reports.services.citation_mapper import build_section_anchor
 from app.reports.services.prompts import NO_EVIDENCE_TEXT, SUMMARY_KIND_TITLES
 
@@ -95,6 +98,7 @@ def render_result_tabs(user: dict, report: Report) -> None:
     # 📌 명세서 입력은 report인데 그대로예요. 지금 열린 탭과 이동할 섹션은 세션에 저장해요.
     # st.tabs에 key와 on_change="rerun"을 주면, 지금 탭이 세션(TAB_KEY)에 저장되고
     # 콜백(go_to_detail)에서 세션 값을 바꿔 탭을 코드로 바꿀 수 있어요. (Streamlit 1.66)
+    render_export_buttons(user, report)  # R-05: 어느 탭을 보든 맨 위에서 내려받을 수 있게
     summary_tab, detail_tab = st.tabs(
         [TAB_SUMMARY, TAB_DETAIL], key=TAB_KEY, default=TAB_SUMMARY, on_change="rerun",
     )
@@ -186,3 +190,39 @@ def render_footnotes(footnotes: list[Footnote]) -> None:
             st.button(
                 "원문 보기", key=f"r04_footnote_{note.number}", on_click=_open_source, args=(note,),
             )
+
+
+def render_export_buttons(user: dict, report: Report) -> None:
+    """R-05 Markdown·DOCX 다운로드 버튼. 차단이면 버튼을 끄고 사유를, 워터마크 대상이면 안내를 보여 준다."""
+    # 📌 명세서 입력은 report_id인데, 보고서 저장·조회가 아직 없어 Report를 직접 받아요.
+    # 허용·차단 판단은 화면이 하지 않고 services(A-06 판정)에 물어봐요. (팀 규칙: 화면은 판단 X)
+    policy = report_exporter.get_download_policy(user, report)
+    blocked = not policy["allowed"]
+
+    md_col, docx_col = st.columns(2)
+    for column, file_format, label in (
+        (md_col, report_exporter.FORMAT_MARKDOWN, "Markdown 다운로드"),
+        (docx_col, report_exporter.FORMAT_DOCX, "DOCX 다운로드"),
+    ):
+        with column:
+            st.download_button(
+                label,
+                # data에 "함수"를 넘기면 버튼을 눌렀을 때만 파일을 만들어요.
+                #   → 화면을 그릴 때마다 Word 파일을 만들지 않아 가볍고,
+                #   → 실제로 누른 사람만 감사 로그에 "다운로드"로 남아요.
+                # 기본값 인자(fmt=file_format): for 반복 안에서 만든 함수가 마지막 형식만 기억하는 실수를 막아요.
+                # 차단이면 None이 오는데, 버튼에는 빈 파일(b"")을 줘요. (버튼은 이미 꺼져 있어요)
+                data=lambda fmt=file_format: report_exporter.export_report_file(user, report, fmt) or b"",
+                file_name=report_exporter.build_file_name(report, file_format),
+                mime=report_exporter.MIME_TYPES[file_format],
+                key=f"r05_download_{file_format}",
+                # "ignore": 내려받아도 화면을 다시 그리지 않아요. 보던 탭·스크롤이 그대로예요.
+                on_click="ignore",
+                disabled=blocked,
+                width="stretch",
+            )
+
+    if blocked:
+        st.warning(f"다운로드할 수 없습니다: {policy['reason'] or '다운로드 권한이 없습니다.'}")
+    elif policy["watermark"]:
+        show_text("워터마크가 적용됩니다. (다운로드한 사람·일시가 파일에 표시됩니다)", muted=True)
