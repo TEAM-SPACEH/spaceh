@@ -83,12 +83,13 @@ def list_access_requests_by_user(user_id: int) -> list[dict]:
     """M-03 이 사용자가 낸 열람 권한 요청 목록을 최신순으로 돌려준다(마이페이지 표시용).
 
     문서 제목은 documents와 이어서(JOIN) 가져온다. 상태(status)는 코드 그대로 주고,
-    화면에서 한글(검토 중/승인/반려)로 바꾼다.
+    화면에서 한글(검토 중/승인/반려)로 바꾼다. review_comment는 A-05 관리자가 남긴 처리 의견으로,
+    반려된 요청의 '반려 사유'를 요청자가 마이페이지에서 확인하는 데 쓴다(없으면 NULL).
     """
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT ar.doc_id, d.title AS doc_title, ar.owner_company_code, "
-            "       ar.reason, ar.status, ar.created_at "
+            "       ar.reason, ar.status, ar.review_comment, ar.created_at "
             "FROM access_requests ar "
             "JOIN documents d ON d.doc_id = ar.doc_id "
             "WHERE ar.user_id = %s "

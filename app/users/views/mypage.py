@@ -147,6 +147,10 @@ def _render_access_requests(user_id: int) -> None:
             show_text(request["doc_title"], bold=True)
             if request.get("reason"):
                 show_text(f"사유: {request['reason']}", muted=True)
+            # 반려된 요청은 A-05 관리자가 남긴 반려 사유(review_comment)를 요청자에게 보여 준다.
+            # (요청자가 쓴 'reason'과 구분해 '반려 사유'로 표시한다. 없으면 생략.)
+            if request["status"] == "rejected" and request.get("review_comment"):
+                show_text(f"반려 사유: {request['review_comment']}", muted=True)
         with company_col:
             st.html(company_tag_html(request["owner_company_code"]))
         with time_col:
