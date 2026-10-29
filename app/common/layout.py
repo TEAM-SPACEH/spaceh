@@ -76,8 +76,12 @@ section[data-testid="stSidebar"]{width:232px !important;min-width:232px !importa
 [data-testid="stSidebarNavLink"][aria-current="page"] [data-testid="stIconMaterial"]{color:#007A36;font-weight:600}
 [data-testid="stNavSectionHeader"]{padding:14px 10px 6px;margin:0;font-size:11px;font-weight:600;color:#6B7280}
 [data-testid="stSidebarNavSeparator"]{display:none}
-/* 범위 안내 상자와 사용자 정보는 사이드바 맨 아래에 붙인다 */
-[data-testid="stSidebarUserContent"]{margin-top:auto;padding:0}
+/* 범위 안내 상자와 사용자 정보는 사이드바 맨 아래에 붙인다.
+   화면이 사이드바에 더 그리는 내용(예: 통합 검색의 최근 질문)은 메뉴 바로 아래에 오도록 아래 묶음 뒤로 순서를 민다. */
+[data-testid="stSidebarUserContent"]{flex:1;display:flex;flex-direction:column;padding:0}
+[data-testid="stSidebarUserContent"]>div{flex:1;display:flex;flex-direction:column}
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"]:has(>[data-testid="stLayoutWrapper"]>.st-key-sh_sidebar_bottom){flex:1}
+[data-testid="stLayoutWrapper"]:has(>.st-key-sh_sidebar_bottom){order:1;margin-top:auto}
 .sh-scope{background:#F3FAF6;border:1px solid #D3EEDD;border-radius:10px;padding:12px}
 .sh-scope-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;line-height:18.6px;color:#111111}
 .sh-scope-lines{display:flex;flex-direction:column;gap:3px;padding-top:6px;font-size:12px;line-height:18.6px;color:#495057}
@@ -197,7 +201,7 @@ def render_sidebar(user: dict) -> None:
 
     사용자 정보 칩을 누르면 계정 메뉴가 열리고, 여기서 로그아웃(계정 전환)한다.
     """
-    with st.sidebar:
+    with st.sidebar, st.container(key="sh_sidebar_bottom"):
         st.html(scope_html(user))
         with st.container(key="sh_account"):
             st.html(account_html(user))
