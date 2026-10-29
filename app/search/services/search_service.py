@@ -19,8 +19,11 @@ from app.permissions.services.permission_service import apply_rbac_filter, filte
 from app.search.repositories.chunk_repository import get_chunks, query_chunks
 from core import config
 
-# 요청 가능 문서를 찾을 때 가져올 후보 청크 수. 접근 가능한 문서가 상위를 채워도 그 아래
-# 순위의 '요청 가능한' 문서까지 보이도록, 일반 검색(SEARCH_TOP_K)보다 넉넉히 가져온다.
+# 요청 가능 문서를 찾을 때 가져올 후보 청크 수(고정 상한). 일반 검색(SEARCH_TOP_K)보다 넉넉히
+# 가져와 그 아래 순위의 요청 가능 문서까지 포착할 가능성을 높인다. 다만 '상한'이라, 접근 가능·
+# 대기 중 문서의 청크가 이 수를 모두 채우면 그보다 낮은 순위의 요청 가능 문서는 빠질 수 있다.
+# TODO: 항상 찾으려면 요청 가능 문서 수가 찰 때까지 후보를 단계적으로 더 가져오는 방식이 필요하다
+#       (확장 단위·최대 상한을 먼저 정해야 하고 여러 파일에 걸치므로 후속으로 분리).
 _REQUESTABLE_CANDIDATE_POOL = 50
 
 # 하이브리드 검색에서 결합 전에 각 검색이 가져올 후보 수 = 최종 결과 수(SEARCH_TOP_K) × 이 값.
@@ -235,7 +238,7 @@ def search_requestable_documents(query: str, filters: dict | None, user: dict) -
     LLM에 넣지 않는다. 이 함수는 '제목 발견' 용도로만 쓴다.
     - filters(S-02 회사·문서 유형·기간)는 그대로 적용한다 → 필터 밖 문서가 섞이지 않는다.
     - 권한 사전 필터는 걸지 않는다(권한 밖 문서를 '제목만' 찾아야 하므로).
-    - 접근 가능한 문서가 상위를 채워도 그 아래 요청 가능 문서까지 보이도록 후보를 넉넉히 가져온다.
+    - 후보를 넉넉히 가져온다(고정 상한 _REQUESTABLE_CANDIDATE_POOL — 한계·후속은 위 상수 주석 참고).
     - 권한 판정은 permission_service.filter_requestable_documents에 맡겨, 사용자·승인·대기 요청을
       각각 한 번만 조회한다(후보마다 DB를 다시 열지 않는다).
     돌려주는 건 제목·회사뿐이다. 본문·청크는 화면이나 LLM에 쓰지 않는다.

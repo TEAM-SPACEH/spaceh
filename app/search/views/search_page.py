@@ -187,7 +187,15 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                     logger.exception("S-04 답변 생성 실패")
                     rag_error = "AI 답변 생성 중 문제가 발생했습니다."
 
-            # 검색 결과 및 최초 질문 저장. where(S-02 필터)는 '요청 가능 문서' 검색에도 같은 조건을 쓰려고 저장한다.
+            # M-03 요청 가능 문서(제목만)도 '검색할 때 한 번만' 찾아 결과와 함께 저장한다.
+            # 요청 버튼 클릭 등으로 화면이 재실행될 때마다 임베딩·Chroma·DB를 다시 호출하지 않게 캐시한다.
+            try:
+                requestable = search_requestable_documents(current_query, where, user)
+            except Exception:
+                logger.exception("요청 가능 문서 검색 실패")
+                requestable = []
+
+            # 검색 결과 및 최초 질문 저장.
             st.session_state[state_key] = {
                 "user_key": user_key,
                 "query": current_query,
@@ -196,6 +204,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 "chunks": chunks,
                 "rag_result": rag_result,
                 "rag_error": rag_error,
+                "requestable": requestable,
             }
 
         except ValueError:
@@ -228,7 +237,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     if not chunks:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
         # 결과가 없어도, 권한 때문에 가려졌을 수 있는 문서는 제목만 보여 주고 요청을 받는다 (M-03).
-        _render_requestable_documents(saved["query"], saved.get("where"), user)
+        _render_requestable_documents(saved, user)
         return
 
     # 6. AI 답변 및 출처 2열 레이아웃
@@ -258,7 +267,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         render_search_result_list(chunks)
 
         # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
-        _render_requestable_documents(saved["query"], saved.get("where"), user)
+        _render_requestable_documents(saved, user)
 
     # 오른쪽: AI 인용 출처 및 원문 뷰어
     with source_col:
@@ -279,17 +288,14 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                 render_selected_source(user)
 
 
-def _render_requestable_documents(query: str, filters: dict | None, user: dict) -> None:
-    """검색어에 맞지만 권한 없는 문서를 '제목만' 보여 주고, 사유 입력 → 열람 권한 요청까지 연결한다.
+def _render_requestable_documents(saved: dict, user: dict) -> None:
+    """권한 없는 문서를 '제목만' 보여 주고, 사유 입력 → 열람 권한 요청까지 연결한다.
 
+    목록은 검색할 때 한 번 구해 saved["requestable"]에 저장해 둔 것을 쓴다(재실행마다 재조회하지
+    않는다). 그래서 요청 버튼을 눌러 화면이 재실행돼도 목록·요청 양식이 그대로 유지된다.
     본문·청크는 쓰지 않는다(제목·회사명만). overview.md §2.3-6 규칙.
     """
-    try:
-        documents = search_requestable_documents(query, filters, user)
-    except Exception:
-        logger.exception("요청 가능 문서 검색 실패")
-        return
-
+    documents = saved.get("requestable") or []
     if not documents:
         return
 
@@ -302,11 +308,11 @@ def _render_requestable_documents(query: str, filters: dict | None, user: dict) 
             st.session_state["request_open_doc"] = document["doc_id"]
 
         if st.session_state.get("request_open_doc") == document["doc_id"]:
-            _render_request_form(user, document)
+            _render_request_form(saved, user, document)
 
 
-def _render_request_form(user: dict, document: dict) -> None:
-    """선택한 문서에 사유를 적어 열람 권한 요청을 등록한다."""
+def _render_request_form(saved: dict, user: dict, document: dict) -> None:
+    """선택한 문서에 사유를 적어 열람 권한 요청을 등록한다. 성공하면 캐시 목록에서 그 문서를 뺀다."""
     reason = st.text_area("요청 사유 (5~500자)", key=f"reason-{document['doc_id']}")
     if not st.button("요청 보내기", key=f"send-{document['doc_id']}"):
         return
@@ -322,5 +328,9 @@ def _render_request_form(user: dict, document: dict) -> None:
     if registered:
         st.success("열람 권한을 요청했습니다. 소유 회사 관리자의 승인 후 볼 수 있습니다.")
         st.session_state.pop("request_open_doc", None)
+        # 이미 요청했으니 캐시 목록에서 빼서 다시 안 보이게 한다(재조회 없이).
+        saved["requestable"] = [
+            item for item in saved.get("requestable", []) if item["doc_id"] != document["doc_id"]
+        ]
     else:
         st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")
