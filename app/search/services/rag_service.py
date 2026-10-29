@@ -381,7 +381,8 @@ def _search_documents_for_user(
 
     from .search_service import search_documents
 
-    return search_documents(query, filters, user)
+    # 질의응답은 A-04 감사 로그를 ask로 따로 남기므로 검색(search) 기록은 끈다 (#77).
+    return search_documents(query, filters, user, audit=False)
 
 def answer_question(
         query: str,

@@ -27,6 +27,7 @@ from core.chroma import open_chroma_client
 
 EMBED_PATH = "app.search.services.search_service._embed_query"
 APPROVED_PATH = "app.permissions.services.permission_service.get_approved_doc_ids"
+AUDIT_PATH = "app.search.services.search_service.record_audit_log"
 QUERY_VECTOR = [1.0, 0.0]
 
 MVX_EMPLOYEE = {"id": 1, "role": "employee", "company_id": "MVX"}
@@ -51,6 +52,10 @@ class SearchDocumentsTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
+        # 감사 로그는 MySQL에 쓰므로 막아 두고, 호출 인자는 self.audit로 확인한다.
+        audit_patcher = patch(AUDIT_PATH)
+        self.audit = audit_patcher.start()
+        self.addCleanup(audit_patcher.stop)
 
     def _index_chunks(self):
         # 검색 코드와 같은 잠금으로 열고, 임시 폴더를 지우기 전에 닫는다 (Windows 파일 잠금).
@@ -119,6 +124,50 @@ class SearchDocumentsTest(unittest.TestCase):
     def test_no_collection_returns_empty(self):
         """색인(I-02) 전이라 컬렉션이 없으면 오류 대신 빈 목록."""
         self.assertEqual(self._search("사양", MVX_EMPLOYEE), [])
+
+    def test_search_is_audited(self):
+        """A-04 검색어·필터·결과 문서(중복 제거, 순위 순)·회사 코드를 search로 기록한다."""
+        self._index_chunks()
+        self._search("사양", MVX_EMPLOYEE, filters={"company_id": {"$in": ["MVX", "ELV"]}})
+        self.audit.assert_called_once_with(
+            1, "search", None, None, False, None,
+            query="사양", filters={"company_id": {"$in": ["MVX", "ELV"]}},
+            doc_ids=["MVX-internal", "ELV-public"], doc_companies=["ELV", "MVX"], result_count=2,
+        )
+
+    def test_empty_filters_and_results_are_audited(self):
+        """필터가 {}면 None으로, 결과가 없어도 0건으로 기록한다."""
+        self._search("사양", MVX_EMPLOYEE, filters={})
+        self.audit.assert_called_once_with(
+            1, "search", None, None, False, None,
+            query="사양", filters=None, doc_ids=[], doc_companies=[], result_count=0,
+        )
+
+    def test_audit_false_skips_record(self):
+        """audit=False(S-04 질의응답)면 기록하지 않는다."""
+        self._index_chunks()
+        with patch(EMBED_PATH, return_value=QUERY_VECTOR), patch(APPROVED_PATH, return_value=[]):
+            results = search_documents("사양", None, MVX_EMPLOYEE, audit=False)
+        self.assertEqual(len(results), 3)
+        self.audit.assert_not_called()
+
+    def test_blank_query_and_invalid_user_are_not_audited(self):
+        """빈 검색어, 행동한 사람을 특정할 수 없는 잘못된 사용자는 기록하지 않는다."""
+        self._search("   ", MVX_EMPLOYEE)
+        with self.assertRaises(PermissionError):
+            self._search("사양", None)
+        self.audit.assert_not_called()
+
+    def test_audit_failure_keeps_results(self):
+        """감사 로그 기록이 실패해도 검색 결과는 그대로 돌려준다."""
+        self._index_chunks()
+        self.audit.side_effect = RuntimeError("DB 연결 실패")
+        with self.assertLogs("app.search.services.search_service", level="ERROR"):
+            results = self._search("사양", MVX_EMPLOYEE)
+        self.assertEqual(
+            [result["chunk_id"] for result in results],
+            ["MVX-internal#0000", "ELV-public#0000", "MVX-internal#0001"],
+        )
 
 
 class ApplyMetadataFiltersTest(unittest.TestCase):

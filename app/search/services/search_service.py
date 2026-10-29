@@ -8,14 +8,20 @@
 
 S-06은 3)의 벡터 검색에 BM25 키워드 검색을 더한다. BM25 인덱스도 같은 권한 조건을
 통과한 청크만으로 만든다 (docs/architecture/overview.md §2.3).
+
+두 함수 모두 검색 결과를 만든 뒤 A-04 감사 로그(search)를 남긴다. 화면은 hybrid_search()를,
+S-04 질의응답은 search_documents()를 부른다. 질의응답은 ask로 따로 기록하므로 audit=False로 부른다.
 """
 
+import logging
 import re
 
 from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25L
 
 from app.permissions.services.permission_service import apply_rbac_filter, filter_requestable_documents
+from app.admin.services.audit_service import record_audit_log
+from app.permissions.services.permission_service import apply_rbac_filter
 from app.search.repositories.chunk_repository import get_chunks, query_chunks
 from app.search.repositories.document_repository import search_requestable_candidates
 from core import config
@@ -26,6 +32,7 @@ from core import config
 # TODO: 항상 찾으려면 요청 가능 문서 수가 찰 때까지 후보를 단계적으로 더 가져오는 방식이 필요하다
 #       (확장 단위·최대 상한을 먼저 정해야 하고 여러 파일에 걸치므로 후속으로 분리).
 _REQUESTABLE_CANDIDATE_POOL = 50
+logger = logging.getLogger(__name__)
 
 # 하이브리드 검색에서 결합 전에 각 검색이 가져올 후보 수 = 최종 결과 수(SEARCH_TOP_K) × 이 값.
 # 최종 수만큼만 가져오면 양쪽에서 11위인 청크처럼 합치면 위로 올라올 청크가 결합 전에 잘린다.
@@ -35,16 +42,17 @@ _HYBRID_CANDIDATE_FACTOR = 3
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:[-_.][a-z0-9]+)*|[가-힣]+")
 
 
-def search_documents(query: str, filters: dict | None, user: dict) -> list[dict]:
+def search_documents(query: str, filters: dict | None, user: dict, *, audit: bool = True) -> list[dict]:
     """S-01 3사 문서를 권한 조건에 따라 통합 검색하고 관련도 순으로 반환한다.
 
     query: 사용자가 입력한 자연어 검색어
     filters: S-02 apply_metadata_filters()가 만든 Chroma where 조각. 없으면 None 또는 {}
     user: 로그인 사용자. {"id": 3, "role": "employee", "company_id": "MVX"} 모양
+    audit: True면 A-04 감사 로그(search)를 남긴다. 따로 기록하는 기능(S-04 ask)은 False로 넘긴다.
     반환: 관련도 높은 순 청크 목록
         [{"chunk_id", "doc_id", "text", "score", "metadata"}, ...]
         score는 0~1, 클수록 질문과 가깝다. metadata는 data-model §4 필드 그대로.
-    오류: 로그인 정보가 없거나 잘못되면 PermissionError
+    오류: 로그인 정보가 없거나 잘못되면 PermissionError (행동한 사람을 특정할 수 없어 감사 로그는 남기지 않는다)
     """
     # 권한 확인을 검색어 검사보다 먼저 해서, 잘못된 사용자는 어떤 경우에도 통과하지 못하게 한다.
     where = apply_rbac_filter(user, filters)
@@ -53,13 +61,16 @@ def search_documents(query: str, filters: dict | None, user: dict) -> list[dict]
     if not query:
         return []
 
-    return vector_search(query, where)
+    results = vector_search(query, where)
+    if audit:
+        _record_search_audit(user, query, filters, results)
+    return results
 
 
-def hybrid_search(query: str, filters: dict | None, user: dict) -> list[dict]:
+def hybrid_search(query: str, filters: dict | None, user: dict, *, audit: bool = True) -> list[dict]:
     """S-06 BM25 및 벡터 검색 결과를 결합하고 중복 제거 후 관련도 순으로 정렬한다.
 
-    입력·반환·오류는 search_documents()와 같다. score는 0~1로, 두 검색 모두에서 1등이면 1이다.
+    입력·반환·오류·감사 로그는 search_documents()와 같다. score는 0~1로, 두 검색 모두에서 1등이면 1이다.
     """
     where = apply_rbac_filter(user, filters)
 
@@ -85,7 +96,25 @@ def hybrid_search(query: str, filters: dict | None, user: dict) -> list[dict]:
     for entry in merged.values():
         entry["score"] /= best
     ranked = sorted(merged.values(), key=lambda result: result["score"], reverse=True)
-    return ranked[: config.SEARCH_TOP_K]
+    results = ranked[: config.SEARCH_TOP_K]
+    if audit:
+        _record_search_audit(user, query, filters, results)
+    return results
+
+
+def _record_search_audit(user: dict, query: str, filters: dict | None, results: list[dict]) -> None:
+    """A-04 검색 1건을 감사 로그(search)에 남긴다. 기록이 실패해도 검색 결과는 그대로 돌려준다."""
+    try:
+        # 결과는 청크 단위라 같은 문서가 여러 번 나온다. 문서 ID는 순위 순서를 지킨 채 중복만 뺀다.
+        doc_ids = list(dict.fromkeys(result["doc_id"] for result in results))
+        companies = sorted({result["metadata"].get("company_id") for result in results if result["metadata"].get("company_id")})
+        record_audit_log(
+            user.get("id"), "search", None, None, False, None,
+            query=query, filters=filters or None,
+            doc_ids=doc_ids, doc_companies=companies, result_count=len(doc_ids),
+        )
+    except Exception:
+        logger.exception("감사 로그 기록 실패(search)")
 
 
 def vector_search(query: str, filters: dict | None, top_k: int | None = None) -> list[dict]:

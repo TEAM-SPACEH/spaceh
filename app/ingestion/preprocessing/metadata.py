@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.ingestion.preprocessing.masking import mask_sensitive_data
 from app.ingestion.preprocessing.normalizer import normalize_text
+from core.constants import DOC_TYPES
 
 
 def build_metadata(
@@ -27,7 +28,7 @@ def build_metadata(
         raise ValueError("file_name에는 경로가 아닌 파일명만 지정해야 합니다.")
 
     choices = {
-        "doc_type": {"report", "disclosure", "manual", "spec", "intro", "memo"},
+        "doc_type": set(DOC_TYPES),
         "access_level": {"public", "internal", "confidential"},
         "file_format": {"pdf", "docx", "pptx", "xlsx", "hwp", "dart_xml"},
         "source_type": {"internal", "dart"},

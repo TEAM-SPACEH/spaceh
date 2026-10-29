@@ -3,6 +3,8 @@
 from bisect import bisect_left, bisect_right
 import re
 
+from core.constants import DOC_TYPE_INTRO, DOC_TYPES
+
 
 def _split_table(text: str, context: list[str], size: int):
     """긴 Markdown 표를 행 단위로 나누고 머리글·문맥을 반복한다."""
@@ -48,9 +50,7 @@ def split_into_chunks(
     if any(type(value) not in (str, int, float, bool)
            for value in metadata.values()):
         raise ValueError("메타데이터에는 문자열·숫자·bool만 허용합니다.")
-    if metadata["doc_type"] not in {
-        "report", "disclosure", "manual", "spec", "intro", "memo",
-    }:
+    if metadata["doc_type"] not in DOC_TYPES:
         raise ValueError("지원하지 않는 문서 유형입니다.")
     if metadata["access_level"] not in {"public", "internal", "confidential"}:
         raise ValueError("지원하지 않는 보안 등급입니다.")
@@ -143,7 +143,7 @@ def split_into_chunks(
             recent = []
             continue
 
-        by_page = not is_docx and (metadata["doc_type"] == "intro" or not section)
+        by_page = not is_docx and (metadata["doc_type"] == DOC_TYPE_INTRO or not section)
         key = ("page", block["page"]) if by_page else ("section", section)
         new_title = block["block_type"] == "title"
         if group and (key != group_key or (new_title and not by_page)):

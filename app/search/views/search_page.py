@@ -7,6 +7,7 @@ import streamlit as st
 
 from app.auth.session import get_current_user
 from app.common.ui import no_permission_notice, page_header
+from app.common.ui import DOC_TYPE_LABELS, page_header
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.permissions.services.permission_service import request_document_access
@@ -24,22 +25,16 @@ from app.search.views.components.search_result_list import render_search_result_
 
 logger = logging.getLogger(__name__)
 
-# S-02 필터 선택지 (관문 시연용 임시값).
-# TODO: 회사는 A-07 companies 테이블에서 읽고, 문서 유형 라벨은 공통 상수로 이동
+# S-02 필터 선택지. 회사는 관문 시연용 임시값이다.
+# TODO: 회사는 A-07 companies 테이블에서 읽는다
 _COMPANIES = [
     {"id": "HRI", "name": "현대경제연구원"},
     {"id": "MVX", "name": "현대무벡스"},
     {"id": "ELV", "name": "현대엘리베이터"},
 ]
 
-_DOC_TYPES = [
-    {"code": "report", "label": "연구 보고서"},
-    {"code": "disclosure", "label": "공시"},
-    {"code": "manual", "label": "매뉴얼"},
-    {"code": "spec", "label": "사양서"},
-    {"code": "intro", "label": "회사·제품 소개"},
-    {"code": "memo", "label": "내부 메모"},
-]
+# 문서 유형은 공통 상수(DOC_TYPE_LABELS)에서 만든다.
+_DOC_TYPES = [{"code": code, "label": label} for code, label in DOC_TYPE_LABELS.items()]
 
 # 오래된 문서도 검색할 수 있도록 기간 하한은 2000년으로 지정한다.
 # 종료일은 프로그램 실행 시 고정하지 않고 화면 렌더링 시점마다 오늘 날짜로 계산한다.
