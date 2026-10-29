@@ -14,23 +14,15 @@ from app.common.ui import card, company_tag_html
 from app.reports.models.report_models import ReportRequest, ReportTemplate, SectionType
 from app.reports.services.evidence_preview import count_visible_documents
 from app.reports.services.report_generator import get_template_sections
+from app.reports.views.report_form_state import (
+    COMPANIES_KEY, DEFAULT_END, DEFAULT_START, END_KEY, REPORT_ID_PARAM, REQUEST_KEY, START_KEY, TEMPLATE_KEY, TOPIC_KEY,
+)
+from app.reports.views.report_view import render_report_view
 
 logger = logging.getLogger(__name__)
 
-# 화면이 쓰는 세션 칸 이름
-TOPIC_KEY = "r01_topic"
-COMPANIES_KEY = "r01_companies"
-START_KEY = "r01_start"
-END_KEY = "r01_end"
-TEMPLATE_KEY = "r01_template"        # 고른 양식 (ReportTemplate 값)
-REQUEST_KEY = "r01_request"          # 마지막으로 만든 ReportRequest
-
 TOPIC_PLACEHOLDER = "예) 2025년 하반기 스마트 물류 사업 동향과 계열사 협력 기회"
 QUICK_TOPICS = ("분기 실적 요약", "신사업 검토", "시장 전망")
-
-# 처음 보이는 기간 (Figma 예시 값). 목데이터가 이 기간의 문서라서 같은 값으로 시작해요.
-DEFAULT_START = date(2025, 7, 1)
-DEFAULT_END = date(2025, 10, 31)
 
 # 양식 카드: (양식, 이름, 설명). 이름·설명은 Figma 문구예요.
 TEMPLATE_CARDS = (
@@ -50,7 +42,12 @@ OUTLINE_TAIL = "각주, 근거 문서 목록"
 
 
 def render_report_page(user: dict) -> None:
-    """R-01 새 보고서 화면 전체: 제목 줄과 조건 입력 폼."""
+    """보고서 화면. 주소에 report_id가 있으면 저장된 보고서를 보여 주고(R-03~R-05), 없으면 새 보고서 폼(R-01)을 보여 준다."""
+    report_id = _requested_report_id()
+    if report_id is not None:
+        render_report_view(user, report_id)
+        return
+
     st.html(
         '<div class="sh-r-crumb">보고서</div>'
         '<div class="sh-r-title">새 보고서</div>'
@@ -63,6 +60,12 @@ def render_report_page(user: dict) -> None:
         st.info("보고서 조건을 받았습니다. 근거 수집·보고서 생성 기능이 연결되면 이 조건으로 보고서가 만들어집니다.")
 
 
+def _requested_report_id() -> int | None:
+    """주소의 ?report_id= 값. 숫자가 아니거나 0 이하이면 없는 것으로 본다."""
+    raw = st.query_params.get(REPORT_ID_PARAM)
+    return int(raw) if raw and raw.isdecimal() and int(raw) > 0 else None
+
+
 def render_report_form(user: dict) -> ReportRequest | None:
     """R-01 양식·주제·회사·기간을 입력받는다. [보고서 만들기]를 눌러 조건이 맞으면 ReportRequest, 아니면 None."""
     options = get_company_options()
@@ -71,6 +74,10 @@ def render_report_form(user: dict) -> ReportRequest | None:
         return None
     names = {option["id"]: option["name"] for option in options}
     st.session_state.setdefault(TEMPLATE_KEY, ReportTemplate.COMPREHENSIVE.value)
+    # 기본값은 세션에 미리 넣는다. [다시 만들기]가 같은 칸을 채워도 Streamlit의 "기본값과 세션 값이 함께 있음" 경고가 뜨지 않는다.
+    st.session_state.setdefault(COMPANIES_KEY, [option["id"] for option in options])
+    st.session_state.setdefault(START_KEY, DEFAULT_START)
+    st.session_state.setdefault(END_KEY, DEFAULT_END)
 
     form_col, side_col = st.columns([694, 380], gap="medium")
     with form_col, card("r01_form"):
@@ -131,12 +138,12 @@ def _render_scope_step(options: list[dict], names: dict[str, str]) -> tuple[list
         st.html('<div class="sh-r-label">계열사</div>')
         company_ids = st.pills(
             "계열사", [option["id"] for option in options], selection_mode="multi",
-            default=[option["id"] for option in options], format_func=lambda company_id: names.get(company_id, company_id),
+            format_func=lambda company_id: names.get(company_id, company_id),
             key=COMPANIES_KEY, label_visibility="collapsed",
         ) or []
         start_col, end_col = st.columns(2, gap="small")
-        start = start_col.date_input("시작", value=DEFAULT_START, format="YYYY.MM.DD", key=START_KEY)
-        end = end_col.date_input("끝", value=DEFAULT_END, format="YYYY.MM.DD", key=END_KEY)
+        start = start_col.date_input("시작", format="YYYY.MM.DD", key=START_KEY)
+        end = end_col.date_input("끝", format="YYYY.MM.DD", key=END_KEY)
         if start > end:
             st.error("시작일이 끝 날짜보다 늦을 수 없습니다.")
     st.html('<div class="sh-r-sep"></div>')
