@@ -16,6 +16,7 @@ from app.reports.services.citation_mapper import build_section_anchor, build_sou
 from app.reports.services.prompts import NO_EVIDENCE_TEXT
 from app.reports.services.report_generator import build_section_sources
 from app.reports.services.citation_mapper import build_section_anchor, map_footnotes, renumber_footnotes
+from app.reports.services.report_service import assemble_report
 
 # build_section_sources()가 쓰는 S-04 prepare_context()는 DB를 안 써요. 회사 목록만 가짜로 바꿔요.
 COMPANY_OPTIONS = "app.reports.services.report_generator.get_company_options"
@@ -242,3 +243,65 @@ class BuildSourceLinkTest(unittest.TestCase):
         self.assertEqual(source["location"], "p.12")
         self.assertEqual(source["text"], ELV.text)
         self.assertEqual(source["citation_number"], 1)
+
+
+class AssembleReportTest(unittest.TestCase):
+
+    def test_assemble_report(self):
+        sections = [
+            make_section(
+                SectionType.OVERVIEW,
+                "가 사실임.[1] 나 사실임.[2]",
+                [ELV, HRI],
+            ),
+            make_section(
+                SectionType.STATUS,
+                "다 사실임.[1] 라 사실임.[2]",
+                [MVX, ELV],
+            ),
+            Section(
+                SectionType.SYNERGY,
+                "시너지",
+                NO_EVIDENCE_TEXT,
+                has_evidence=False,
+            ),
+        ]
+
+        report = assemble_report(
+            MOCK_REQUEST,
+            MOCK_COLLECTION,
+            sections,
+        )
+
+        # 보고서 생성 조건 유지
+        self.assertEqual(report.request, MOCK_REQUEST)
+
+        # 보고서 전체 인용 번호 확인
+        self.assertEqual(
+            report.sections[0].body,
+            "가 사실임.[1] 나 사실임.[2]",
+        )
+        self.assertEqual(
+            report.sections[1].body,
+            "다 사실임.[3] 라 사실임.[1]",
+        )
+
+        # 중복 청크는 각주 하나로 통합
+        self.assertEqual(len(report.footnotes), 3)
+        self.assertEqual(
+            [note.chunk_id for note in report.footnotes],
+            [ELV.chunk_id, HRI.chunk_id, MVX.chunk_id],
+        )
+
+        # 출처 패널 번호도 동일하게 반영
+        self.assertEqual(
+            [s["citation_number"] for s in report.sections[1].sources],
+            [3, 1],
+        )
+
+        # 근거 없는 섹션도 유지
+        self.assertFalse(report.sections[2].has_evidence)
+        self.assertEqual(
+            report.sections[2].body,
+            NO_EVIDENCE_TEXT,
+        )

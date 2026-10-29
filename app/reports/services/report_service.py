@@ -3,8 +3,8 @@
 from datetime import date
 
 from app.admin.services.company_service import get_company_options
-from app.reports.models.report_models import ReportRequest, ReportTemplate
-
+from app.reports.models.report_models import CollectionResult, Report, ReportRequest, ReportTemplate, Section
+from app.reports.services.citation_mapper import map_footnotes, renumber_footnotes
 
 def validate_request(request: ReportRequest) -> list[str]:
     """보고서 생성 조건을 검사하고 오류 메시지 목록을 반환한다."""
@@ -47,3 +47,30 @@ def validate_request(request: ReportRequest) -> list[str]:
         errors.append("시작일은 종료일보다 늦을 수 없습니다.")
 
     return errors
+
+
+def assemble_report(
+    request: ReportRequest,
+    collection: CollectionResult,
+    sections: list[Section],
+) -> Report:
+    """R-02 보고서 초안에 R-03 각주를 매핑하여 Report 객체를 구성한다."""
+
+    # 1. 섹션별 인용 번호를 실제 근거 청크와 매핑
+    mapped_sections, footnotes = map_footnotes(
+        sections,
+        collection.chunks,
+    )
+
+    # 2. 보고서 전체 기준으로 각주 번호 재정렬
+    mapped_sections, footnotes = renumber_footnotes(
+        mapped_sections,
+        footnotes,
+    )
+
+    # 3. 매핑된 섹션과 각주로 Report 객체 생성
+    return Report(
+        request=request,
+        sections=mapped_sections,
+        footnotes=footnotes,
+    )
