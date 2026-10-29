@@ -110,7 +110,7 @@ def render_result_tabs(user: dict, report: Report) -> None:
             # (원문을 열 때의 권한 재확인은 S-05가 해요)
             if st.session_state.get(SELECTED_SOURCE_KEY):
                 with st.container(border=True):
-                    render_selected_source(user)
+                    render_selected_source(user, back_label="보고서로 돌아가기")
 
 
 def render_exec_summary(user: dict, report: Report) -> None:

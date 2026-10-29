@@ -283,6 +283,13 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         _render_requestable_documents(saved, user)
         return
 
+    # 원문 보기 (Figma 03): 출처의 [원문 보기]를 누르면 답변·출처 칸 전체를 원문 뷰어로 바꾼다.
+    # 3단 뷰어가 들어갈 폭이 필요해서 오른쪽 출처 칸 안에 두지 않는다. [검색 결과로 돌아가기]를 누르면
+    # 세션의 출처가 지워지고 저장된 검색 결과가 다시 보인다. 원문을 열기 전 권한 재확인은 S-05가 한다.
+    if st.session_state.get(SELECTED_SOURCE_KEY):
+        render_selected_source(user)
+        return
+
     # 6. AI 답변 및 출처 2열 레이아웃
     content_col, source_col = st.columns(
         [2.2, 1],
@@ -322,14 +329,6 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
         # Figma 02처럼 출처 칸에 회사 카드로 둔다.
         _render_requestable_documents(saved, user)
-
-        if st.session_state.get(SELECTED_SOURCE_KEY):
-            with st.expander(
-                "선택한 문서 원문",
-                expanded=True,
-            ):
-                # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
-                render_selected_source(user)
 
 
 def _render_filters(date_range: tuple[date, date]) -> dict:

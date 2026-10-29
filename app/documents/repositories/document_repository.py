@@ -11,10 +11,13 @@ def find_by_id(doc_id: str) -> dict | None:
     # 원문 보기에 필요 없는 값(content_hash, 업로드한 사람 등)까지 화면 쪽으로 흘러가지 않게 하려고요.
     # 값은 반드시 %s 자리로 넘겨요. 문자열을 이어 붙여 SQL을 만들면 SQL 인젝션 공격에 뚫려요. (팀 규칙)
     with get_connection() as conn, conn.cursor() as cur:
+        # 뷰어 오른쪽 "문서 정보" 칸(소유 회사·작성일·개인정보 가림·색인)에 쓸 값도 함께 읽어요.
         cur.execute(
-            "SELECT doc_id, company_id, title, file_name, file_format, source_type, "
-            "source_url, doc_no, access_level, is_group_shared, file_path, page_count "
-            "FROM documents WHERE doc_id = %s",
+            "SELECT d.doc_id, d.company_id, c.name AS company_name, d.title, d.file_name, d.file_format, "
+            "d.source_type, d.source_url, d.doc_no, d.access_level, d.is_group_shared, d.file_path, "
+            "d.page_count, d.published_date, d.pii_masked_count, d.chunk_count, d.updated_at "
+            "FROM documents d LEFT JOIN companies c ON c.company_id = d.company_id "
+            "WHERE d.doc_id = %s",
             (doc_id,),
         )
         # fetchone(): 결과 1줄을 딕셔너리로 돌려줘요. 없으면 None이에요.
