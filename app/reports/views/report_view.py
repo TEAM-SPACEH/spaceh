@@ -25,7 +25,7 @@ from app.common.ui import citation_html, company_tag_html, empty_state, show_tex
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.reports.models.report_models import Footnote, Report, SectionType
-from app.reports.services.citation_mapper import build_section_anchor
+from app.reports.services.citation_mapper import build_section_anchor, build_source_link
 from app.reports.services.prompts import NO_EVIDENCE_TEXT, SUMMARY_KIND_TITLES
 
 # 탭 이름. st.tabs의 key로 지금 열린 탭 이름이 세션에 저장돼요.
@@ -65,13 +65,8 @@ def _back_to_summary() -> None:
 
 
 def _open_source(note: Footnote) -> None:
-    """각주 [원문 보기]: S-05 원문 뷰어가 읽는 세션 칸에 출처를 넣는다."""
-    # S-05 render_selected_source()는 S-04 출처 모양(dict)을 읽어요. 각주를 그 모양으로 바꿔 넣어요.
-    st.session_state[SELECTED_SOURCE_KEY] = {
-        "text": note.text, "company": note.company, "company_id": note.company_id,
-        "filename": note.filename, "location": note.location,
-        "doc_id": note.doc_id, "chunk_id": note.chunk_id, "citation_number": note.number,
-    }
+    """각주 [원문 보기]: S-05 원문 뷰어에 출처 정보를 전달한다."""
+    st.session_state[SELECTED_SOURCE_KEY] = build_source_link(note)
 
 
 def _scroll_to(anchor: str) -> None:

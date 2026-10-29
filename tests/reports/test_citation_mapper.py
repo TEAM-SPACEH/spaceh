@@ -12,7 +12,7 @@ from dataclasses import replace
 
 from app.reports.mock_data import MOCK_COLLECTION, MOCK_REQUEST, build_mock_report, make_quote
 from app.reports.models.report_models import Chunk, Section, SectionType
-from app.reports.services.citation_mapper import build_section_anchor
+from app.reports.services.citation_mapper import build_section_anchor, build_source_link
 from app.reports.services.prompts import NO_EVIDENCE_TEXT
 from app.reports.services.report_generator import build_section_sources
 from app.reports.services.citation_mapper import build_section_anchor, map_footnotes, renumber_footnotes
@@ -220,3 +220,25 @@ class RenumberFootnotesTest(unittest.TestCase):
             [s["citation_number"] for s in new_sections[1].sources],
             [1],
         )
+
+class BuildSourceLinkTest(unittest.TestCase):
+
+    def test_build_source_link(self):
+        section = make_section(
+            SectionType.OVERVIEW,
+            "가 사실임.[1]",
+            [ELV],
+        )
+
+        _, footnotes = map_footnotes(
+            [section],
+            MOCK_COLLECTION.chunks,
+        )
+
+        note = footnotes[0]
+        source = build_source_link(note)
+
+        self.assertEqual(source["doc_id"], "doc-elv")
+        self.assertEqual(source["location"], "p.12")
+        self.assertEqual(source["text"], ELV.text)
+        self.assertEqual(source["citation_number"], 1)

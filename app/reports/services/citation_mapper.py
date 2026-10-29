@@ -224,3 +224,18 @@ def renumber_footnotes(
         )
 
     return new_sections, new_footnotes
+
+
+def build_source_link(footnote: Footnote) -> dict[str, str | int]:
+    """각주를 S-05 원문 뷰어에서 사용하는 출처 정보로 변환한다."""
+
+    return {
+        "text": footnote.text,
+        "company": footnote.company,
+        "company_id": footnote.company_id,
+        "filename": footnote.filename,
+        "location": footnote.location,
+        "doc_id": footnote.doc_id,
+        "chunk_id": footnote.chunk_id,
+        "citation_number": footnote.number,
+    }
