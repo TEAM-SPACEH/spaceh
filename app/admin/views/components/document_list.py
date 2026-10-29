@@ -77,9 +77,9 @@ def _confirm_delete(document: dict, user: dict) -> None:
               "이 문서에 대한 열람 권한 요청과 승인 기록도 함께 삭제됩니다.")
     cancel_col, delete_col = st.columns(2)
     # 삭제는 되돌릴 수 없어서 확인창에서 한 번 더 묻는다. 취소는 서비스를 부르지 않고 창만 닫는다 (st.rerun).
-    if cancel_col.button("취소", key="admin-docs-delete-cancel", use_container_width=True):
+    if cancel_col.button("취소", key="admin-docs-delete-cancel", width="stretch"):
         st.rerun()
-    if delete_col.button("삭제", key="admin-docs-delete-confirm", type="primary", use_container_width=True):
+    if delete_col.button("삭제", key="admin-docs-delete-confirm", type="primary", width="stretch"):
         # 서비스 호출이 끝날 때까지 "처리 중" 표시를 보여 준다. 삭제가 끝나면 결과를 안내에 담고 화면을 다시 그린다.
         with st.spinner("삭제하는 중입니다."):
             result = delete_document(document["doc_id"], user)
