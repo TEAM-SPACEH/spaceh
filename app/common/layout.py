@@ -107,14 +107,19 @@ def _header_role(user: dict) -> str:
     return role
 
 
+def brand_html(context: str | None = None) -> str:
+    """Space H 로고(아이콘·글자). context가 있으면 구분선 뒤에 소속을 붙인다. 헤더·로그인 화면이 함께 쓴다."""
+    tail = f"<span>{html.escape(context)}</span>" if context else ""
+    return (
+        '<div class="sh-brand">'
+        f'<img src="{LOGO_ICON_URL}" width="24" height="24" alt="">'
+        f'<img src="{LOGO_TEXT_URL}" height="15" alt="Space H">{tail}</div>'
+    )
+
+
 def header_html(user: dict) -> str:
     """헤더 바 HTML. 소속은 DB 값이라 escape한다."""
-    return (
-        '<div class="sh-topbar"><div class="sh-brand">'
-        f'<img src="{LOGO_ICON_URL}" width="24" height="24" alt="">'
-        f'<img src="{LOGO_TEXT_URL}" height="15" alt="Space H">'
-        f"<span>{html.escape(_header_context(user))}</span></div></div>"
-    )
+    return f'<div class="sh-topbar">{brand_html(_header_context(user))}</div>'
 
 
 def account_html(user: dict) -> str:
@@ -125,6 +130,40 @@ def account_html(user: dict) -> str:
         f'<div><div class="sh-user-name">{html.escape(name)}</div>'
         f'<div class="sh-user-role">{html.escape(_header_role(user))}</div></div></div>'
     )
+
+
+# 로그인 화면 틀 (Figma 01): 왼쪽 연회색 소개 패널·오른쪽 흰 폼 패널을 화면 높이 전체로 칠한다.
+# 화면 코드는 st.container(key="login-intro"), st.container(key="login-form")로 두 영역을 표시만 한다.
+_LOGIN_CSS = """
+<style>
+.sh-brand{display:flex;align-items:center;gap:8px}
+.stMainBlockContainer:has(.st-key-login-intro){padding:0;max-width:none}
+.stMainBlockContainer:has(.st-key-login-intro) .stElementContainer:has(style){margin-bottom:-1rem}
+[data-testid="stHorizontalBlock"]:has(>[data-testid="stColumn"] .st-key-login-intro){gap:0;min-height:100vh}
+[data-testid="stColumn"]:has(.st-key-login-intro),[data-testid="stColumn"]:has(.st-key-login-form){
+  display:flex;flex-direction:column;justify-content:center;padding:48px 64px}
+[data-testid="stColumn"]:has(.st-key-login-intro){background:#F4F6F8}
+[data-testid="stColumn"]:has(.st-key-login-form){background:#FFFFFF}
+/* 열 안쪽 블록이 열 높이를 다 차지하므로, 그 안에서 내용을 세로 가운데에 둔다 (폼은 가로 가운데도) */
+[data-testid="stColumn"]:has(.st-key-login-intro)>[data-testid="stVerticalBlock"],
+[data-testid="stColumn"]:has(.st-key-login-form)>[data-testid="stVerticalBlock"]{justify-content:center}
+[data-testid="stColumn"]:has(.st-key-login-form)>[data-testid="stVerticalBlock"]{align-items:center}
+.st-key-login-intro .sh-quote{border-left:3px solid #DEE2E6;padding-left:12px}
+.st-key-login-intro .sh-lock{vertical-align:-2px}
+.st-key-sh-card-login-example{gap:8px}
+.st-key-sh-card-login-example .stHtml{font-size:14px}
+.st-key-sh-card-login-example hr{margin:4px 0}
+.st-key-login-form h1{font-size:28px;padding-bottom:4px}
+.st-key-login-form [data-testid="stForm"] [data-testid="stMarkdownContainer"] p{font-size:13px}
+.st-key-login-form [data-testid="stTextInputRootElement"]{background:#FFFFFF;border-color:#CED4DA}
+.st-key-login-form [data-testid="stBaseButton-primaryFormSubmit"]{box-shadow:0 2px 6px rgba(0,153,68,.22)}
+</style>
+"""
+
+
+def apply_login_layout() -> None:
+    """로그인 화면 틀 CSS를 넣는다. M-01 render_login()이 맨 처음에 부른다."""
+    st.html(_LOGIN_CSS)
 
 
 def render_header(user: dict) -> None:
