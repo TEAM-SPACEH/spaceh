@@ -203,7 +203,7 @@ class Chunk:                 # 검색 단위 = Chroma 1건
 | `documents` | 문서 메타데이터·색인 상태·공유 | I-02, A-01~A-03 |
 | `access_requests` | 열람 권한 요청 (`owner_company_code` 회사 관리자가 처리) | M-03, A-05 |
 | `access_grants` | 승인된 문서 단위 열람 권한 (기간 없음) | A-05 → S-03 |
-| `reports` | 보고서 본문·각주·1페이지 요약 (각주는 JSON) | R-02~R-05, A-06 |
+| `reports` | 보고서 본문(Markdown)·섹션·각주·1페이지 요약 (섹션·각주·요약은 JSON) | R-02~R-05, A-06 |
 | `audit_logs` | 감사 로그 (차단 포함 전부) | A-04, M-04 |
 | `dart_sync_jobs` | DART 수집 작업 | I-05 |
 
