@@ -220,7 +220,11 @@ def claim_document(doc_id: str, stale_minutes: int) -> dict | None:
         # with 블록을 정상으로 빠져나갈 때 commit 되고 잠금이 풀린다. 바꾸기 전 값은 호출한 쪽이 실패 시 되돌리려고 돌려받는다.
         # "처리 중" 표시를 해 두면 이 작업이 끝날 때까지 다른 삭제·재색인·공유 변경(A-03)이 거부된다.
         # with 블록을 정상으로 빠져나갈 때 commit 되고 잠금이 풀린다. 바꾸기 전 값은 호출한 쪽이 실패 시 되돌리려고 돌려받는다.
-        cur.execute("UPDATE documents SET index_status = 'indexing' WHERE doc_id = %s", (doc_id,))
+        # updated_at 을 NOW() 로 직접 적는다. 멈춘 'indexing' 을 다시 선점하면 index_status 값이 그대로라
+        # ON UPDATE CURRENT_TIMESTAMP 가 동작하지 않아, 선점한 뒤에도 계속 "멈춘 작업"으로 보이기 때문이다.
+        cur.execute(
+            "UPDATE documents SET index_status = 'indexing', updated_at = NOW() WHERE doc_id = %s", (doc_id,)
+        )
         return {"index_status": row["index_status"], "chunk_count": row["chunk_count"],
                 "error_message": row["error_message"]}
 
