@@ -146,8 +146,8 @@ def get_company_filter_options(user: dict) -> list[str]:
     계열사 관리자는 자사 문서만 보므로 빈 목록을 돌려준다.
     PermissionError: 관리자가 아닐 때
     """
-    _resolve_scope(user, "")
-    if user.get("role") != ROLE_SUPER_ADMIN:
+    # 계열사를 고르지 않았을 때 범위가 None(전체)인 사람이 최종 어드민이다. 세션의 role 이 아니라 DB 의 현재 값으로 판단한다.
+    if _resolve_scope(user, "") is not None:
         return []
     return access_repository.list_company_ids()
 
@@ -167,6 +167,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     """
     share_enabled = bool(share_enabled)
     user = user or {}
+    session_user = user
 
     # 문서를 읽는 순간부터 저장이 끝날 때까지 한 번에 하나만 실행한다. 읽은 값(document)이 저장할 때까지 유효해야
     # 하고(이전 값으로 되돌리기), 두 저장소의 갱신 순서가 다른 요청과 섞이지 않아야 한다.
@@ -175,6 +176,8 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         # 1단계 검증: 바꾸기 전에 (1) 관리자인가 → (2) 문서가 있는가 → (3) 내 회사 문서이고 internal 인가 순으로 본다.
         # 관리자 확인이 가장 먼저라서 일반 사원은 문서가 있는지조차 알 수 없다.
         try:
+            # 세션의 역할·소속은 로그인 뒤 바뀌었을 수 있다 (강등·소속 변경). 권한 판단은 DB 의 현재 값으로 한다.
+            user = _refresh_user(user)
             _require_admin(user)
             document = access_repository.get_document(doc_id)
             if document is None:
@@ -183,7 +186,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         except (PermissionError, ValueError) as exc:
             # 감사 로그는 "막힌 시도"도 남긴다 (A-04). 누가 어떤 문서의 공유를 바꾸려다 막혔는지 관리자가 볼 수 있다.
             # LookupError 는 존재하지 않는 문서라 남길 대상이 없어 기록하지 않는다.
-            _record(user, doc_id, blocked=True, reason=str(exc))
+            _record(session_user, doc_id, blocked=True, reason=str(exc))
             raise
 
         # 2단계: 실제 변경. MySQL 과 Chroma 를 함께 바꾸고(실패해도 검색이 더 넓게 열리지 않는 순서), 실패하면 예외가 그대로 올라간다.
@@ -195,7 +198,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     # 공유 값은 이미 커밋됐다. 기록이 실패해도 바뀐 값을 되돌릴 수는 없으므로, 호출한 쪽에는 성공을 알리고
     # 실패는 로그에 남겨 운영자가 알 수 있게 한다.
     _record(
-        user,
+        session_user,
         doc_id,
         blocked=False,
         reason=None,
@@ -208,6 +211,18 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         "status": "success",
         "message": "공유 설정이 변경되었습니다.",
     }
+
+
+def _refresh_user(user: dict) -> dict:
+    """세션에 저장된 user 의 역할·소속을 DB 의 현재 값으로 바꿔 돌려준다 (id 등 나머지 값은 그대로).
+
+    세션 값을 믿으면 로그인한 뒤 강등되거나 다른 계열사로 옮겨진 관리자가 옛 권한으로 계속 조회·변경할 수 있다.
+    ID 가 없거나 계정이 없거나 비활성이면 역할을 None 으로 둬서 아래 관리자 확인에서 거부된다.
+    """
+    user_id = user.get("id")
+    current = access_repository.find_active_user(user_id) if type(user_id) is int else None
+    current = current or {"role": None, "company_id": None}
+    return {**user, "role": current["role"], "company_id": current["company_id"]}
 
 
 def _require_admin(user: dict) -> None:
@@ -270,6 +285,7 @@ def _resolve_scope(user: dict | None, company_filter: str) -> str | None:
     """
     if not user:
         raise PermissionError("로그인이 필요합니다.")
+    user = _refresh_user(user)
     role = user.get("role")
     if role == ROLE_SUPER_ADMIN:
         return company_filter or None
