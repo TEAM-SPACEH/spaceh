@@ -220,7 +220,18 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
 # A-05 권한 요청 승인·반려
 def get_access_request_list(user: dict, filters: dict, page: int, size: int) -> dict:
     """A-05 활성 관리자의 문서 소유 범위와 상태로 열람 요청을 페이지 조회한다."""
-    reviewer = _review_require_admin(find_active_admin((user or {}).get("id")))
+    user = user or {}
+    try:
+        reviewer = _review_require_admin(find_active_admin(user.get("id")))
+    except PermissionError as exc:
+        try:
+            record_audit_log(
+                user.get("id"), "access_review", None, None, True, str(exc),
+                target_type="access_request", context_detail={"decision": "list"},
+            )
+        except Exception:
+            logger.exception("A-05 열람 요청 목록 권한 차단 감사 로그 기록 실패")
+        raise
     company_id = reviewer["company_id"] if reviewer["role"] == ROLE_COMPANY_ADMIN else None
     status = (filters or {}).get("status") or None
     if status not in (None, "pending", "approved", "rejected"):

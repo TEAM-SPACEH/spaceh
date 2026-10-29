@@ -129,11 +129,31 @@ class ListTests(unittest.TestCase):
         self.assertEqual(result["page"], 1)
         self.assertEqual(listing.call_args.args, ("MVX", "pending", 20, 0))
 
+    @patch.object(service, "record_audit_log")
+    @patch.object(service, "find_active_admin")
+    @patch.object(repository, "list_requests")
+    def test_denied_list_access_is_audited(self, listing, active, audit):
+        """비활성·강등·소속 없는 관리자의 목록 접근은 기록하고 차단한다."""
+        for reviewer in (None, {**ADMIN, "role": "employee"}, {**ADMIN, "company_id": None}):
+            with self.subTest(reviewer=reviewer):
+                active.return_value = reviewer
+                audit.reset_mock()
+                with self.assertRaises(PermissionError) as raised:
+                    service.get_access_request_list(ADMIN, {}, 1, 20)
+                audit.assert_called_once_with(
+                    ADMIN["id"], "access_review", None, None, True, str(raised.exception),
+                    target_type="access_request", context_detail={"decision": "list"},
+                )
+        listing.assert_not_called()
+
+    @patch.object(service, "record_audit_log", side_effect=RuntimeError("audit unavailable"))
     @patch.object(service, "find_active_admin", return_value=None)
     @patch.object(repository, "list_requests")
-    def test_inactive_reviewer_cannot_list(self, listing, active):
-        with self.assertRaises(PermissionError):
-            service.get_access_request_list(ADMIN, {}, 1, 20)
+    def test_audit_failure_keeps_list_access_denied(self, listing, active, audit):
+        """감사 로그 실패가 원래 권한 오류를 가리거나 목록 조회를 허용하지 않는다."""
+        with self.assertLogs(service.logger, level="ERROR"):
+            with self.assertRaisesRegex(PermissionError, "활성 관리자"):
+                service.get_access_request_list(ADMIN, {}, 1, 20)
         listing.assert_not_called()
 
 
