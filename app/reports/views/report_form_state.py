@@ -32,4 +32,3 @@ def prefill_form(request: ReportRequest) -> None:
     st.session_state[START_KEY] = request.start_date
     st.session_state[END_KEY] = request.end_date
     st.session_state[TEMPLATE_KEY] = ReportTemplate(request.template).value
-
