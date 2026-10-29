@@ -114,6 +114,13 @@ def get_document(doc_id: str) -> dict | None:
         return cur.fetchone()
 
 
+def find_active_user(user_id: int) -> dict | None:
+    """사용자의 현재 역할·소속을 DB 에서 읽는다. 없거나 비활성 계정이면 None."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT role, company_id FROM users WHERE id = %s AND is_active = 1", (user_id,))
+        return cur.fetchone()
+
+
 def get_company_name(company_id: str) -> str | None:
     """계열사 코드의 회사명. 없으면 None."""
     with get_connection() as conn, conn.cursor() as cur:

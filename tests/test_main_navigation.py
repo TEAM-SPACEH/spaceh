@@ -1,4 +1,4 @@
-﻿"""A-01 메인 메뉴 연결과 로그인 경계 검증."""
+"""A-01 메인 메뉴 연결과 로그인 경계 검증."""
 
 from pathlib import Path
 import runpy
