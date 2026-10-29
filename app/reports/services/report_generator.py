@@ -161,12 +161,31 @@ def is_no_evidence(body: str) -> bool:
     return normalized == NO_EVIDENCE_TEXT
 
 
+def _is_heading_line(line: str) -> bool:
+    """번호 없는 머리글 줄인지 본다. 예: '## 현황', '현대엘리베이터:'"""
+    # 프롬프트 규칙 7번으로 머리글을 쓰지 말라고 했지만, AI가 가끔 어길 수 있어요(2차 방어).
+    # 머리글은 "문장"이 아니라 "제목"이라서, 근거 번호가 없어도 검사에서 빼 줘요.
+    line = line.strip()
+    # 빈 줄이거나, 근거 번호가 붙어 있으면 머리글로 보지 않아요. (번호가 있으면 문장으로 검사해요)
+    if not line or CITATION_PATTERN.search(line):
+        return False
+    # "#"으로 시작("## 현황")하거나 ":" / "："(전각 콜론)으로 끝나는("현대엘리베이터:") 줄
+    # ⚠️ "현대엘리베이터"처럼 기호가 없는 줄은 머리글인지 문장인지 알 수 없어서 그대로 검사해요.
+    return line.startswith("#") or line.endswith((":", "："))
+
+
 def has_valid_citations(body: str, evidence_count: int) -> bool:
     """R-02 본문의 모든 문장에 근거 번호가 있고, 번호가 1 ~ 근거 개수 안에 있는지 검사한다."""
     # S-04 validate_answer()처럼 AI 답을 그대로 믿지 않고 한 번 더 확인해요.
     # 막는 경우:
     #   "문장 하나.[99]"                  → 근거가 3개뿐인데 99번 → 연결할 출처가 없음
     #   "인용 없는 문장. 다음 문장.[1]"     → 첫 문장에 번호가 없음 → 근거 없는 내용일 수 있음
+
+    # 머리글 줄을 뺀 나머지만 검사해요.
+    # splitlines()는 글을 줄마다 잘라 목록으로 만들고, "\n".join(...)은 다시 이어 붙여요.
+    # ⚠️ 검사에서만 빼고, 화면에 보일 본문(body)에서는 지우지 않아요.
+    body = "\n".join(line for line in body.splitlines() if not _is_heading_line(line))
+
     sentences = SENTENCE_PATTERN.findall(body)
     checked = 0  # 실제로 검사한 문장 수
 
