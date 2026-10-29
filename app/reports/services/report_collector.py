@@ -144,39 +144,6 @@ def balance_by_company(
         empty_companies=empty_companies,
     )
 
-# 섹션별 근거 선별에 사용할 키워드
-MAX_SECTION_CHUNKS = 12
-SECTION_KEYWORDS = {
-    SectionType.OVERVIEW: (
-        "개요", "배경", "시장", "산업", "동향",
-        "전망", "환경", "연구", "기술",
-    ),
-    SectionType.STATUS: (
-        "현황", "사업", "제품", "공급", "생산",
-        "운영", "수주", "도입", "설비",
-        "투자", "구축", "개발", "확대",
-    ),
-    SectionType.PERFORMANCE: (
-        "매출", "영업이익", "순이익", "실적",
-        "매출액", "영업수익", "재무",
-        "분기", "전년 대비",
-    ),
-}
-
-
-def _get_chunk_body(chunk: Chunk) -> str:
-    """출처 접두어를 제외하고 근거 본문을 가져온다."""
-    text = chunk.text.strip()
-
-    # '[회사 · 문서 · 위치] 본문' 형식에서 본문만 추출
-    if text.startswith("[") and "] " in text:
-        text = text.split("] ", 1)[1]
-
-    section = chunk.metadata.get("section", "")
-    return f"{section} {text}".lower()
-
-
-
 def select_section_evidence(
     section_type: SectionType,
     collection: CollectionResult,
