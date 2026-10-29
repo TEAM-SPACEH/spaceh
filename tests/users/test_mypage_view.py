@@ -98,5 +98,27 @@ class ChangePasswordFormTest(unittest.TestCase):
         self.assertNotIn("change_password_open", at.session_state)
 
 
+class AccessRequestListTest(unittest.TestCase):
+    """열람 권한 요청 목록. 목록은 M-04 history_service.get_access_request_history() 반환 모양을 그대로 쓴다."""
+
+    REQUEST = {
+        "request_id": 1, "doc_id": "d1", "title": "엘리베이터 단가표", "owner_company_code": "ELV",
+        "reason": "견적 비교", "status": "rejected", "status_label": "반려", "review_comment": "기밀 문서",
+        "created_at": "2026-10-27 09:00", "reviewed_at": "2026-10-27 15:00",
+    }
+
+    def test_rejected_request_shows_title_time_and_reject_reason(self):
+        for target, value in ((UID, 1), (INFO, PROFILE), (HISTORY, [self.REQUEST])):
+            patcher = patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        at = AppTest.from_function(_mypage_app).run(timeout=30)
+
+        self.assertIsNone(at.exception or None)
+        page = " ".join(str(element.proto) for element in at.get("html"))
+        for text in ("엘리베이터 단가표", "2026-10-27 09:00", "반려 사유: 기밀 문서"):
+            self.assertIn(text, page)
+
+
 if __name__ == "__main__":
     unittest.main()

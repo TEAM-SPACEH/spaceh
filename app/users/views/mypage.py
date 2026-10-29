@@ -1,18 +1,17 @@
 """M-02·M-03 마이페이지 화면: 내 프로필·비밀번호 바꾸기와 열람 권한 요청 목록을 보여 준다.
 
 이 화면은 services만 부른다(계층 규칙). 내 정보·비밀번호는 users.user_service, 권한 요청 목록은
-permissions.permission_service를 거친다. 메뉴 연결(main.py)은 팀장이 맡는다.
+M-04 history.history_service(get_access_request_history, 메소드 명세서 기준)를 거친다. 메뉴 연결(main.py)은 팀장이 맡는다.
 """
 
 import html
 import logging
-from datetime import datetime
 
 import streamlit as st
 
 from app.auth.session import get_current_user_id
 from app.common.ui import company_tag_html, empty_state, page_header, show_text
-from app.permissions.services.permission_service import get_access_request_history
+from app.history.services.history_service import get_access_request_history
 from app.users.services.user_service import change_password, get_user_info, validate_password
 
 logger = logging.getLogger(__name__)
@@ -144,7 +143,7 @@ def _render_access_requests(user_id: int) -> None:
         doc_col, company_col, time_col, status_col = st.columns([5, 1, 2, 1])
         with doc_col:
             # 문서 제목·사유는 업로더·요청자가 정한 값이라 Markdown 해석 없이(show_text) 보여 준다.
-            show_text(request["doc_title"], bold=True)
+            show_text(request["title"], bold=True)
             if request.get("reason"):
                 show_text(f"사유: {request['reason']}", muted=True)
             # 반려된 요청은 A-05 관리자가 남긴 반려 사유(review_comment)를 요청자에게 보여 준다.
@@ -154,7 +153,8 @@ def _render_access_requests(user_id: int) -> None:
         with company_col:
             st.html(company_tag_html(request["owner_company_code"]))
         with time_col:
-            show_text(_format_time(request["created_at"]), muted=True)
+            # 시각은 서비스가 'YYYY-MM-DD HH:MM' 문자열로 만들어 준다.
+            show_text(request["created_at"] or "", muted=True)
         with status_col:
             st.html(_status_badge_html(request["status"]))
 
@@ -163,8 +163,3 @@ def _status_badge_html(status: str) -> str:
     """상태 코드를 한글 배지 HTML로 바꾼다. 모르는 값은 회색으로 코드 그대로 보여 준다."""
     label, css = _STATUS_BADGES.get(status, (status, "sh-co"))
     return f'<span class="sh-tag {css}">{html.escape(label)}</span>'
-
-
-def _format_time(value: datetime | None) -> str:
-    """요청 시각을 'MM.DD HH:MM'으로 보여 준다(없으면 빈 문자열)."""
-    return value.strftime("%m.%d %H:%M") if isinstance(value, datetime) else ""
