@@ -36,6 +36,9 @@ DOC_TYPE_LABELS = {
     DOC_TYPE_MEMO: "내부 메모",
 }
 
+# config.toml의 enableStaticServing으로 static/ 폴더가 app/static/ 주소로 나간다.
+LOCK_ICON_URL = "app/static/icons/lock.svg"
+
 _CSS = """
 <style>
 .sh-tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;line-height:20px;white-space:nowrap}
@@ -140,9 +143,18 @@ _CSS = """
 .sh-rag-meta{font-size: 12px; color: #6B7280;}
 .sh-rag-body{font-size: 14px; line-height: 1.75; color: #343A40; white-space: pre-wrap; overflow-wrap: anywhere;}
 .sh-rag-footer{margin-top: 14px; font-size: 12px; color: #6B7280;}
+.sh-rag-sources{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.sh-rag-src{display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 4px;background:#FFFFFF;
+  border:1px solid #D3EEDD;border-radius:6px;font-size:12px;color:#343A40}
+.sh-rag-src .sh-cite{margin-left:0}
 .sh-rag-copy{margin-left: auto; padding: 5px 10px; border: 1px solid #DEE2E6; border-radius: 8px; background: #FFFFFF; color: #343A40; font-size: 12px; font-weight: 600; cursor: pointer;}
 .sh-rag-copy:hover{background: #F8F9FA; border-color: #ADB5BD;}
-.sh-s61-source-title{font-size: 16px; font-weight: 700; color: #111111; margin: 0 0 12px;}
+.sh-s61-source-title{display:flex;align-items:baseline;font-size: 16px; font-weight: 700; color: #111111; margin: 0 0 12px;}
+.sh-s61-source-title span{margin-left:auto;font-size:12px;font-weight:400;color:#6B7280}
+/* 출처 카드의 [원문] 버튼은 오른쪽 끝 파란 링크 모양 */
+[class*="st-key-sh-card-s61_source"] .stButton{display:flex;justify-content:flex-end}
+[class*="st-key-sh-card-s61_source"] .stButton button{color:#004098;font-size:12px;min-height:0;padding:12px 0 0}
+[class*="st-key-sh-card-s61_source"] .stButton button p{font-size:12px}
 .sh-s61-source-header{display: flex; align-items: center; gap: 7px; font-size: 13px; color: #111111;}
 .sh-s61-source-count{margin-left: auto; font-size: 12px; color: #6B7280;}
 .sh-s61-source-entry{display: flex; align-items: center; gap: 7px; margin-top: 14px;}
@@ -160,6 +172,31 @@ _CSS = """
 .sh-s61-result-name .sh-tag{margin-left:6px;vertical-align:1px}
 .sh-s61-result-preview{font-size:14px;line-height:1.5;color:#343A40;margin-top:6px;overflow-wrap:anywhere;}
 .sh-s61-result-date{font-size:12px;color:#6B7280;text-align:right;}
+.sh-type-pdf{background:#FFF5F5;color:#E03131}
+.sh-type-dart{background:#EBFBEE;color:#2B8A3E}
+.sh-type-doc,.sh-type-docx{background:#E7F5FF;color:#1971C2}
+.sh-type-ppt,.sh-type-pptx{background:#FFF4E6;color:#D9480F}
+/* S-07 이어서 묻기: 둥근 알약 버튼 */
+.st-key-s61_followup_row{gap:8px;justify-content:flex-start}
+.st-key-s61_followup_row>[data-testid="stElementContainer"]{flex:0 0 auto;width:auto}
+.st-key-s61_followup_row [data-testid="stCaptionContainer"]{margin-right:4px}
+.st-key-s61_followup_row .stButton button{border-radius:16px;min-height:0;padding:5px 12px;background:#FFFFFF;border-color:#DEE2E6}
+.st-key-s61_followup_row .stButton button p{font-size:13px}
+/* M-03 권한 없는 문서 카드 (Figma 02 출처 칸) */
+.sh-np-head{display:flex;align-items:baseline;gap:8px;font-size:14px;color:#111111}
+.sh-np-head span{margin-left:auto;font-size:12px;color:#6B7280}
+.sh-np-title{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:14px;font-weight:600;color:#111111}
+.sh-np-note{margin-top:2px;padding-left:20px;font-size:12px;color:#6B7280}
+/* M-03 내 권한 요청 팝업 (Figma 15)의 문서 상자 */
+.sh-req-doc{background:#F4F6F8;border-radius:10px;padding:12px 14px}
+.sh-req-title{margin-top:6px;font-size:15px;font-weight:700;color:#111111;overflow-wrap:anywhere}
+.sh-req-note{margin-top:2px;font-size:12px;color:#6B7280}
+/* S-01 사이드바 최근 질문: 메뉴 아래 작은 글자 줄 */
+.st-key-s61_recent{gap:0}
+.st-key-s61_recent .stButton button{justify-content:flex-start;min-height:0;padding:6px 10px;color:#343A40;width:100%}
+.st-key-s61_recent .stButton button>div{justify-content:flex-start;max-width:100%}
+.st-key-s61_recent .stButton button p{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sh-recent-title{padding:14px 10px 4px;font-size:11px;font-weight:600;color:#6B7280}
 /* S-01 검색 상자 (Figma 02·02-0): 흰 카드 안 입력칸은 테두리 없이 크게 */
 .st-key-sh-card-search-box [data-testid="stTextInputRootElement"]{background:#FFFFFF;border-color:transparent}
 .st-key-sh-card-search-box input{font-size:16px}
@@ -258,9 +295,15 @@ def no_permission_notice(title: str, company_name: str, key: str) -> bool:
     반환: [열람 권한 요청] 버튼을 눌렀으면 True. key는 화면 안에서 겹치지 않게 doc_id 등으로 준다.
     """
     with card(f"no-permission-{key}"):
-        st.html(f"<div>🔒 <b>{html.escape(title)}</b></div>")
-        show_text(f"{company_name} 문서라 내 권한으로는 내용을 볼 수 없습니다. 답변 근거에서도 뺐습니다.", muted=True)
-        return st.button("열람 권한 요청", key=f"request-{key}")
+        st.html(
+            f'<div class="sh-np-head"><b>{html.escape(company_name)}</b><span>열람 불가</span></div>'
+            f'<div class="sh-np-title"><img src="{LOCK_ICON_URL}" width="14" height="14" alt="">'
+            f"{html.escape(title)}</div>"
+            f'<div class="sh-np-note">{html.escape(company_name)} 문서라 내 권한으로는 내용을 볼 수 없습니다. '
+            "답변 근거에서도 뺐습니다.</div>"
+        )
+        # M-03 명세의 버튼 이름은 '내 권한 요청'이다.
+        return st.button("내 권한 요청", key=f"request-{key}")
 
 
 def empty_state(message: str) -> None:
