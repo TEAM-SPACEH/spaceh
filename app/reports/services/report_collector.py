@@ -83,64 +83,61 @@ def collect_documents(user: dict, request: ReportRequest) -> list[Chunk]:
     return collected
 
 
+
 def balance_by_company(
     chunks: list[Chunk],
     companies: list[str],
 ) -> CollectionResult:
-    """회사별 관련 청크를 같은 개수씩 선정하고 근거 없는 회사를 기록한다."""
+    """회사별 청크를 번갈아 배치하고 근거 없는 회사를 기록한다."""
 
-    # 1. 선택한 기업 목록 (중복 제거)
+    # 1. 선택 기업 중복 제거
     company_ids = list(dict.fromkeys(companies))
 
-    # 2. 기업별 청크 분류
+    # 2. 회사별 청크 분류
     by_company = {company_id: [] for company_id in company_ids}
     seen_ids = set()
 
     for chunk in chunks:
         company_id = chunk.metadata.get("company_id")
 
-        # 선택하지 않은 기업의 청크 제외
         if company_id not in by_company:
             continue
 
-        # 동일 청크 중복 제거
         if chunk.chunk_id in seen_ids:
             continue
 
         seen_ids.add(chunk.chunk_id)
         by_company[company_id].append(chunk)
 
-    # 3. 근거가 없는 기업 기록
+    # 3. 근거 없는 회사 기록
     empty_companies = [
         company_id
         for company_id in company_ids
         if not by_company[company_id]
     ]
 
-    # 4. 근거가 있는 기업만 추출
     available = [
         by_company[company_id]
         for company_id in company_ids
         if by_company[company_id]
     ]
 
-    # 모든 기업의 검색 결과가 없는 경우
     if not available:
         return CollectionResult(
             chunks=[],
             empty_companies=empty_companies,
         )
 
-    # 5. 기업별 동일 개수 선정
-    # collect_documents()가 관련도 순으로 가져온 상태를 유지
-    limit = min(len(company_chunks) for company_chunks in available)
-
-    # 6. 기업별로 번갈아 배치
+    # 4. 회사별 청크를 번갈아 배치
+    # 청크가 부족한 회사는 건너뛰고 나머지는 계속 수집
     balanced_chunks = []
 
-    for index in range(limit):
+    max_count = max(len(company_chunks) for company_chunks in available)
+
+    for index in range(max_count):
         for company_chunks in available:
-            balanced_chunks.append(company_chunks[index])
+            if index < len(company_chunks):
+                balanced_chunks.append(company_chunks[index])
 
     return CollectionResult(
         chunks=balanced_chunks,
@@ -179,21 +176,24 @@ def _get_chunk_body(chunk: Chunk) -> str:
     return f"{section} {text}".lower()
 
 
+
 def select_section_evidence(
     section_type: SectionType,
     collection: CollectionResult,
 ) -> list[Chunk]:
-    """R-01 섹션 목적에 맞는 근거 청크를 선별한다."""
+    """R-01 회사별 균형 수집 결과에서 섹션 근거를 선택한다."""
 
+    # 1. 본문이 없는 청크 제외
     chunks = [
-        chunk for chunk in collection.chunks
+        chunk
+        for chunk in collection.chunks
         if chunk.text and chunk.text.strip()
     ]
 
     if not chunks:
         return []
 
-    # 1. 시너지: 2개 이상 기업의 관련 근거가 필요
+    # 2. 시너지: 최소 2개 기업의 근거가 필요
     if section_type == SectionType.SYNERGY:
         companies = {
             chunk.metadata.get("company_id")
@@ -204,45 +204,26 @@ def select_section_evidence(
         if len(companies) < 2:
             return []
 
-        # 기존 회사별 균형 순서를 유지
-        return chunks[:MAX_SECTION_CHUNKS]
+        return chunks.copy()
 
-    # 2. 제언: 수집된 근거를 활용해 제안 작성
-    if section_type == SectionType.ADVICE:
-        return chunks[:MAX_SECTION_CHUNKS]
-
-    # 3. 나머지 섹션: 관련 키워드 기반 선별
-    keywords = SECTION_KEYWORDS.get(section_type)
-    if not keywords:
-        return []
-
-    selected = []
-
-    for chunk in chunks:
-        body = _get_chunk_body(chunk)
-
-        if not any(keyword in body for keyword in keywords):
-            continue
-
-        # 실적 비교는 공시 수치 근거만 사용
-        if section_type == SectionType.PERFORMANCE:
-            metadata = chunk.metadata
-
-            if (
-                metadata.get("source_type") != "dart"
-                and metadata.get("doc_type") != "disclosure"
-            ):
-                continue
-
-            # 연도만 있는 자료가 아니라 실제 수치가 있는지 확인
-            if not re.search(
+    # 3. 실적 비교: 내부 문서와 DART 모두 허용
+    # 실제 수치가 포함된 청크만 선별
+    if section_type == SectionType.PERFORMANCE:
+        return [
+            chunk
+            for chunk in chunks
+            if re.search(
                 r"\d[\d,.]*\s*(?:%|조|억|만|원)",
-                body,
-            ):
-                continue
+                chunk.text,
+            )
+        ]
 
-        selected.append(chunk)
+    # 4. 나머지 섹션은 키워드로 추가 필터링하지 않음
+    if section_type in (
+        SectionType.OVERVIEW,
+        SectionType.STATUS,
+        SectionType.ADVICE,
+    ):
+        return chunks.copy()
 
-    # 적합한 근거가 없으면 빈 목록 반환
-    # R-02가 AI 호출 없이 '근거 자료 없음' 처리
-    return selected[:MAX_SECTION_CHUNKS]
+    return []
