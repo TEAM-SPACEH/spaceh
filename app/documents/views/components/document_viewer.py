@@ -34,6 +34,9 @@ MIME_TYPES = {
 # 오른쪽 위 파일 형식 타일에 적는 글자 (색은 ui.py의 .sh-v-type-* 가 정한다)
 FORMAT_LABELS = {"pdf": "PDF", "docx": "DOCX", "pptx": "PPTX", "xlsx": "XLSX", "hwp": "HWP", "dart_xml": "DART"}
 
+# 열람 감사 로그를 이미 남긴 출처 (문서 ID, 위치). 화면이 다시 그려져도 같은 출처면 또 남기지 않아요.
+AUDITED_SOURCE_KEY = "s05_audited_source"
+
 # 확대·축소 단계(%)와 100%일 때 페이지 그림의 가로 폭(px). 폭은 Figma 원문 카드 안쪽 폭(720 - 좌우 여백 72×2)이다.
 ZOOM_STEPS = (50, 75, 100, 125, 150, 200)
 DEFAULT_ZOOM = 100
@@ -74,7 +77,12 @@ def render_document_viewer(doc_id: str, location: dict, user: dict, back_label: 
     # 📌 명세서에는 location 모양이 없어서 이렇게 정했어요. 팀에 공유가 필요해요.
 
     # ① 권한 재확인 + 문서 정보 (판단은 services가 해요)
-    document = get_viewer_document(doc_id, user)
+    # Streamlit은 버튼을 누를 때마다 이 함수를 다시 실행해요. 권한 확인은 매번 하되,
+    # 열람 감사 로그는 "새로 연 출처"일 때만 남겨요. (같은 출처를 보는 동안에는 1건)
+    opened = (doc_id, location.get("location"))                       # 지금 연 출처
+    first_open = st.session_state.get(AUDITED_SOURCE_KEY) != opened    # 아직 기록 안 한 출처면 True
+    document = get_viewer_document(doc_id, user, audit=first_open)
+    st.session_state[AUDITED_SOURCE_KEY] = opened                      # 이 출처는 기록했다고 표시
     if document is None:
         st.error("문서를 찾을 수 없습니다. 삭제되었거나 다시 색인 중일 수 있습니다.")
         _render_back_button(back_label)
@@ -270,6 +278,8 @@ def _change_zoom(zoom_key: str, direction: int) -> None:
 def _close_viewer() -> None:
     """뷰어를 닫는다. 고른 출처를 세션에서 지우면 호출한 화면이 원래 모양으로 돌아와요."""
     st.session_state.pop(SELECTED_SOURCE_KEY, None)
+    # 기록 표시도 지워요. 닫았다가 다시 열면 새 열람이라 다시 1건 남아야 해서예요. (#75)
+    st.session_state.pop(AUDITED_SOURCE_KEY, None)
 
 
 def _render_back_button(label: str) -> None:
