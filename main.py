@@ -10,6 +10,7 @@ from app.auth import session
 from app.auth.views.login_page import render_login
 from app.common.layout import company_label, render_header, render_sidebar
 from app.common.ui import apply_theme, empty_state, page_header
+from app.reports.views.report_form import render_report_page
 from app.search.views.search_page import render_search
 from app.users.views.mypage import render_mypage
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN
@@ -30,11 +31,15 @@ def coming_soon_page(title: str, url_path: str, icon: str) -> st.Page:
 
 def build_pages(user: dict) -> dict:
     """역할별 사이드바 메뉴 (Figma UI v4). 섹션 이름이 키이고, 빈 문자열은 제목 없는 맨 위 묶음이다."""
+    def reports() -> None:
+        """R-01 로그인한 사용자의 새 보고서 화면을 연다."""
+        render_report_page(user)
+
     # M-02 내 정보는 명세상 전체 사용자 기능이라 관리자에게도 보인다 (#108).
     pages = {
         "": [
             st.Page(render_search, title="통합 검색", icon=":material/search:", default=True),
-            coming_soon_page("보고서", "reports", ":material/show_chart:"),
+            st.Page(reports, title="보고서", url_path="reports", icon=":material/show_chart:"),
             st.Page(render_mypage, title="내 정보", url_path="mypage", icon=":material/person:"),
         ],
     }
