@@ -9,7 +9,7 @@ from app.auth.session import get_current_user
 from app.common.ui import DOC_TYPE_LABELS, page_header
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
-from app.search.services.rag_service import RAGServiceError, generate_answer, is_no_answer
+from app.search.services.rag_service import RAGServiceError, generate_answer_with_audit, is_no_answer
 from app.search.services.search_service import apply_metadata_filters, hybrid_search
 from app.search.views.components.followup_questions import render_followup_questions
 from app.search.views.components.rag_answer_card import render_rag_answer_card
@@ -144,6 +144,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
                     current_query,
                     where,
                     user,
+                    audit=False,
                 )
 
             rag_result = None
@@ -151,11 +152,17 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
             # S-04 기존 청크를 활용한 AI 답변 생성
             if chunks:
+                rag_result = None
+                rag_error = None
+
+                # S-04 AI 답변 생성 및 감사 로그 기록
                 try:
                     with st.spinner("AI 답변을 생성하고 있습니다..."):
-                        rag_result = generate_answer(
+                        rag_result = generate_answer_with_audit(
                             current_query,
                             chunks,
+                            user,
+                            filters=where,
                         )
 
                 except PermissionError:
