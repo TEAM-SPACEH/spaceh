@@ -20,6 +20,7 @@ import io
 import math
 from datetime import date, datetime, time, timedelta, timezone
 
+from app.admin.paging import as_int, clamp
 from app.admin.repositories import audit_repository
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN
 
@@ -45,10 +46,14 @@ ACTION_LABELS = {
     "download": "원문 내려받기",
     "report_create": "보고서 생성",
     "upload": "문서 업로드",
+    "document_delete": "문서 삭제",
+    "document_reindex": "문서 재색인",
     "share_change": "공유 변경",
     "access_request": "권한 요청",
     "access_review": "권한 처리",
     "audit_export": "감사 로그 내려받기",
+    "company_create": "계열사 추가",
+    "company_update": "계열사 수정",
 }
 
 # 요약 카드의 시간대별 막대가 보여 주는 시각 범위 (업무 시간 9시~18시).
@@ -144,8 +149,8 @@ def search_audit_logs(
     """
     company_code = _resolve_scope(user)
     filters = filters or {}
-    size = _clamp(size, 1, MAX_PAGE_SIZE)
-    page = max(_as_int(page, 1), 1)
+    size = clamp(size, 1, MAX_PAGE_SIZE)
+    page = max(as_int(page, 1), 1)
 
     conditions = {
         "company_code": company_code,
@@ -205,7 +210,7 @@ def get_recent_audit_logs(user: dict, limit: int = 10) -> list[dict]:
     PermissionError: 조회 권한이 없을 때
     """
     company_code = _resolve_scope(user)
-    rows = audit_repository.list_recent(company_code, _clamp(limit, 1, MAX_PAGE_SIZE))
+    rows = audit_repository.list_recent(company_code, clamp(limit, 1, MAX_PAGE_SIZE))
     return _enrich([_to_log(row) for row in rows], company_code)
 
 
@@ -389,19 +394,6 @@ def _day_start(value: date | None, plus_days: int = 0) -> datetime | None:
     if isinstance(value, datetime):
         value = value.date()
     return datetime.combine(value, time.min) + timedelta(days=plus_days)
-
-
-def _clamp(value, low: int, high: int) -> int:
-    """정수로 바꿔 low~high 범위로 맞춘다. 숫자로 바꿀 수 없으면 low 로 본다."""
-    return min(max(_as_int(value, low), low), high)
-
-
-def _as_int(value, default: int) -> int:
-    """정수로 바꾼다. 바꿀 수 없으면 default."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _to_log(row: dict) -> dict:

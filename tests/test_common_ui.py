@@ -1,9 +1,19 @@
 import unittest
 
-from app.common.ui import citation_html, company_tag_html, highlight_html, security_badge_html, text_html
+from app.common.ui import citation_html, company_tag_html, highlight_html, security_badge_html, text_html, upload_status_html
 
 
 class CommonUiHtmlTest(unittest.TestCase):
+    def test_upload_status_escapes_text_and_preserves_accessibility(self):
+        """A-01 상태 문구의 HTML 실행을 막고 처리 중·실패 상태를 구분한다."""
+        busy = upload_status_html('<img src=x>', 'busy')
+        self.assertNotIn('<img', busy)
+        self.assertIn('sh-upload-spinner', busy)
+        self.assertIn('role="status"', busy)
+        self.assertIn('role="alert"', upload_status_html('실패', 'failed'))
+        with self.assertRaises(ValueError):
+            upload_status_html('상태', 'invalid')
+
     def test_security_badge_labels(self):
         self.assertIn("공개", security_badge_html("public"))
         self.assertIn("sh-int", security_badge_html("internal"))

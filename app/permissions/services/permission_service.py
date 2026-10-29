@@ -12,7 +12,19 @@
   문서 내용이 LLM에 들어갈 길이 처음부터 막힌다.
 """
 
-from app.permissions.repositories.permission_repository import get_approved_doc_ids
+import logging
+
+from app.admin.services.audit_service import record_audit_log
+from app.permissions.repositories.permission_repository import (
+    find_document,
+    find_user,
+    get_approved_doc_ids,
+    get_pending_doc_ids,
+    has_pending_request,
+    insert_access_request,
+    list_access_requests_by_user,
+)
+from app.permissions.validators import validate_request_reason
 from core.constants import (
     ACCESS_CONFIDENTIAL,
     ACCESS_INTERNAL,
@@ -21,6 +33,8 @@ from core.constants import (
     ROLE_SUPER_ADMIN,
     ROLES,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def apply_rbac_filter(user: dict, filters: dict | None) -> dict:
@@ -76,8 +90,11 @@ def check_search_permission(user: dict, document: dict) -> bool:
     return any(_matches(condition, document) for condition in conditions)
 
 
-def _allowed_conditions(user: dict) -> list[dict] | None:
+def _allowed_conditions(user: dict, approved_doc_ids: list | None = None) -> list[dict] | None:
     """열람 매트릭스(overview §2.1)를 "허용 조건 목록"으로 만든다. None이면 제한 없음(super_admin).
+
+    approved_doc_ids를 넘기면 승인 문서 조회(get_approved_doc_ids)를 생략한다. 여러 문서를
+    한꺼번에 판정하는 배치 호출에서 같은 조회를 반복하지 않으려고 쓴다(안 넘기면 여기서 한 번 조회).
 
     목록의 조건 하나는 "이 필드들이 모두 이 값이면 볼 수 있다"는 뜻이다.
     예) {"company_id": "MVX", "access_level": "internal"} → 현대무벡스의 내부 문서는 볼 수 있다.
@@ -112,7 +129,9 @@ def _allowed_conditions(user: dict) -> list[dict] | None:
         conditions.append({"company_id": company_id, "access_level": ACCESS_CONFIDENTIAL})
 
     # 5) 열람 권한 요청(M-03)이 승인(A-05)된 문서는 등급·회사와 관계없이 본다.
-    approved_doc_ids = get_approved_doc_ids(user["id"])
+    #    배치 호출이 미리 넘겨 준 승인 목록이 있으면 그걸 쓰고, 없으면 여기서 한 번 조회한다.
+    if approved_doc_ids is None:
+        approved_doc_ids = get_approved_doc_ids(user["id"])
     # Chroma는 빈 목록으로 $in 검색을 하면 오류가 나서, 승인 문서가 있을 때만 조건을 넣는다.
     if approved_doc_ids:
         conditions.append({"doc_id": {"$in": approved_doc_ids}})
@@ -141,3 +160,171 @@ def _matches(condition: dict, document: dict) -> bool:
         elif actual != expected:
             return False
     return True
+
+
+# ─── M-03: "이 문서 봐도 돼요?" 확인과 "보게 해 주세요" 요청 ───
+#
+# 쉽게 말하면:
+#  - 문서마다 '이름표'(doc_id)가 붙어 있다. 그 이름표로 문서를 찾는다.
+#  - 볼 수 있는지 없는지는 아래 함수들이 정한다. "봐도 되면 True, 안 되면 False".
+#  - 못 보는 문서는 "저 이거 보게 해 주세요"라고 요청을 남길 수 있다(관리자가 나중에 허락).
+#
+# 참고: doc_id는 숫자가 아니라 글자(문자열)다. 문서 이름표가 'ELV-spec-1' 같은 글자라서다.
+# 요청 사유 검증(validate_request_reason)은 형식 검증 계층인 app/permissions/validators.py에 있다.
+
+
+def check_document_access(user_id: int, doc_id: str) -> bool:
+    """M-03 이 사람(user_id)이 이 문서(doc_id)를 볼 수 있는지 True/False로 알려준다.
+
+    누가 무엇을 볼 수 있는지는 역할(사원/관리자), 소속 회사, 문서의 보안 등급,
+    그룹사 공유 여부, 그리고 '봐도 된다'고 허락(승인)받았는지로 정해진다.
+    그 판단은 이미 있는 check_search_permission 한 곳에 맡겨, 검색 화면과 규칙이 똑같게 한다
+    (권한 규칙을 여기서 새로 만들지 않는다).
+    """
+    # 1) 사원 번호로 사람 정보를, 이름표로 문서 정보를 데이터베이스에서 찾아온다.
+    user = find_user(user_id)
+    document = find_document(doc_id)
+
+    # 2) 사람이나 문서가 없으면 "볼 수 없음"으로 안전하게 답한다(오류로 멈추지 않는다).
+    if user is None or document is None:
+        return False
+
+    # 3) 실제 "볼 수 있나?" 판단은 기존 함수에 그대로 맡기고, 결과를 그대로 돌려준다.
+    return check_search_permission(user, document)
+
+
+def check_existing_request(user_id: int, doc_id: str) -> bool:
+    """M-03 이 사람이 이 문서에 대해 '아직 처리 안 된(대기 중) 요청'을 이미 냈는지 확인한다.
+
+    (대기 중 = 관리자가 아직 허락도 거절도 안 한 상태. 같은 요청을 두 번 내지 않게 막는 데 쓴다.)
+    """
+    return has_pending_request(user_id, doc_id)
+
+
+def can_request_access(user_id: int, doc_id: str) -> bool:
+    """M-03 이 사람이 이 문서에 '보게 해 주세요' 요청을 '새로' 낼 수 있는지 판단한다.
+
+    다음 중 하나라도 해당하면 요청할 수 없다(False):
+      - 최종 관리자(super_admin): 어차피 모든 문서를 볼 수 있어 요청이 필요 없다.
+      - 이미 볼 수 있는 문서: 요청할 이유가 없다.
+      - 이미 대기 중인 요청이 있음: 같은 요청을 또 낼 필요가 없다.
+    셋 다 아니면(= 못 보는 문서인데 요청도 안 낸 상태) 요청할 수 있다(True).
+    """
+    # 사람·문서를 한 번 찾아 공통 판단(_can_request)에 넘긴다.
+    return _can_request(find_user(user_id), find_document(doc_id), user_id, doc_id)
+
+
+def _can_request(user: dict | None, document: dict | None, user_id: int, doc_id: str) -> bool:
+    """요청 가능 여부 공통 판단. 이미 찾아 둔 user·document를 받아 같은 조회를 두 번 하지 않게 한다.
+
+    요청 불가(False): 사람/문서 없음, 최종 관리자(전부 열람 가능), 이미 열람 가능, 이미 대기 중.
+    넷 다 아니면 요청 가능(True).
+    """
+    if user is None or document is None:
+        return False
+    if user["role"] == ROLE_SUPER_ADMIN:  # 어차피 전부 볼 수 있어 요청 불필요
+        return False
+    if check_search_permission(user, document):  # 이미 볼 수 있음 → 요청 불필요
+        return False
+    if has_pending_request(user_id, doc_id):  # 이미 대기 중 → 중복 금지
+        return False
+    return True
+
+
+def filter_requestable_documents(user: dict, documents: list[dict]) -> list[dict]:
+    """M-03 문서 목록에서 '아직 못 보지만 요청하면 볼 수 있는' 것만 골라 돌려준다 (배치).
+
+    검색 결과처럼 문서가 여러 개일 때, 후보마다 can_request_access를 부르면 문서마다 사용자·승인·
+    대기 요청을 다시 조회해 DB 연결이 수십 번 생긴다. 그래서 사용자 승인 내역과 대기 요청을 각각
+    '한 번만' 읽고, 각 문서에 열람 매트릭스를 적용한다. 권한 규칙은 여전히 여기(permission_service)
+    한 곳에서만 판정한다. documents는 Chroma 메타데이터 모양이어야 한다
+    ({doc_id, company_id, access_level, is_group_shared, ...}).
+
+    '요청 가능 문서'는 타사 문서만이다(overview.md §2.3-6: 권한이 없는 '타사' 문서만 제목을 보여 준다).
+    자사 문서는 못 보더라도 제목을 요청 목록에 노출하지 않는다 — 자사 기밀 문서 제목이 새지 않도록.
+    """
+    # 요청 대상이 아닌 경우(어드민은 전부 열람 가능, 알 수 없는 사용자)엔 요청할 문서가 없다.
+    if not user or user.get("role") not in ROLES or user["role"] == ROLE_SUPER_ADMIN:
+        return []
+
+    user_id = user["id"]
+    user_company = user.get("company_id")
+    try:
+        approved = get_approved_doc_ids(user_id)      # 승인 문서: 한 번만
+        pending = set(get_pending_doc_ids(user_id))   # 대기 요청: 한 번만
+        conditions = _allowed_conditions(user, approved_doc_ids=approved)  # DB 재조회 없음
+    except PermissionError:
+        return []
+
+    requestable: list[dict] = []
+    seen: set = set()
+    for document in documents:
+        doc_id = document.get("doc_id")
+        if not doc_id or doc_id in seen:
+            continue
+        seen.add(doc_id)
+        # 자사 문서는 제목도 노출하지 않는다 (§2.3-6: 요청 목록은 '타사' 문서만).
+        if document.get("company_id") == user_company:
+            continue
+        if doc_id in pending:  # 이미 대기 중인 요청이 있으면 제외
+            continue
+        if any(_matches(condition, document) for condition in conditions):  # 이미 볼 수 있으면 제외
+            continue
+        requestable.append(document)
+    return requestable
+
+
+def request_document_access(user_id: int, doc_id: str, reason: str) -> bool:
+    """M-03 못 보는 문서에 대해 '이래서 보고 싶어요'(사유)를 적어 열람 요청을 남긴다.
+
+    이 요청은 그 문서를 가진 회사의 관리자가 나중에 보고 허락/거절한다(A-05).
+    사유가 규칙에 안 맞거나 요청할 수 없는 상황(관리자·이미 열람 가능·대기 중 요청 있음)이면
+    아무것도 저장하지 않고 False. 요청을 잘 남기면 A-04 감사 로그에 남기고 True.
+    """
+    # 1) 사유가 규칙(5~500자)에 맞는지 먼저 본다 (형식 검증은 validators에 있다).
+    if not validate_request_reason(reason):
+        return False
+
+    # 2) 사람·문서를 한 번만 찾고(중복 조회 방지), 지금 요청해도 되는 상황인지 확인한다.
+    user = find_user(user_id)
+    document = find_document(doc_id)
+    if not _can_request(user, document, user_id, doc_id):
+        return False
+
+    # 3) 저장한다. 저장 함수가 '대기 중 요청이 없을 때만' 넣으므로 중복 요청은 걸러진다.
+    #    성공하면 새 요청 id, 이미 대기 요청이 있어 못 넣으면 None.
+    owner_company = document["company_id"]  # 주인 회사 = 문서를 가진 회사
+    request_id = insert_access_request(user_id, doc_id, owner_company, reason.strip())
+    if request_id is None:
+        return False
+
+    # 4) 성공한 요청을 A-04 감사 로그에 남긴다 (기록이 실패해도 요청은 유효하므로 True).
+    _audit_access_request(user_id, doc_id, owner_company, request_id)
+    return True
+
+
+def get_access_request_history(user_id: int) -> list[dict]:
+    """M-03 마이페이지용: 이 사용자가 낸 열람 권한 요청 목록(문서·회사·사유·상태·시각)을 최신순으로 돌려준다.
+
+    status는 코드(pending/approved/rejected) 그대로다. 화면에서 한글 이름·색으로 바꾼다.
+    """
+    return list_access_requests_by_user(user_id)
+
+
+def _audit_access_request(user_id: int, doc_id: str, owner_company: str, request_id: int) -> None:
+    """A-04 권한 요청을 감사 로그에 남긴다. 기록이 실패해도 요청 등록을 되돌리지 않도록 예외는 삼킨다."""
+    try:
+        record_audit_log(
+            user_id,
+            "access_request",
+            doc_id,
+            None,
+            False,
+            None,
+            target_type="document",
+            doc_ids=[doc_id],
+            doc_companies=[owner_company],
+            context_detail={"request_id": request_id},
+        )
+    except Exception:
+        logger.exception("감사 로그 기록 실패(access_request)")

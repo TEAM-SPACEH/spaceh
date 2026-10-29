@@ -1,4 +1,4 @@
-import re
+import re, logging
 
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -14,6 +14,9 @@ from .rag_prompt import SYSTEM_PROMPT, USER_PROMPT
 from openai import APIError
 
 from core import config  # 모델 이름 등 설정값은 .env를 거쳐 config에서 읽는다(하드코딩 금지)
+from app.admin.services.audit_service import record_audit_log
+
+logger = logging.getLogger(__name__)
 
 def _get_field(chunk: Any, name: str, default=None) :
     """딕셔너리 또는 객체에서 필드 값을 가져옵니다"""
@@ -85,6 +88,7 @@ def _normalize_chunk(chunk: Any) -> dict | None:
     return {
         "text": text.strip(),
         "company": str(company),
+        "company_id": field("company_id"),
         "filename": filename,
         "location": str(location) if location is not None else "위치 정보 없음",
         "doc_id": field("doc_id", "document_id"),
@@ -165,6 +169,9 @@ def _is_no_answer(answer: str) -> bool:
 
     return normalized == NO_ANSWER
 
+def is_no_answer(answer: str) -> bool:
+    """UI 등 외부 모듈에서 AI 답변의 근거 없음 상태를 판정합니다."""
+    return _is_no_answer(answer)
 
 def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
     """검색된 문서 청크를 기반으로 AI 답변을 생성합니다."""
@@ -227,6 +234,82 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
         "sources": cited_sources,
     }
 
+def generate_answer_with_audit(
+    query: str,
+    chunks: Sequence[Any],
+    user: dict,
+    filters: dict | None = None,
+) -> dict[str, Any]:
+    """AI 답변을 생성하고 질의응답 감사 로그를 기록합니다."""
+
+    # 1. 기존 AI 답변 생성 로직 재사용
+    result = generate_answer(query, chunks)
+
+    # 2. 실제 인용된 출처 추출
+    sources = result.get("sources") or []
+
+    # 3. 인용 문서 ID 중복 제거
+    doc_ids = list(dict.fromkeys(
+        str(source["doc_id"])
+        for source in sources
+        if source.get("doc_id")
+    ))
+
+    # 4. 회사 코드 중복 제거
+    companies = list(dict.fromkeys(
+        str(source["company_id"])
+        for source in sources
+        if source.get("company_id")
+    ))
+
+    # 5. S-04 질의응답 감사 로그 기록
+    try:
+        record_audit_log(
+            user_id=user.get("id"),
+            action_type="ask",
+            target_id=None,
+            ip_address=None,
+            blocked=False,
+            block_reason=None,
+            query=query.strip(),
+            filters=filters or None,
+            doc_ids=doc_ids,
+            doc_companies=companies,
+            result_count=len(doc_ids),
+        )
+
+    except Exception:
+        # 감사 로그 기록 실패가 AI 답변을 막지 않도록 처리
+        logger.exception("감사 로그 기록 실패(ask)")
+
+    # 6. 기존 AI 답변 반환
+    return result
+
+def record_blocked_ask(
+    user: dict | None,
+    query: str,
+    filters: dict | None,
+    reason: str,
+) -> None:
+    """권한으로 차단된 AI 질의응답을 감사 로그에 기록한다."""
+
+    try:
+        record_audit_log(
+            user_id=user.get("id") if isinstance(user, dict) else None,
+            action_type="ask",
+            target_id=None,
+            ip_address=None,
+            blocked=True,
+            block_reason=reason,
+            query=query.strip() if isinstance(query, str) else None,
+            filters=filters or None,
+            doc_ids=[],
+            doc_companies=[],
+            result_count=0,
+        )
+
+    except Exception:
+        logger.exception("감사 로그 기록 실패(ask blocked)")
 
 def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
     """AI 답변의 출처 번호가 실제 검색 청크에 존재하는지 검증합니다."""
@@ -377,38 +460,49 @@ def _search_documents_for_user(
 
     from .search_service import search_documents
 
-    return search_documents(query, filters, user)
+    # 질의응답은 A-04 감사 로그를 ask로 따로 남기므로 검색(search) 기록은 끈다 (#77).
+    return search_documents(query, filters, user, audit=False)
 
 def answer_question(
-        query: str,
-        filters: dict | None,
-        user: dict
+    query: str,
+    filters: dict | None,
+    user: dict,
 ) -> dict[str, Any]:
-    """기존 검색 서비스와 AI 질의응답 기능을 연결합니다."""
+    """권한이 적용된 검색 결과로 AI 답변을 생성하고 감사 로그를 기록한다."""
 
-    # 1. 로그인 사용자 확인
     if not isinstance(user, dict) or not user:
         raise PermissionError("로그인이 필요합니다.")
 
-    # 2. 질문 유효성 검사
     if not isinstance(query, str) or not query.strip():
         raise ValueError("질문을 입력해 주세요.")
 
     query = query.strip()
 
-    # 3. 권한 필터가 적용된 검색 결과 조회
-    chunks = _search_documents_for_user(
-        query,
-        filters,
-        user
-    )
+    try:
+        chunks = _search_documents_for_user(
+            query,
+            filters,
+            user,
+        )
 
-    # 4. 검색 결과 형식 확인
-    if not isinstance(chunks, list):
-        raise TypeError("검색 결과는 리스트여야 합니다.")
+        if not isinstance(chunks, list):
+            raise TypeError("검색 결과는 리스트여야 합니다.")
 
-    # 5. 검색 결과를 기반으로 AI 답변 생성
-    return generate_answer(query, chunks)
+        return generate_answer_with_audit(
+            query,
+            chunks,
+            user,
+            filters,
+        )
+
+    except PermissionError as exc:
+        record_blocked_ask(
+            user,
+            query,
+            filters,
+            str(exc),
+        )
+        raise
 
 FOLLOWUP_COUNT = 3
 
