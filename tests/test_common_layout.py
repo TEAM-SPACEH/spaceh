@@ -1,6 +1,6 @@
 import unittest
 
-from app.common.layout import company_label, header_html, scope_html, scope_lines
+from app.common.layout import account_html, company_label, header_html, scope_html, scope_lines
 
 EMPLOYEE = {"name": "이물류", "role": "employee", "company_id": "MVX"}
 COMPANY_ADMIN = {"name": "최관리", "role": "company_admin", "company_id": "MVX", "company_name": "현대무벡스"}
@@ -14,15 +14,17 @@ class CommonLayoutTest(unittest.TestCase):
         self.assertEqual(company_label(SUPER_ADMIN), "전 계열사")
 
     def test_header_text_by_role(self):
-        """로고 옆·이름 아래 글자 (UI v4): 사원은 소속·사원, 관리자는 관리자·회사 관리자, 최종 어드민."""
+        """로고 옆 글자와 사이드바 사용자 정보의 역할 글자 (UI v4): 사원은 소속·사원, 관리자는 관리자·회사 관리자."""
         self.assertIn("<span>MVX</span>", header_html(EMPLOYEE))
-        self.assertIn(">사원<", header_html(EMPLOYEE))
+        self.assertIn(">사원<", account_html(EMPLOYEE))
         self.assertIn("<span>관리자</span>", header_html(COMPANY_ADMIN))
-        self.assertIn(">현대무벡스 관리자<", header_html(COMPANY_ADMIN))
+        self.assertIn(">현대무벡스 관리자<", account_html(COMPANY_ADMIN))
         self.assertIn("<span>최종 어드민</span>", header_html(SUPER_ADMIN))
+        # 사용자 정보는 헤더가 아니라 사이드바에만 나온다 (M-02 사이드바 사용자 정보).
+        self.assertNotIn("이물류", header_html(EMPLOYEE))
 
     def test_real_login_session_shows_company_name(self):
-        """auth_service.login()이 세션에 넣는 모양 그대로: 회사 이름이 헤더·메뉴 섹션·범위 안내에 나온다."""
+        """auth_service.login()이 세션에 넣는 모양 그대로: 회사 이름이 사용자 정보·메뉴 섹션·범위 안내에 나온다."""
         session_user = {
             "id": 4,
             "employee_no": "MVX-0002",
@@ -32,13 +34,15 @@ class CommonLayoutTest(unittest.TestCase):
             "company_name": "현대무벡스",
         }
         self.assertEqual(company_label(session_user), "현대무벡스")
-        self.assertIn(">현대무벡스 관리자<", header_html(session_user))
+        self.assertIn(">현대무벡스 관리자<", account_html(session_user))
         self.assertIn("현대무벡스 문서와 사용자", scope_html(session_user))
         # 최종 어드민은 소속이 없어 회사 이름도 None이다.
         self.assertEqual(company_label({**SUPER_ADMIN, "company_name": None}), "전 계열사")
 
     def test_header_escapes_db_values(self):
-        out = header_html({"name": "<b>[x](http://e)</b>", "role": "employee", "company_id": "<i>"})
+        user = {"name": "<b>[x](http://e)</b>", "role": "employee", "company_id": "<i>"}
+        self.assertNotIn("<i>", header_html(user))
+        out = account_html(user)
         self.assertNotIn("<i>", out)
         self.assertNotIn("<b>[x]", out)
         self.assertIn("[x](http://e)", out)
