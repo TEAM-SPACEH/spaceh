@@ -18,7 +18,7 @@
 # ─────────────────────────────────────────────────────────────
 
 import logging
-import re  # 정규식: 글자 속에서 "[숫자]" 같은 패턴을 찾을 때 써요
+import re # 정규식: 글자 속에서 "[숫자]" 같은 패턴을 찾을 때 써요
 
 from langchain_openai import ChatOpenAI  # OpenAI 모델을 부르는 LangChain 도구 (requirements.txt에 있음)
 
@@ -26,8 +26,6 @@ from core import config  # 모델 이름·API 키는 반드시 여기서 읽어�
 # A-07 계열사 목록 {"id": 코드, "name": 회사명}. "보고서 대상 선택지용"으로 만들어진 공통 함수예요.
 # 회사 목록을 코드에 직접 적지 말고 이 함수를 쓰는 게 팀 규칙이에요.
 from app.admin.services.company_service import get_company_options
-# S-04(김소은)가 청크를 출처 모양으로 바꿀 때 쓰는 함수예요.
-# 같은 함수를 써야 답변 출처와 보고서 출처의 회사·파일·위치 표기가 똑같아져요.
 from app.search.services.rag_service import prepare_context
 from app.reports.models.report_models import (
     Chunk, CollectionResult, ReportRequest, ReportTemplate, Section, SectionType,
@@ -38,9 +36,7 @@ from app.reports.services.prompts import (
     PROBLEM_TRUNCATED, RETRY_PROMPT_TEMPLATE, SCOPE_SENTENCE_TEMPLATE, SECTION_GUIDES,
     SECTION_PROMPT_TEMPLATE, SECTION_TITLES,
 )
-# 지금은 가짜예요. 김소은의 R-01이 완성되면 이 줄만 아래처럼 바꿔요.
-#   from app.reports.services.report_collector import select_section_evidence
-from app.reports.mock_data import select_section_evidence
+from app.reports.services.report_collector import select_section_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -540,7 +536,7 @@ def generate_draft(request: ReportRequest, collection: CollectionResult) -> list
     # 청크마다 부르는 것을 막는 뜻이고, 섹션마다 부르는 건 명세서가 정한 방식이에요.
     for section_type in get_template_sections(request.template):
 
-        # 이 섹션 목적에 맞는 근거만 골라요. (김소은의 R-01 함수, 지금은 가짜)
+        # 이 섹션 목적에 맞는 근거만 골라요.
         chunks = select_section_evidence(section_type, collection)
 
         # 제언 섹션일 때만 지금까지 완성된 섹션을 참고 자료로 넘겨요.
