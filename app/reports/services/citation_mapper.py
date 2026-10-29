@@ -138,3 +138,89 @@ def map_footnotes(
         )
 
     return mapped_sections, footnotes
+
+
+def renumber_footnotes(
+    sections: list[Section],
+    footnotes: list[Footnote],
+) -> tuple[list[Section], list[Footnote]]:
+    """본문에서 인용한 순서대로 각주 번호를 재정렬한다."""
+
+    # 기존 각주 번호로 각주 찾기
+    footnote_by_number = {
+        note.number: note for note in footnotes
+    }
+
+    # 같은 청크는 같은 번호를 사용
+    chunk_numbers = {}
+
+    new_footnotes = []
+    new_sections = []
+
+    for section in sections:
+        if not section.has_evidence:
+            new_sections.append(replace(section))
+            continue
+
+        # 현재 섹션의 기존 번호 → 새로운 번호
+        number_mapping = {}
+
+        def replace_citation(match):
+            old_number = int(match.group(1))
+            note = footnote_by_number.get(old_number)
+
+            # 실제 각주가 없는 번호는 제거
+            if note is None:
+                return ""
+
+            # 처음 등장한 청크에 새 번호 부여
+            if note.chunk_id not in chunk_numbers:
+                new_number = len(new_footnotes) + 1
+                chunk_numbers[note.chunk_id] = new_number
+
+                new_footnotes.append(
+                    replace(note, number=new_number)
+                )
+
+            new_number = chunk_numbers[note.chunk_id]
+            number_mapping[old_number] = new_number
+
+            return f"[{new_number}]"
+
+        # 본문의 인용 번호를 한 번에 변경
+        new_body = CITATION_PATTERN.sub(
+            replace_citation,
+            section.body,
+        )
+
+        # 출처 패널의 인용 번호도 변경
+        new_sources = []
+        used_numbers = set()
+
+        for source in section.sources:
+            try:
+                old_number = int(source.get("citation_number"))
+            except (TypeError, ValueError):
+                continue
+
+            new_number = number_mapping.get(old_number)
+
+            # 사용되지 않은 출처 및 중복 출처 제거
+            if new_number is None or new_number in used_numbers:
+                continue
+
+            updated_source = source.copy()
+            updated_source["citation_number"] = new_number
+
+            new_sources.append(updated_source)
+            used_numbers.add(new_number)
+
+        new_sections.append(
+            replace(
+                section,
+                body=new_body,
+                sources=new_sources,
+            )
+        )
+
+    return new_sections, new_footnotes
