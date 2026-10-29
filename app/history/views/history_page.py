@@ -70,13 +70,14 @@ def _render_usage(user_id: int) -> None:
                 show_text(f"{item['created_at']}{blocked}", muted=True)
             with actions:
                 history_id = item["history_id"]
-                if item["history_type"] == "search" and st.button("다시 검색", key=f"rerun-{history_id}"):
+                if item["can_rerun"] and st.button("다시 검색", key=f"rerun-{history_id}"):
                     st.session_state[_SELECTED_KEY] = ("rerun", history_id)
                     st.rerun()
-                if item["report_id"] is not None and st.button("보고서 열기", key=f"report-{history_id}"):
+                # 보고서 항목은 감사 로그가 아니라 reports 에서 온 것이라 history_id 가 없다.
+                if item["report_id"] is not None and st.button("보고서 열기", key=f"report-{item['report_id']}"):
                     st.session_state[_SELECTED_KEY] = ("report", item["report_id"])
                     st.rerun()
-                if st.button("상세", key=f"detail-{history_id}"):
+                if history_id is not None and st.button("상세", key=f"detail-{history_id}"):
                     st.session_state[_SELECTED_KEY] = ("detail", history_id)
                     st.rerun()
 

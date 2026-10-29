@@ -1,6 +1,7 @@
 """M-04 내 사용 히스토리 DB 읽기 (repositories 계층).
 
 사용 이력은 별도 테이블 없이 audit_logs 에서 본인 행만 읽는다 (data-model.md).
+보고서 생성 이력만은 reports 테이블에서 읽는다 (보고서 다시 열기와 같은 출처).
 모든 조회에 user_id 조건을 건다. 다른 사람의 이력·보고서·요청 id 를 넣어도 찾지 못하게 하기 위해서다.
 권한 판단은 하지 않는다 (history_service 가 한다).
 """
@@ -64,17 +65,15 @@ def find_user_report(user_id: int, report_id: int) -> dict | None:
         return _decode(cur.fetchone())
 
 
-def find_report_titles(user_id: int, report_ids: list[int]) -> dict[int, str]:
-    """M-04 본인 보고서 id → 제목. 목록에 보고서 제목을 보여 줄 때 쓴다."""
-    if not report_ids:
-        return {}
-    placeholders = ", ".join(["%s"] * len(report_ids))
+def list_user_reports(user_id: int, limit: int) -> list[dict]:
+    """M-04 본인이 만든 보고서를 최신순으로 limit 건 읽는다 (목록용이라 본문은 읽지 않는다)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            f"SELECT id, title FROM reports WHERE user_id = %s AND id IN ({placeholders})",
-            [user_id, *report_ids],
+            "SELECT id, title, created_at FROM reports WHERE user_id = %s "
+            "ORDER BY created_at DESC, id DESC LIMIT %s",
+            (user_id, limit),
         )
-        return {row["id"]: row["title"] for row in cur.fetchall()}
+        return cur.fetchall()
 
 
 def find_documents(doc_ids: list[str]) -> dict[str, dict]:

@@ -26,6 +26,14 @@ HISTORY_TYPES = {
     "report_create": "보고서 생성",
 }
 
+# 감사 로그에서 읽는 유형. 보고서 생성은 감사 로그 대신 reports 테이블에서 바로 읽는다.
+# 보고서 다시 열기도 reports 를 읽으므로 목록과 열기가 같은 곳을 보게 된다.
+_LOG_ACTIONS = ["search", "ask", "view_document"]
+
+# 다시 검색할 수 있는 유형. 통합 검색 화면은 검색과 AI 답변을 한 번에 하고 ask 로만 기록하므로 (#100)
+# ask 도 search 와 같이 저장된 검색어·필터로 다시 검색한다.
+_RERUN_ACTIONS = ["search", "ask"]
+
 # 한 번에 읽는 이력 최대 건수. 오래 쓴 계정도 화면이 느려지지 않게 최신 것만 본다.
 HISTORY_LIMIT = 100
 
@@ -44,15 +52,18 @@ def get_user_history(user_id: int, history_type: str | None) -> list[dict]:
 
     history_type: HISTORY_TYPES 의 키. None 이면 전체. 모르는 값이면 빈 목록
     반환: [{"history_id", "history_type", "type_label", "summary", "created_at",
-            "result_count", "is_blocked", "report_id"}, ...]
+            "result_count", "is_blocked", "can_rerun", "report_id"}, ...]
         summary 는 검색어·질문, 열람한 문서 제목, 보고서 제목 중 하나다.
+        보고서 항목은 감사 로그가 아니라서 history_id 가 None 이고 report_id 로 연다.
     """
     if not _is_self(user_id):
         return []
     if history_type is None:
-        actions = list(HISTORY_TYPES)
+        actions, with_reports = list(_LOG_ACTIONS), True
+    elif history_type == "report_create":
+        actions, with_reports = [], True
     elif history_type in HISTORY_TYPES:
-        actions = [history_type]
+        actions, with_reports = [history_type], False
     else:
         return []
 
@@ -60,10 +71,14 @@ def get_user_history(user_id: int, history_type: str | None) -> list[dict]:
     documents = history_repository.find_documents(
         sorted({row["target_id"] for row in rows if row["action"] == "view_document" and row["target_id"]})
     )
-    reports = history_repository.find_report_titles(
-        user_id, sorted({_report_id(row) for row in rows if _report_id(row) is not None})
-    )
-    return [_to_item(row, documents, reports) for row in rows]
+    dated = [(row["created_at"], _to_item(row, documents)) for row in rows]
+    if with_reports:
+        dated += [(report["created_at"], _report_item(report))
+                  for report in history_repository.list_user_reports(user_id, HISTORY_LIMIT)]
+
+    # 감사 로그와 보고서를 합쳐 최신순으로 다시 세운다. 시각은 표시용 문자열이 아니라 원래 값으로 비교한다.
+    dated.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in dated[:HISTORY_LIMIT]]
 
 
 def get_history_detail(user_id: int, history_id: int) -> dict | None:
@@ -74,7 +89,7 @@ def get_history_detail(user_id: int, history_id: int) -> dict | None:
     """
     if not _is_self(user_id):
         return None
-    row = history_repository.get_user_log(user_id, history_id, list(HISTORY_TYPES))
+    row = history_repository.get_user_log(user_id, history_id, _LOG_ACTIONS)
     if row is None:
         return None
 
@@ -82,10 +97,8 @@ def get_history_detail(user_id: int, history_id: int) -> dict | None:
     if row["action"] == "view_document" and row["target_id"] and row["target_id"] not in doc_ids:
         doc_ids.insert(0, row["target_id"])
     documents = history_repository.find_documents(doc_ids)
-    report_id = _report_id(row)
-    reports = history_repository.find_report_titles(user_id, [report_id]) if report_id is not None else {}
 
-    detail = _to_item(row, documents, reports)
+    detail = _to_item(row, documents)
     detail.update(
         {
             "query": row.get("query"),
@@ -104,13 +117,14 @@ def get_history_detail(user_id: int, history_id: int) -> dict | None:
 def rerun_search(user_id: int, history_id: int) -> dict:
     """M-04 과거 검색어와 필터 조건을 불러와 현재 사용자 권한을 다시 적용하여 검색을 재실행한다.
 
+    검색(search)과 질문(ask) 이력 모두 저장된 검색어·필터로 다시 검색한다.
     반환: {"history_id", "query", "filters", "results"}. results 는 hybrid_search() 결과 그대로.
         본인 검색 이력이 아니거나 사용자 정보를 못 읽으면 빈 dict
     오류: 검색 중 오류(Chroma·임베딩)는 그대로 올린다. 화면이 안내한다
     """
     if not _is_self(user_id):
         return {}
-    row = history_repository.get_user_log(user_id, history_id, ["search"])
+    row = history_repository.get_user_log(user_id, history_id, _RERUN_ACTIONS)
     if row is None or not (row.get("query") or "").strip():
         return {}
     user = _current_user(user_id)
@@ -206,25 +220,12 @@ def _current_user(user_id: int) -> dict | None:
     return {"id": info["user_id"], "role": info["role"], "company_id": info["company_id"]}
 
 
-def _report_id(row: dict) -> int | None:
-    """보고서 생성 로그의 대상 보고서 id. 기록 형식은 target_id=str(report_id) 다 (#76)."""
-    if row["action"] != "report_create":
-        return None
-    try:
-        return int(row["target_id"])
-    except (TypeError, ValueError):
-        return None
-
-
-def _to_item(row: dict, documents: dict, reports: dict) -> dict:
+def _to_item(row: dict, documents: dict) -> dict:
     """감사 로그 행 → 히스토리 목록 항목."""
     action = row["action"]
-    report_id = _report_id(row)
     if action == "view_document":
         document = documents.get(row["target_id"])
         summary = document["title"] if document else (row["target_id"] or "")
-    elif action == "report_create":
-        summary = reports.get(report_id) or row.get("query") or ""
     else:
         summary = row.get("query") or ""
     return {
@@ -235,7 +236,23 @@ def _to_item(row: dict, documents: dict, reports: dict) -> dict:
         "created_at": _format_time(row["created_at"]),
         "result_count": row.get("result_count"),
         "is_blocked": bool(row.get("is_blocked")),
-        "report_id": report_id,
+        "can_rerun": action in _RERUN_ACTIONS and bool((row.get("query") or "").strip()),
+        "report_id": None,
+    }
+
+
+def _report_item(report: dict) -> dict:
+    """reports 행 → 히스토리 목록 항목. 감사 로그가 아니라서 history_id 는 없다."""
+    return {
+        "history_id": None,
+        "history_type": "report_create",
+        "type_label": HISTORY_TYPES["report_create"],
+        "summary": report["title"],
+        "created_at": _format_time(report["created_at"]),
+        "result_count": None,
+        "is_blocked": False,
+        "can_rerun": False,
+        "report_id": report["id"],
     }
 
 
