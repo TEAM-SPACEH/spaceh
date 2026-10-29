@@ -77,3 +77,36 @@ def insert_access_request(user_id: int, doc_id: str, owner_company_code: str, re
         )
         # rowcount=1이면 방금 넣은 줄의 id(lastrowid)를, 0이면(이미 대기 요청 있음) None을 준다.
         return cur.lastrowid if cur.rowcount == 1 else None
+
+
+def list_access_requests_by_user(user_id: int) -> list[dict]:
+    """M-03 이 사용자가 낸 열람 권한 요청 목록을 최신순으로 돌려준다(마이페이지 표시용).
+
+    문서 제목은 documents와 이어서(JOIN) 가져온다. 상태(status)는 코드 그대로 주고,
+    화면에서 한글(검토 중/승인/반려)로 바꾼다. review_comment는 A-05 관리자가 남긴 처리 의견으로,
+    반려된 요청의 '반려 사유'를 요청자가 마이페이지에서 확인하는 데 쓴다(없으면 NULL).
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ar.doc_id, d.title AS doc_title, ar.owner_company_code, "
+            "       ar.reason, ar.status, ar.review_comment, ar.created_at "
+            "FROM access_requests ar "
+            "JOIN documents d ON d.doc_id = ar.doc_id "
+            "WHERE ar.user_id = %s "
+            "ORDER BY ar.created_at DESC",
+            (user_id,),
+        )
+        return cur.fetchall()
+
+
+def get_pending_doc_ids(user_id: int) -> list[str]:
+    """M-03 이 사용자가 아직 처리 대기 중(pending)인 요청의 문서 id 목록.
+
+    후보 문서마다 has_pending_request를 따로 부르지 않고, 한 번에 받아 배치로 쓰기 위한 함수다.
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT doc_id FROM access_requests WHERE user_id = %s AND status = 'pending'",
+            (user_id,),
+        )
+        return [row["doc_id"] for row in cur.fetchall()]

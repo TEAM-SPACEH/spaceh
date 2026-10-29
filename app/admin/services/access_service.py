@@ -26,6 +26,8 @@ from datetime import datetime
 
 from app.admin.paging import as_int, clamp
 from app.admin.repositories import access_repository
+from app.admin.repositories import access_request_repository
+from app.admin.repositories.document_repository import find_active_admin
 from app.admin.services.audit_service import KST, record_audit_log
 from core.constants import (
     ACCESS_CONFIDENTIAL,
@@ -40,7 +42,9 @@ logger = logging.getLogger(__name__)
 # 같은 문서의 켜기·끄기 요청이 겹치면 두 요청이 각자 읽은 옛 값을 믿고 MySQL·Chroma 를 서로 다른 순서로 갱신해,
 # 끈 문서가 타사 직원 검색에 남을 수 있다 (실제 MySQL·Chroma 로 재현: 겹친 40번 중 38번 어긋남).
 # 이 잠금은 한 프로세스(서버) 안의 요청만 직렬화한다. 서버를 여러 개 띄우면 분산 잠금이 필요하다.
-_GROUP_SHARE_LOCK = threading.Lock()
+# A-02(document_service 의 재색인)도 이 잠금을 쓴다. 재색인이 문서를 선점하고 다시 읽는 동안 공유 변경이 끼어들지 못하게 하려는 것이라,
+# 다른 파일에서 쓰도록 공개 이름(GROUP_SHARE_LOCK)으로 둔다. 이름·동작을 바꾸면 A-02 와 함께 고친다.
+GROUP_SHARE_LOCK = threading.Lock()
 
 # documents.index_status 값 중 색인이 끝난 상태. 이때만 공유를 바꿀 수 있다 (docs/architecture/data-model.md).
 INDEX_STATUS_DONE = "done"
@@ -146,8 +150,8 @@ def get_company_filter_options(user: dict) -> list[str]:
     계열사 관리자는 자사 문서만 보므로 빈 목록을 돌려준다.
     PermissionError: 관리자가 아닐 때
     """
-    _resolve_scope(user, "")
-    if user.get("role") != ROLE_SUPER_ADMIN:
+    # 계열사를 고르지 않았을 때 범위가 None(전체)인 사람이 최종 어드민이다. 세션의 role 이 아니라 DB 의 현재 값으로 판단한다.
+    if _resolve_scope(user, "") is not None:
         return []
     return access_repository.list_company_ids()
 
@@ -167,14 +171,17 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     """
     share_enabled = bool(share_enabled)
     user = user or {}
+    session_user = user
 
     # 문서를 읽는 순간부터 저장이 끝날 때까지 한 번에 하나만 실행한다. 읽은 값(document)이 저장할 때까지 유효해야
     # 하고(이전 값으로 되돌리기), 두 저장소의 갱신 순서가 다른 요청과 섞이지 않아야 한다.
     # 감사 로그 기록은 잠금 밖에서 한다 (잠금을 오래 쥐지 않으려고).
-    with _GROUP_SHARE_LOCK:
+    with GROUP_SHARE_LOCK:
         # 1단계 검증: 바꾸기 전에 (1) 관리자인가 → (2) 문서가 있는가 → (3) 내 회사 문서이고 internal 인가 순으로 본다.
         # 관리자 확인이 가장 먼저라서 일반 사원은 문서가 있는지조차 알 수 없다.
         try:
+            # 세션의 역할·소속은 로그인 뒤 바뀌었을 수 있다 (강등·소속 변경). 권한 판단은 DB 의 현재 값으로 한다.
+            user = _refresh_user(user)
             _require_admin(user)
             document = access_repository.get_document(doc_id)
             if document is None:
@@ -183,7 +190,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         except (PermissionError, ValueError) as exc:
             # 감사 로그는 "막힌 시도"도 남긴다 (A-04). 누가 어떤 문서의 공유를 바꾸려다 막혔는지 관리자가 볼 수 있다.
             # LookupError 는 존재하지 않는 문서라 남길 대상이 없어 기록하지 않는다.
-            _record(user, doc_id, blocked=True, reason=str(exc))
+            _record(session_user, doc_id, blocked=True, reason=str(exc))
             raise
 
         # 2단계: 실제 변경. MySQL 과 Chroma 를 함께 바꾸고(실패해도 검색이 더 넓게 열리지 않는 순서), 실패하면 예외가 그대로 올라간다.
@@ -195,7 +202,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
     # 공유 값은 이미 커밋됐다. 기록이 실패해도 바뀐 값을 되돌릴 수는 없으므로, 호출한 쪽에는 성공을 알리고
     # 실패는 로그에 남겨 운영자가 알 수 있게 한다.
     _record(
-        user,
+        session_user,
         doc_id,
         blocked=False,
         reason=None,
@@ -208,6 +215,118 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
         "status": "success",
         "message": "공유 설정이 변경되었습니다.",
     }
+
+
+# A-05 권한 요청 승인·반려
+def get_access_request_list(user: dict, filters: dict, page: int, size: int) -> dict:
+    """A-05 활성 관리자의 문서 소유 범위와 상태로 열람 요청을 페이지 조회한다."""
+    user = user or {}
+    try:
+        reviewer = _review_require_admin(find_active_admin(user.get("id")))
+    except PermissionError as exc:
+        try:
+            record_audit_log(
+                user.get("id"), "access_review", None, None, True, str(exc),
+                target_type="access_request", context_detail={"decision": "list"},
+            )
+        except Exception:
+            logger.exception("A-05 열람 요청 목록 권한 차단 감사 로그 기록 실패")
+        raise
+    company_id = reviewer["company_id"] if reviewer["role"] == ROLE_COMPANY_ADMIN else None
+    status = (filters or {}).get("status") or None
+    if status not in (None, "pending", "approved", "rejected"):
+        raise ValueError("올바른 요청 상태를 선택해 주세요.")
+    size = clamp(size, 1, MAX_PAGE_SIZE)
+    page = max(as_int(page, 1), 1)
+    rows, total = access_request_repository.list_requests(company_id, status, size, (page - 1) * size)
+    total_pages = max(math.ceil(total / size), 1)
+    if page > total_pages:
+        page = total_pages
+        rows, total = access_request_repository.list_requests(company_id, status, size, (page - 1) * size)
+    return {"requests": rows, "total_count": total, "page": page, "total_pages": total_pages}
+
+
+def process_access_request(request_id: int, decision: str, user: dict,
+                           rejection_reason: str) -> dict:
+    """A-05 대기 요청을 승인하거나 사유와 함께 반려하고 감사 로그를 기록한다."""
+    if decision not in ("approved", "rejected"):
+        raise ValueError("승인 또는 반려를 선택해 주세요.")
+    if decision == "approved":
+        update_document_access(request_id, user)
+    else:
+        if not isinstance(rejection_reason, str) or not rejection_reason.strip():
+            raise ValueError("반려 사유를 입력해 주세요.")
+        if len(rejection_reason.encode("utf-8")) > 65535:
+            raise ValueError("반려 사유가 너무 깁니다.")
+        _review_request(request_id, decision, user, rejection_reason.strip())
+    return {"request_id": request_id, "status": decision}
+
+
+def update_document_access(request_id: int, reviewer: dict) -> bool:
+    """A-05 승인 권한을 재확인하고 권한 부여와 요청 승인을 함께 저장한다."""
+    _review_request(request_id, "approved", reviewer, None)
+    return True
+
+
+def _review_require_admin(reviewer: dict | None) -> dict:
+    if not reviewer or reviewer.get("role") not in (ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN):
+        raise PermissionError("활성 관리자만 열람 요청을 관리할 수 있습니다.")
+    if reviewer["role"] == ROLE_COMPANY_ADMIN and not reviewer.get("company_id"):
+        raise PermissionError("소속 계열사가 없는 관리자는 처리할 수 없습니다.")
+    return reviewer
+
+
+def _review_request(request_id: int, decision: str, user: dict, reason: str | None) -> None:
+    if type(request_id) is not int or request_id < 1:
+        raise ValueError("올바른 요청을 선택해 주세요.")
+    user = user or {}
+    request = None
+    try:
+        with access_request_repository.review_transaction() as cursor:
+            reviewer = _review_require_admin(access_request_repository.find_reviewer(cursor, user.get("id")))
+            request = access_request_repository.find_request(cursor, request_id)
+            if request is None:
+                raise LookupError("열람 요청을 찾을 수 없습니다.")
+            if reviewer["role"] == ROLE_COMPANY_ADMIN and request["company_id"] != reviewer["company_id"]:
+                raise PermissionError("자사 소유 문서의 열람 요청만 처리할 수 있습니다.")
+            if request["status"] != "pending":
+                raise ValueError("이미 처리된 요청입니다. 목록을 새로 확인해 주세요.")
+            if decision == "approved":
+                access_request_repository.insert_grant(cursor, request, reviewer["id"])
+            access_request_repository.save_review(
+                cursor, request_id, decision, reviewer["id"], reason,
+                datetime.now(KST).replace(tzinfo=None),
+            )
+    except PermissionError as exc:
+        _review_audit(user, request_id, decision, request, True, str(exc))
+        raise
+    _review_audit(reviewer, request_id, decision, request, False, None)
+
+
+def _review_audit(user: dict, request_id: int, decision: str, request: dict | None,
+                  blocked: bool, reason: str | None) -> None:
+    try:
+        record_audit_log(
+            user.get("id"), "access_review", str(request_id), None, blocked, reason,
+            target_type="access_request",
+            doc_ids=[request["doc_id"]] if request else None,
+            doc_companies=[request["company_id"]] if request else None,
+            context_detail={"decision": decision},
+        )
+    except Exception:
+        logger.exception("A-05 승인·반려 감사 로그 기록 실패")
+
+
+def _refresh_user(user: dict) -> dict:
+    """세션에 저장된 user 의 역할·소속을 DB 의 현재 값으로 바꿔 돌려준다 (id 등 나머지 값은 그대로).
+
+    세션 값을 믿으면 로그인한 뒤 강등되거나 다른 계열사로 옮겨진 관리자가 옛 권한으로 계속 조회·변경할 수 있다.
+    ID 가 없거나 계정이 없거나 비활성이면 역할을 None 으로 둬서 아래 관리자 확인에서 거부된다.
+    """
+    user_id = user.get("id")
+    current = access_repository.find_active_user(user_id) if type(user_id) is int else None
+    current = current or {"role": None, "company_id": None}
+    return {**user, "role": current["role"], "company_id": current["company_id"]}
 
 
 def _require_admin(user: dict) -> None:
@@ -270,6 +389,7 @@ def _resolve_scope(user: dict | None, company_filter: str) -> str | None:
     """
     if not user:
         raise PermissionError("로그인이 필요합니다.")
+    user = _refresh_user(user)
     role = user.get("role")
     if role == ROLE_SUPER_ADMIN:
         return company_filter or None

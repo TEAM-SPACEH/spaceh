@@ -8,8 +8,12 @@ from app.common.ui import citation_html, company_tag_html, empty_state
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 
 
-def render_rag_source_panel(sources: list[dict]) -> None:
-    """출처를 기업별 카드로 표시합니다."""
+def render_rag_source_panel(sources: list[dict], key_prefix: str = "s61_source") -> None:
+    """출처를 기업별 카드로 표시합니다.
+
+    key_prefix: [원문 보기] 버튼 key 앞부분. 한 화면에 패널을 여러 개 그릴 때
+        (R-02 보고서 섹션별 출처 등) 패널마다 다르게 넘겨 key 중복을 막는다.
+    """
 
     st.html('<div class="sh-s61-source-title">출처</div>')
 
@@ -82,7 +86,7 @@ def render_rag_source_panel(sources: list[dict]) -> None:
 
                 if st.button(
                     "원문 보기",
-                    key=f"s61_source_{group_index}_{index}",
+                    key=f"{key_prefix}_{group_index}_{index}",
                 ):
                     # 기존 S-05 원문 뷰어와 동일한 세션 키 사용
                     st.session_state[SELECTED_SOURCE_KEY] = source

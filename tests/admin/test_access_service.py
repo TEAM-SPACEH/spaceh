@@ -21,6 +21,16 @@ SUPER = {"id": 1, "role": "super_admin", "company_id": None}
 MVX_ADMIN = {"id": 2, "role": "company_admin", "company_id": "MVX"}
 ELV_ADMIN = {"id": 3, "role": "company_admin", "company_id": "ELV"}
 MVX_EMPLOYEE = {"id": 4, "role": "employee", "company_id": "MVX"}
+NO_COMPANY_ADMIN = {"id": 9, "role": "company_admin", "company_id": None}
+
+
+ALL_USERS = {user["id"]: user for user in (SUPER, MVX_ADMIN, ELV_ADMIN, MVX_EMPLOYEE, NO_COMPANY_ADMIN)}
+
+
+def _repo_patch(current_users=None):
+    """access_repository 를 mock 으로 바꾸되, DB 의 현재 사용자(find_active_user)는 기본으로 세션 값과 같게 돌려준다."""
+    users = ALL_USERS if current_users is None else current_users
+    return patch(REPO, **{"find_active_user.side_effect": lambda user_id: users.get(user_id)})
 
 
 def _doc(company_id="MVX", access_level="internal", is_group_shared=0, index_status="done"):
@@ -35,7 +45,7 @@ def _doc(company_id="MVX", access_level="internal", is_group_shared=0, index_sta
 
 
 @patch(AUDIT)
-@patch(REPO)
+@_repo_patch()
 class SetGroupShareTest(unittest.TestCase):
     """set_group_share: 공유 변경."""
 
@@ -154,7 +164,7 @@ class SetGroupShareTest(unittest.TestCase):
         """소속이 없는 계열사 관리자가 소속 없는 문서와 None == None 으로 통과하지 못한다."""
         repo.get_document.return_value = _doc(company_id=None)
         with self.assertRaises(PermissionError):
-            access_service.set_group_share("doc-1", True, {"id": 9, "role": "company_admin", "company_id": None})
+            access_service.set_group_share("doc-1", True, NO_COMPANY_ADMIN)
         repo.update_group_share.assert_not_called()
 
     def test_super_admin_can_toggle_other_company_internal_document(self, repo, audit):
@@ -215,7 +225,7 @@ class SetGroupShareTest(unittest.TestCase):
         self.assertEqual(result["status"], "success")
 
 
-@patch(REPO)
+@_repo_patch()
 class GetManageableDocumentsTest(unittest.TestCase):
     """get_manageable_documents: 관리자 범위 목록."""
 
@@ -293,7 +303,7 @@ class GetManageableDocumentsTest(unittest.TestCase):
         self.assertIs(kwargs["is_group_shared"], False)
 
 
-@patch(REPO)
+@_repo_patch()
 class ShareSummaryAndFilterTest(unittest.TestCase):
     """공유 요약 집계와 보안 등급 필터."""
 
@@ -330,7 +340,7 @@ class ShareSummaryAndFilterTest(unittest.TestCase):
         self.assertEqual(repo.list_documents.call_args.kwargs["access_levels"], ("internal", "confidential"))
 
 
-@patch(REPO)
+@_repo_patch()
 class ShareScopeNameTest(unittest.TestCase):
     def test_company_admin_gets_company_name_and_falls_back_to_code(self, repo):
         """계열사 관리자는 회사명, 회사명을 못 찾으면 코드를 보여 준다."""
@@ -348,6 +358,61 @@ class ShareScopeNameTest(unittest.TestCase):
         """일반 사원은 거부된다."""
         with self.assertRaises(PermissionError):
             access_service.get_share_scope_name(MVX_EMPLOYEE)
+
+
+class StaleSessionTest(unittest.TestCase):
+    """세션에 저장된 역할·소속이 오래돼도 권한은 DB 의 현재 값으로 판단한다 (로그인 뒤 강등·소속 변경)."""
+
+    def _patched(self, current):
+        """DB 에는 id 2 사용자가 current 로 저장돼 있고, 세션에는 계열사 관리자(MVX)로 남아 있는 상황."""
+        return _repo_patch({2: current} if current else {})
+
+    def test_demoted_admin_cannot_change_share(self):
+        """DB 에서 일반 사원이 된 사용자는 세션이 관리자여도 변경이 거부되고 감사 로그에 차단으로 남는다."""
+        with self._patched({"role": "employee", "company_id": "MVX"}) as repo, patch(AUDIT) as audit:
+            with self.assertRaisesRegex(PermissionError, "관리자만"):
+                access_service.set_group_share("doc-1", True, MVX_ADMIN)
+            repo.update_group_share.assert_not_called()
+            repo.get_document.assert_not_called()  # 관리자 확인이 문서 조회보다 먼저다
+            self.assertTrue(audit.call_args.args[4])  # blocked=True
+            self.assertEqual(audit.call_args.args[0], MVX_ADMIN["id"])  # 기록은 세션 사용자 ID 기준
+
+    def test_admin_moved_to_other_company_cannot_change_old_company_document(self):
+        """DB 에서 ELV 로 옮겨진 관리자는 세션이 MVX 여도 MVX 문서를 바꿀 수 없다."""
+        with self._patched({"role": "company_admin", "company_id": "ELV"}) as repo, patch(AUDIT):
+            repo.get_document.return_value = _doc(company_id="MVX")
+            with self.assertRaisesRegex(PermissionError, "자사 문서만"):
+                access_service.set_group_share("doc-1", True, MVX_ADMIN)
+            repo.update_group_share.assert_not_called()
+
+    def test_inactive_or_deleted_account_is_denied(self):
+        """DB 에서 비활성·삭제된 계정(조회 결과 없음)은 세션이 최종 어드민이어도 거부된다."""
+        with self._patched(None) as repo, patch(AUDIT):
+            with self.assertRaises(PermissionError):
+                access_service.set_group_share("doc-1", True, SUPER)
+            with self.assertRaises(PermissionError):
+                access_service.get_manageable_documents(SUPER)
+            repo.list_documents.assert_not_called()
+
+    def test_session_without_user_id_is_denied(self):
+        """ID 가 없는 세션은 DB 에서 확인할 수 없으므로 거부된다."""
+        with _repo_patch() as repo:
+            with self.assertRaises(PermissionError):
+                access_service.get_manageable_documents({"role": "super_admin", "company_id": None})
+            repo.list_documents.assert_not_called()
+
+    def test_list_scope_follows_current_company(self):
+        """목록 조회 범위도 DB 의 현재 소속(ELV)을 따른다. 세션 값(MVX)이 아니다."""
+        with self._patched({"role": "company_admin", "company_id": "ELV"}) as repo:
+            repo.list_documents.return_value = ([], 0)
+            access_service.get_manageable_documents(MVX_ADMIN)
+            self.assertEqual(repo.list_documents.call_args.kwargs["company_id"], "ELV")
+
+    def test_demoted_super_admin_does_not_get_company_options(self):
+        """계열사 선택 목록은 DB 의 현재 최종 어드민에게만 준다. 강등된 세션은 빈 목록이다."""
+        with self._patched({"role": "company_admin", "company_id": "MVX"}) as repo:
+            self.assertEqual(access_service.get_company_filter_options({**SUPER, "id": 2}), [])
+            repo.list_company_ids.assert_not_called()
 
 
 if __name__ == "__main__":

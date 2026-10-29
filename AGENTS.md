@@ -28,6 +28,7 @@ agent용 허브 문서다. 상세 규칙을 여기에 복붙하지 말고, 작�
 | 코드 추가·수정 | `docs/conventions/coding.md`, `docs/architecture/overview.md` §3 (패키지 사이 약속) |
 | 검색·답변·보고서·원문 보기 (권한이 걸리는 모든 것) | `docs/architecture/overview.md` §2 (권한 규칙) |
 | 로더·청킹·Chroma·DB 필드 | `docs/architecture/data-model.md` |
+| 보고서 수집·생성·각주 (R-01~R-04) | `docs/architecture/report.md` |
 | 이미 정한 것인지 확인 | `docs/decisions.md` |
 | 환경 설정·실행·패키지 추가 | `docs/workflows/local-development.md` |
 | AI 도구로 코드 생성 | `docs/conventions/ai.md` |

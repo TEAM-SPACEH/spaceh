@@ -46,6 +46,8 @@ ACTION_LABELS = {
     "download": "원문 내려받기",
     "report_create": "보고서 생성",
     "upload": "문서 업로드",
+    "document_delete": "문서 삭제",
+    "document_reindex": "문서 재색인",
     "share_change": "공유 변경",
     "access_request": "권한 요청",
     "access_review": "권한 처리",

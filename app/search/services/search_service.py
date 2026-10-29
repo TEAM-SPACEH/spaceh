@@ -19,11 +19,19 @@ import re
 from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25L
 
+from app.permissions.services.permission_service import apply_rbac_filter, filter_requestable_documents
 from app.admin.services.audit_service import record_audit_log
 from app.permissions.services.permission_service import apply_rbac_filter
 from app.search.repositories.chunk_repository import get_chunks, query_chunks
+from app.search.repositories.document_repository import search_requestable_candidates
 from core import config
 
+# 요청 가능 문서를 찾을 때 documents 테이블에서 가져올 후보 문서 수(고정 상한). 제목에 검색어가 든
+# 문서를 최신순으로 이만큼 가져온 뒤 권한 판정으로 요청 가능한 것만 남긴다. 다만 '상한'이라,
+# 접근 가능·대기 중 문서가 이 수를 모두 채우면 그보다 아래의 요청 가능 문서는 빠질 수 있다.
+# TODO: 항상 찾으려면 요청 가능 문서 수가 찰 때까지 후보를 단계적으로 더 가져오는 방식이 필요하다
+#       (확장 단위·최대 상한을 먼저 정해야 하고 여러 파일에 걸치므로 후속으로 분리).
+_REQUESTABLE_CANDIDATE_POOL = 50
 logger = logging.getLogger(__name__)
 
 # 하이브리드 검색에서 결합 전에 각 검색이 가져올 후보 수 = 최종 결과 수(SEARCH_TOP_K) × 이 값.
@@ -251,6 +259,47 @@ def apply_metadata_filters(filters: dict) -> dict:
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def search_requestable_documents(query: str, filters: dict | None, user: dict) -> list[dict]:
+    """S-05·M-03 검색어·필터에 맞지만 '권한이 없어 요청하면 볼 수 있는' 문서의 제목만 찾는다.
+
+    ⚠️ 권한 밖 문서라, 본문을 벡터 검색(Chroma)으로 가져오지 않는다. 그렇게 하면 '벡터 검색 전에
+    권한을 건다'는 원칙(overview.md §2.3)을 어기고 권한 밖 문서의 본문까지 끌어오게 된다. 그래서
+    여기서는 MySQL documents 테이블에서 '제목·메타데이터'만 조회한다(본문 청크 조회 없음).
+    - filters는 render_search_filters()가 돌려준 '선택값' 그대로 받는다
+      ({companies, doc_types, date_from, date_to}). Chroma where(apply_metadata_filters 결과)가 아니다.
+    - 후보를 넉넉히 가져온다(고정 상한 _REQUESTABLE_CANDIDATE_POOL — 한계·후속은 위 상수 주석 참고).
+    - 권한 판정은 permission_service.filter_requestable_documents에 맡겨, 사용자·승인·대기 요청을
+      각각 한 번만 조회한다(후보마다 DB를 다시 열지 않는다).
+    돌려주는 건 제목·회사뿐이다. 본문·청크는 화면이나 LLM에 쓰지 않는다.
+    """
+    query = (query or "").strip()
+    if not query or not isinstance(user, dict) or "id" not in user:
+        return []
+
+    # 본문 청크(Chroma) 대신 MySQL에서 제목·메타데이터만 가져온다(권한 사전 필터 원칙 준수).
+    selection = filters or {}
+    documents = search_requestable_candidates(
+        query,
+        _as_list(selection.get("companies")),
+        _as_list(selection.get("doc_types")),
+        selection.get("date_from"),
+        selection.get("date_to"),
+        _REQUESTABLE_CANDIDATE_POOL,
+    )
+
+    # 요청 가능한 문서만 배치로 추린 뒤, 화면에는 제목·회사만 돌려준다.
+    requestable = filter_requestable_documents(user, documents)
+    return [
+        {
+            "doc_id": document["doc_id"],
+            "title": document["title"],
+            "company_id": document["company_id"],
+            "company_name": document["company_name"],
+        }
+        for document in requestable
+    ]
 
 
 def _match_any(field: str, values: list) -> dict:
