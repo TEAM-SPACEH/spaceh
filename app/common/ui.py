@@ -45,8 +45,11 @@ _CSS = """
 .sh-co{background:#F1F3F5;color:#343A40;font-weight:700}
 .sh-cite{display:inline-block;min-width:19px;padding:0 4px;border-radius:9px;background:#E7F0FA;color:#004098;font-size:11px;font-weight:700;line-height:18px;text-align:center;margin-left:3px}
 .sh-hl{background:rgba(250,190,0,0.24);border-radius:2px;padding:0 2px}
-.sh-muted{color:#868E96;font-size:13px}
+.sh-muted{color:#6B7280;font-size:13px}
 .sh-text{white-space:pre-wrap;line-height:1.6}
+.stVerticalBlock[class*="st-key-sh-card-"]{background:#FFFFFF;border:1px solid #E5E8EB!important;border-radius:12px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.06)}
+[role="dialog"],[data-testid="stPopoverBody"]{background:#FFFFFF}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker){font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) input,[data-testid="stDialog"]:has(.sh-upload-dialog-marker) textarea,[data-testid="stDialog"]:has(.sh-upload-dialog-marker) button{font:inherit}
 [data-testid="stDialog"]:has(.sh-upload-dialog-marker) [data-testid="stMarkdownContainer"]{font-family:"NeoHyundai","Segoe UI",sans-serif;font-size:14px;line-height:1.6;color:#111111}
@@ -222,12 +225,21 @@ def source_line(company_code: str, access_level: str, title: str, location: str 
     )
 
 
+def card(key: str):
+    """연회색 본문 위의 흰 카드. `with card("search-answer"):` 안에서 내용을 그린다.
+
+    st.container(border=True)는 바탕이 투명해 본문 회색이 그대로 보이므로 카드는 이 함수로 만든다.
+    key는 화면 안에서 겹치지 않게 준다.
+    """
+    return st.container(border=True, key=f"sh-card-{key}")
+
+
 def no_permission_notice(title: str, company_name: str, key: str) -> bool:
     """권한 없는 문서 안내 (S-05·M-03). 제목은 보여 주고 본문은 보여 주지 않는다.
 
     반환: [열람 권한 요청] 버튼을 눌렀으면 True. key는 화면 안에서 겹치지 않게 doc_id 등으로 준다.
     """
-    with st.container(border=True):
+    with card(f"no-permission-{key}"):
         st.html(f"<div>🔒 <b>{html.escape(title)}</b></div>")
         show_text(f"{company_name} 문서라 내 권한으로는 내용을 볼 수 없습니다. 답변 근거에서도 뺐습니다.", muted=True)
         return st.button("열람 권한 요청", key=f"request-{key}")
