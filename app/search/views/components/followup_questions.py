@@ -30,21 +30,15 @@ def render_followup_questions(query: str) -> None:
         ),
     ]
 
-    label_col, *question_cols = st.columns(
-        [1, 2, 2, 2],
-        gap="small",
-        vertical_alignment="center",
-    )
-
-    with label_col:
+    # Figma 02: "이어서 묻기" 글자 뒤에 글자 폭만큼의 둥근 버튼을 한 줄로 둔다 (모양은 공통 CSS).
+    with st.container(horizontal=True, vertical_alignment="center", gap="small", key="s61_followup_row"):
         st.caption("이어서 묻기")
 
-    for index, (label, question) in enumerate(questions):
-        with question_cols[index]:
+        for index, (label, question) in enumerate(questions):
             st.button(
                 label,
                 key=f"s61_followup_{index}",
                 on_click=_set_followup_query,
                 args=(question,),
-                width="stretch",
+                width="content",
             )
