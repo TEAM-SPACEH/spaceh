@@ -249,6 +249,142 @@ class CompanyNamesTest(unittest.TestCase):
         self.assertIn("- 대상 회사: 현대엘리베이터, 현대무벡스, HRI", prompt)
 
 
+def make_answers(*answers: str, truncated_first: bool = False) -> MagicMock:
+    """부를 때마다 answers를 차례대로 돌려주는 가짜 AI를 만든다. (첫 답 → 재시도 답 순서)"""
+    fake_llm = MagicMock()
+    responses = []
+    for index, answer in enumerate(answers):
+        # 진짜 AI처럼 response_metadata에 멈춘 이유(finish_reason)를 넣어요.
+        reason = "length" if truncated_first and index == 0 else "stop"
+        responses.append(MagicMock(content=answer, response_metadata={"finish_reason": reason}))
+    fake_llm.invoke.side_effect = responses  # side_effect에 목록을 주면 부를 때마다 하나씩 꺼내 줘요
+    return fake_llm
+
+
+class RetryAndRemovalTest(unittest.TestCase):
+
+    def generate(self, fake_llm: MagicMock, section_type=SectionType.STATUS):
+        with patch(GET_LLM, return_value=fake_llm):
+            return report_generator.generate_section(
+                section_type, MOCK_COLLECTION.chunks, MOCK_REQUEST,
+            )
+
+    def test_retry_fixes_answer(self):
+        # 첫 답은 번호가 없고, 재시도 답은 정상 → 재시도 답으로 섹션이 만들어져요.
+        fake_llm = make_answers("번호 없는 문장임.", "물류 수요가 늘고 있음.[1]")
+        section = self.generate(fake_llm)
+
+        self.assertEqual(fake_llm.invoke.call_count, 2)  # 처음 1번 + 재시도 1번
+        self.assertTrue(section.has_evidence)
+        self.assertFalse(section.partial)
+        self.assertTrue(section.body.startswith("물류 수요가 늘고 있음.[1]"))
+        # 재시도 프롬프트에 이전 답과 "고칠 점"이 들어가야 해요.
+        retry_prompt = fake_llm.invoke.call_args_list[1][0][0]
+        self.assertIn("[이전 답의 문제", retry_prompt)
+        self.assertIn("1번째 문장: 근거 번호 없음", retry_prompt)
+
+    def test_bad_sentence_removed_when_60_percent_left(self):
+        # 5문장 중 2문장이 틀림(재시도도 같음) → 3/5 = 60% → 틀린 문장만 빼고 살려요.
+        answer = "가 사실임.[1] 나 사실임. 다 사실임.[2] 라 사실임.[99] 마 사실임.[3]"
+        section = self.generate(make_answers(answer, answer))
+
+        self.assertTrue(section.has_evidence)
+        self.assertTrue(section.partial)
+        self.assertEqual(section.body, "가 사실임.[1] 다 사실임.[2] 마 사실임.[3]")
+
+    def test_gives_up_below_60_percent(self):
+        # 5문장 중 3문장이 틀림 → 2/5 = 40% → 섹션 포기
+        answer = "가 사실임.[1] 나 사실임. 다 사실임. 라 사실임.[99] 마 사실임.[3]"
+        section = self.generate(make_answers(answer, answer))
+        self.assertFalse(section.has_evidence)
+        self.assertEqual(section.body, NO_EVIDENCE_TEXT)
+
+    def test_gives_up_when_one_sentence_left(self):
+        # 2문장 중 1문장이 틀림 → 50%이고 1문장뿐 → 포기
+        answer = "가 사실임.[1] 나 사실임."
+        section = self.generate(make_answers(answer, answer))
+        self.assertFalse(section.has_evidence)
+
+    def test_truncated_answer_is_retried(self):
+        # 첫 답이 길이 한도에 걸려 끊김 → 문장은 멀쩡해도 재시도해요.
+        fake_llm = make_answers("가 사실임.[1] 나 사실", "가 사실임.[1] 나 사실임.[2]", truncated_first=True)
+        section = self.generate(fake_llm)
+
+        self.assertEqual(fake_llm.invoke.call_count, 2)
+        retry_prompt = fake_llm.invoke.call_args_list[1][0][0]
+        self.assertIn("길이 한도에서 끊김", retry_prompt)
+        self.assertTrue(section.has_evidence)
+        self.assertFalse(section.partial)
+
+    def test_llm_uses_max_tokens(self):
+        # AI 답 길이 한도(max_tokens=1200)를 넘겨야 해요.
+        with patch("app.reports.services.report_generator.ChatOpenAI") as chat:
+            report_generator._get_llm()
+        self.assertEqual(chat.call_args.kwargs["max_tokens"], 1200)
+
+
+class NumberAndSynergyCheckTest(unittest.TestCase):
+
+    def setUp(self):
+        # 숫자가 들어 있는 가짜 근거 2개 (ELV, MVX)
+        self.chunks = [
+            Chunk(chunk_id="doc-elv#0001", text="[현대엘리베이터 · 보고서 · p.1] 매출액 1,234억원, 전년 대비 12.5% 증가",
+                  metadata={"company_id": "ELV"}),
+            Chunk(chunk_id="doc-mvx#0001", text="[현대무벡스 · 보고서 · p.2] 수주잔고 3,000억 원",
+                  metadata={"company_id": "MVX"}),
+        ]
+
+    def problems(self, body: str, section_type=SectionType.STATUS) -> list:
+        return [problem for _, problem in report_generator.check_sentences(body, self.chunks, section_type)]
+
+    def test_number_matches_evidence(self):
+        # 쉼표·띄어쓰기·"원" 유무가 달라도 같은 숫자로 봐요.
+        self.assertEqual(self.problems("매출이 1234억 원임.[1] 12.5% 증가함.[1]"), [None, None])
+
+    def test_number_not_in_evidence(self):
+        # 근거에 없는 숫자(계산·지어낸 값)는 잡아요.
+        problem = self.problems("매출이 999억원임.[1]")[0]
+        self.assertIn("999억원", problem)
+        # 다른 근거([2])의 숫자를 [1]로 인용해도 잡아요.
+        self.assertIsNotNone(self.problems("수주잔고는 3,000억 원임.[1]")[0])
+
+    def test_numbers_without_unit_are_not_checked(self):
+        # "2개", "2025년", "[12]"처럼 단위 없는 숫자는 검사하지 않아요.
+        self.assertEqual(self.problems("2025년 2개 사업부문을 운영함.[1]"), [None])
+
+    def test_similar_number_is_not_matched(self):
+        # 근거의 "12.5%" 안에 "2.5%"가 들어 있어도 같은 숫자로 보지 않아요.
+        self.assertIsNotNone(self.problems("2.5% 증가함.[1]")[0])
+
+    def test_synergy_needs_two_companies(self):
+        synergy = SectionType.SYNERGY
+        self.assertEqual(self.problems("양사 모두 물류를 확대함.[1][2]", synergy), [None])
+        self.assertIsNotNone(self.problems("물류 협업이 가능함.[1][1]", synergy)[0])
+        # 시너지가 아닌 섹션은 회사 1곳 근거여도 괜찮아요.
+        self.assertEqual(self.problems("물류를 확대함.[1]"), [None])
+
+
+class MissingCompanyTest(unittest.TestCase):
+
+    def test_status_marks_company_without_evidence(self):
+        # 현황 근거에 현대엘리베이터 청크만 있으면, 나머지 두 회사는 코드가 "근거 자료 없음"을 붙여요.
+        with patch(GET_LLM, return_value=make_fake_llm("현대엘리베이터는 공급을 확대함.[1]")):
+            section = report_generator.generate_section(
+                SectionType.STATUS, MOCK_COLLECTION.chunks[:1], MOCK_REQUEST,
+            )
+        self.assertTrue(section.body.endswith(
+            "현대무벡스: 해당 주제의 근거 자료 없음\nHRI: 해당 주제의 근거 자료 없음"
+        ))
+
+    def test_synergy_does_not_mark_missing_company(self):
+        # 회사별 문단을 쓰지 않는 섹션에는 붙이지 않아요.
+        with patch(GET_LLM, return_value=make_fake_llm("양사 협업이 가능함.[1][2]")):
+            section = report_generator.generate_section(
+                SectionType.SYNERGY, MOCK_COLLECTION.chunks[:2], MOCK_REQUEST,
+            )
+        self.assertNotIn("해당 주제의 근거 자료 없음", section.body)
+
+
 class PromptSafetyTest(unittest.TestCase):
 
     def test_prompt_blocks_instructions_in_evidence(self):
@@ -265,6 +401,13 @@ class PromptSafetyTest(unittest.TestCase):
         )
         self.assertIn("제목·머리글·회사 이름만 있는 줄을 쓰지 않는다", prompt)
         self.assertIn("문장 안에 회사 이름을 쓴다", prompt)
+
+    def test_prompt_has_rule_8(self):
+        # 근거 없는 회사·대상 회사·기간은 AI가 쓰지 않고 코드가 표시한다는 규칙(8번)
+        prompt = report_generator.build_section_prompt(
+            SectionType.OVERVIEW, MOCK_COLLECTION.chunks, MOCK_REQUEST,
+        )
+        self.assertIn("근거가 없는 회사에 대한 문장, 대상 회사 목록, 보고서 기간은 쓰지 않는다", prompt)
 
 
 class EvidenceBudgetTest(unittest.TestCase):
@@ -302,7 +445,8 @@ class IsNoEvidenceTest(unittest.TestCase):
 class GenerateDraftTest(unittest.TestCase):
 
     def test_draft_follows_template_order(self):
-        fake_llm = make_fake_llm("내용임.[1]")
+        # [1]=현대엘리베이터, [2]=현대무벡스 → 시너지의 "서로 다른 회사 근거 2개" 검사도 통과해요.
+        fake_llm = make_fake_llm("내용임.[1][2]")
         with patch(GET_LLM, return_value=fake_llm):
             sections = report_generator.generate_draft(MOCK_REQUEST, MOCK_COLLECTION)
 
@@ -315,6 +459,15 @@ class GenerateDraftTest(unittest.TestCase):
         advice_prompt = fake_llm.invoke.call_args_list[-1][0][0]
         self.assertIn("## 개요", advice_prompt)
         self.assertIn("## 시너지", advice_prompt)
+
+    def test_overview_starts_with_scope_sentence(self):
+        # 개요 맨 앞에는 코드가 쓴 범위 문장이 붙어요. (가짜 회사 목록에 HRI 이름이 없어 코드 그대로 보여요)
+        with patch(GET_LLM, return_value=make_fake_llm("내용임.[1][2]")):
+            sections = report_generator.generate_draft(MOCK_REQUEST, MOCK_COLLECTION)
+        self.assertTrue(sections[0].body.startswith(
+            "본 보고서는 현대엘리베이터·현대무벡스·HRI 3개 회사의 "
+            "2025-01-01~2025-12-31 문서 3건을 근거로 작성함."
+        ))
 
     def test_draft_without_evidence_never_calls_llm(self):
         empty = CollectionResult(chunks=[])

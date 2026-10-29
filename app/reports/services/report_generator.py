@@ -6,7 +6,13 @@
 #   generate_draft()                ④ 전체 지휘: 섹션 순서대로 ③을 부름
 #     ├─ get_template_sections()    ① 양식 → 섹션 순서
 #     └─ generate_section()         ③ 섹션 하나를 AI로 작성
-#          └─ build_section_prompt() ② AI에게 줄 지시문 조립
+#          ├─ build_section_prompt() ② AI에게 줄 지시문 조립
+#          └─ check_sentences()      문장마다 근거 번호·수치·회사 수 검사
+#
+# 근거 검사에 걸렸을 때 3단계로 처리해요. (섹션을 통째로 버리는 일을 줄이려고)
+#   1. 재시도 1번: 무엇이 틀렸는지 알려 주고 다시 쓰게 해요.
+#   2. 문장 단위 제거: 그래도 틀리면 틀린 문장만 빼요. 남은 문장이 60% 이상·2문장 이상이면 살려요(partial).
+#   3. 포기: 그보다 적게 남으면 "근거 자료 없음"으로 바꿔요.
 #
 # services 파일이라 화면 코드(st.*)는 쓰지 않아요. (팀 규칙)
 # ─────────────────────────────────────────────────────────────
@@ -23,7 +29,10 @@ from app.reports.models.report_models import (
     Chunk, CollectionResult, ReportRequest, ReportTemplate, Section, SectionType,
 )
 from app.reports.services.prompts import (
-    COMMON_RULES, NO_EVIDENCE_TEXT, SECTION_GUIDES, SECTION_PROMPT_TEMPLATE, SECTION_TITLES,
+    COMMON_RULES, NO_COMPANY_EVIDENCE_TEMPLATE, NO_EVIDENCE_TEXT, PROBLEM_NO_CITATION,
+    PROBLEM_NUMBER_NOT_FOUND, PROBLEM_OUT_OF_RANGE, PROBLEM_SYNERGY_ONE_COMPANY,
+    PROBLEM_TRUNCATED, RETRY_PROMPT_TEMPLATE, SCOPE_SENTENCE_TEMPLATE, SECTION_GUIDES,
+    SECTION_PROMPT_TEMPLATE, SECTION_TITLES,
 )
 from app.reports.services.report_collector import select_section_evidence
 
@@ -44,6 +53,31 @@ SENTENCE_PATTERN = re.compile(r"(?:\.(?=\d)|[^.!?。\n])+[.!?。]*(?:\s*\[\d+\])
 # S-04 후속 질문(#60)처럼 토큰 대신 글자 수로 어림잡아요. (토큰 계산 패키지를 따로 들이지 않으려고)
 # 보고서는 여러 회사 근거를 함께 보므로 #60(8000자)보다 넉넉하게 잡았어요.
 EVIDENCE_CHAR_BUDGET = 12000
+
+# 섹션 하나에 넣을 근거 청크 개수 한도.
+# 번호가 [14], [15]처럼 커질수록 AI가 범위 밖 번호를 쓰는 실수가 늘어서 12개로 막아요.
+# 📌 회사별 할당량·번갈아 담기는 R-01(김소은)이 해요. 여기 한도는 R-01이 놓쳤을 때만 걸리는 안전장치예요.
+MAX_SECTION_CHUNKS = 12
+
+# AI 답 길이 한도(토큰). 한국어 약 1,500~2,000자라 섹션 분량 지침(최대 약 1,050자)보다 넉넉해요.
+# 이 한도에 걸려 끊긴 답은 마지막 문장에 번호가 없어서, "끊김"으로 보고 재시도해요.
+SECTION_MAX_TOKENS = 1200
+
+# 문장 단위 제거 기준: 남은 문장이 원래 문장 수의 60% 이상이고, 2문장 이상이면 섹션을 살려요.
+# 글자 수가 아니라 "문장 개수"로 세요. 문장 길이에 따라 결과가 들쭉날쭉하지 않게 하려고요.
+KEEP_RATIO = 0.6
+MIN_KEPT_SENTENCES = 2
+
+# 수치 확인에 쓸 "단위가 붙은 숫자" 패턴. 금액·비율처럼 틀리면 위험한 숫자만 검사해요.
+#   \d[\d,]*(?:\.\d+)?          숫자 (1,234 / 12.5)
+#   \s*(?: ... )                뒤에 붙은 단위:
+#     %p | % | 배                비율·배수
+#     (?:조|억)\s*원?             조·억 (뒤에 원이 붙어도 되고 안 붙어도 돼요)
+#     (?:천만|백만|만|천)?\s*원    원·천원·백만원 …
+# "2개 사업부문", "2025년", "3곳"처럼 단위가 없는 숫자는 검사하지 않아요(멀쩡한 문장을 잘못 잡지 않게).
+UNIT_NUMBER_PATTERN = re.compile(
+    r"\d[\d,]*(?:\.\d+)?\s*(?:%p|%|배|(?:조|억)\s*원?|(?:천만|백만|만|천)?\s*원)"
+)
 
 # 양식별 섹션 순서표. 이 순서대로 보고서를 써요.
 TEMPLATE_SECTIONS = {
@@ -168,38 +202,101 @@ def _is_heading_line(line: str) -> bool:
     return line.startswith("#") or line.endswith((":", "："))
 
 
-def has_valid_citations(body: str, evidence_count: int) -> bool:
-    """R-02 본문의 모든 문장에 근거 번호가 있고, 번호가 1 ~ 근거 개수 안에 있는지 검사한다."""
-    # S-04 validate_answer()처럼 AI 답을 그대로 믿지 않고 한 번 더 확인해요.
-    # 막는 경우:
-    #   "문장 하나.[99]"                  → 근거가 3개뿐인데 99번 → 연결할 출처가 없음
-    #   "인용 없는 문장. 다음 문장.[1]"     → 첫 문장에 번호가 없음 → 근거 없는 내용일 수 있음
-
-    # 머리글 줄을 뺀 나머지만 검사해요.
+def split_sentences(body: str) -> list[str]:
+    """R-02 본문을 검사할 문장 목록으로 자른다. 머리글 줄과 글자 없는 조각은 뺀다."""
+    # 머리글 줄을 뺀 나머지만 문장으로 봐요.
     # splitlines()는 글을 줄마다 잘라 목록으로 만들고, "\n".join(...)은 다시 이어 붙여요.
     # ⚠️ 검사에서만 빼고, 화면에 보일 본문(body)에서는 지우지 않아요.
     body = "\n".join(line for line in body.splitlines() if not _is_heading_line(line))
 
-    sentences = SENTENCE_PATTERN.findall(body)
-    checked = 0  # 실제로 검사한 문장 수
+    # 글자(한글·영어)가 하나도 없는 조각은 문장이 아니라서 빼요.
+    # 예: 빈칸, 목록 번호 "1." → 이걸 문장으로 보면 번호가 없다고 잘못 막아요.
+    # [^\W\d_] = "글자이면서 숫자·밑줄이 아닌 것" = 한글·영어 같은 문자
+    return [
+        sentence for sentence in SENTENCE_PATTERN.findall(body)
+        if re.search(r"[^\W\d_]", sentence)
+    ]
 
-    for sentence in sentences:
-        # 글자(한글·영어)가 하나도 없는 조각은 문장이 아니라서 건너뛰어요.
-        # 예: 빈칸, 목록 번호 "1." → 이걸 문장으로 보면 번호가 없다고 잘못 막아요.
-        # [^\W\d_] = "글자이면서 숫자·밑줄이 아닌 것" = 한글·영어 같은 문자
-        if not re.search(r"[^\W\d_]", sentence):
-            continue
-        checked += 1
 
-        numbers = [int(number) for number in CITATION_PATTERN.findall(sentence)]
-        if not numbers:  # 이 문장에 근거 번호가 하나도 없어요
-            return False
-        # any(...)는 하나라도 조건에 맞으면 True예요. 범위 밖 번호가 하나라도 있으면 실패.
-        if any(number < 1 or number > evidence_count for number in numbers):
-            return False
+def _citation_problem(sentence: str, evidence_count: int) -> str | None:
+    """문장의 근거 번호 문제를 돌려준다. 문제가 없으면 None."""
+    numbers = [int(number) for number in CITATION_PATTERN.findall(sentence)]
+    if not numbers:  # 이 문장에 근거 번호가 하나도 없어요
+        return PROBLEM_NO_CITATION
+    for number in numbers:
+        if number < 1 or number > evidence_count:  # 근거 개수를 넘는 번호 (예: 근거 3개인데 [99])
+            return PROBLEM_OUT_OF_RANGE.format(number=number, count=evidence_count)
+    return None
 
-    # 검사할 문장이 하나도 없었다면 쓸 만한 본문이 아니에요.
-    return checked > 0
+
+def _normalize_number_text(text: str) -> str:
+    """수치 비교용으로 쉼표·띄어쓰기를 지운다. 예: '1,234 억 원' → '1234억원'"""
+    return re.sub(r"[,\s]", "", text)
+
+
+def _number_problem(sentence: str, cited_chunks: list[Chunk]) -> str | None:
+    """문장의 '단위 붙은 숫자'가 인용한 근거 글자에 그대로 있는지 본다. 없으면 문제 문구."""
+    # 계산 금지 규칙("근거에 적힌 그대로")을 코드로 가볍게 확인하는 거예요.
+    # [n] 근거 번호를 먼저 지워요. 안 그러면 [12]의 12를 숫자로 착각할 수 있어요.
+    text = CITATION_PATTERN.sub("", sentence)
+    # 인용한 근거들을 하나로 이어 붙이고, 같은 방식으로 쉼표·띄어쓰기를 지워요.
+    evidence = _normalize_number_text(" ".join(chunk.text for chunk in cited_chunks))
+
+    for match in UNIT_NUMBER_PATTERN.finditer(text):
+        value = match.group(0).strip()  # 문제 문구에 보여 줄 원래 모양 (예: "1,234억 원")
+        # 비교할 핵심: 쉼표·띄어쓰기를 지우고, 끝의 "원"·"p"는 떼요.
+        # 근거에 "1,234억"만 있고 문장에 "1,234억 원"이라고 써도 같은 숫자로 보려고요. ("12.5%p" → "12.5%")
+        core = _normalize_number_text(value).removesuffix("원").removesuffix("p")
+        # (?<![\d.]) = 바로 앞이 숫자·소수점이 아니어야 해요. "1.5%"가 "11.5%" 안에서 잘못 찾아지지 않게요.
+        if not re.search(r"(?<![\d.])" + re.escape(core), evidence):
+            return PROBLEM_NUMBER_NOT_FOUND.format(value=value)
+    return None
+
+
+def _company_of(chunk: Chunk) -> str:
+    """청크의 회사 코드 (없으면 회사 이름)."""
+    return str(chunk.metadata.get("company_id") or chunk.metadata.get("company_name") or "")
+
+
+def check_sentences(
+    body: str, chunks: list[Chunk], section_type: SectionType,
+) -> list[tuple[str, str | None]]:
+    """R-02 본문을 문장마다 검사해 (문장, 문제 또는 None) 목록을 돌려준다."""
+    # S-04 validate_answer()처럼 AI 답을 그대로 믿지 않고 한 번 더 확인해요.
+    # 참/거짓만 돌려주지 않고 "어느 문장이 왜 틀렸는지"를 돌려줘요.
+    # → 재시도 때 AI에게 고칠 점을 알려 주고, 문장 단위로 뺄 때도 이 결과를 써요.
+    # 검사 순서 (앞에서 걸리면 뒤는 보지 않아요):
+    #   1. 근거 번호: 없거나 범위 밖이면 문제
+    #   2. 수치: 단위 붙은 숫자가 인용한 근거에 없으면 문제
+    #   3. 시너지만: 인용한 근거의 회사가 2곳 미만이면 문제
+    results: list[tuple[str, str | None]] = []
+    for sentence in split_sentences(body):
+        problem = _citation_problem(sentence, len(chunks))
+        if problem is None:
+            # [1]은 chunks[0]이라 1을 빼서 꺼내요. set(...)으로 같은 번호 중복을 없애요.
+            numbers = {int(number) for number in CITATION_PATTERN.findall(sentence)}
+            cited = [chunks[number - 1] for number in sorted(numbers)]
+            problem = _number_problem(sentence, cited)
+            if problem is None and section_type == SectionType.SYNERGY:
+                companies = {_company_of(chunk) for chunk in cited}
+                if len(companies) < 2:
+                    problem = PROBLEM_SYNERGY_ONE_COMPANY
+        results.append((sentence, problem))
+    return results
+
+
+def has_valid_citations(body: str, evidence_count: int) -> bool:
+    """R-02 본문의 모든 문장에 근거 번호가 있고, 번호가 1 ~ 근거 개수 안에 있는지 검사한다."""
+    # 근거 번호만 보는 간단한 검사예요. (수치·시너지 검사까지 하려면 check_sentences()를 써요)
+    # 막는 경우:
+    #   "문장 하나.[99]"                  → 근거가 3개뿐인데 99번 → 연결할 출처가 없음
+    #   "인용 없는 문장. 다음 문장.[1]"     → 첫 문장에 번호가 없음 → 근거 없는 내용일 수 있음
+    sentences = split_sentences(body)
+    # 검사할 문장이 하나도 없으면 쓸 만한 본문이 아니에요.
+    # all(...)은 모두 조건에 맞아야 True예요.
+    return bool(sentences) and all(
+        _citation_problem(sentence, evidence_count) is None for sentence in sentences
+    )
 
 
 def select_chunks_within_budget(chunks: list[Chunk], budget_chars: int = EVIDENCE_CHAR_BUDGET) -> list[Chunk]:
@@ -250,6 +347,83 @@ def _get_llm() -> ChatOpenAI:
         model=config.LLM_MODEL,         # 개발: gpt-4o-mini / 시연: gpt-4o (.env에서 바꿔요)
         api_key=config.OPENAI_API_KEY,  # 키는 코드에 직접 쓰지 않고 .env에서만 읽어요
         temperature=0,                  # 0 = 지어내지 않고 일관되게. 보고서는 창의성보다 정확성이 중요해요.
+        max_tokens=SECTION_MAX_TOKENS,  # 비정상적으로 긴 답을 막는 한도
+    )
+
+
+def _ask_llm(prompt: str) -> tuple[str, bool]:
+    """AI에게 프롬프트를 보내고 (답 글자, 길이 한도에 걸려 끊겼는지)를 돌려준다."""
+    # invoke(글자)는 AI에게 글자를 보내고 답을 받아요. 답의 글자는 .content에 들어 있어요.
+    # API 오류가 나면 여기서 예외가 발생해요. 일부러 잡지 않고 위로 올려 보내요.
+    # → 보고서 전체 흐름(create_report)이 "중간에 실패하면 저장하지 않고 오류 반환"하도록 명세되어 있어서예요.
+    response = _get_llm().invoke(prompt)
+
+    # response_metadata["finish_reason"]: AI가 답을 멈춘 이유.
+    #   "stop"   = 스스로 다 쓰고 멈춤 (정상)
+    #   "length" = 길이 한도(max_tokens)에 걸려 문장 중간에 끊김
+    metadata = getattr(response, "response_metadata", None)
+    truncated = isinstance(metadata, dict) and metadata.get("finish_reason") == "length"
+    return response.content.strip(), truncated  # strip(): 앞뒤 빈칸·빈 줄 제거
+
+
+def _problem_lines(checks: list[tuple[str, str | None]], truncated: bool) -> list[str]:
+    """재시도 프롬프트에 넣을 '고칠 점' 목록을 만든다. 예: '- 3번째 문장: 근거 번호 없음'"""
+    lines = [
+        f"- {number}번째 문장: {problem}"
+        for number, (_, problem) in enumerate(checks, start=1)
+        if problem is not None
+    ]
+    if truncated:
+        lines.append(f"- {PROBLEM_TRUNCATED}")
+    return lines
+
+
+def _remove_sentences(body: str, bad_sentences: list[str]) -> str:
+    """본문에서 잘못된 문장만 지우고, 남은 빈칸·빈 줄을 정리한다."""
+    # 문장을 다시 이어 붙이지 않고 원래 본문에서 "빼기"만 해요. 그래야 문단(빈 줄) 모양이 그대로 남아요.
+    for sentence in bad_sentences:
+        body = body.replace(sentence, "", 1)  # 1 = 맨 처음 찾은 한 곳만 지워요
+    # 줄마다 앞뒤 빈칸을 정리하고, 빈 줄이 3줄 이상 이어지면 1줄(문단 나눔)로 줄여요.
+    body = "\n".join(line.strip() for line in body.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", body).strip()
+
+
+def _missing_company_lines(
+    section_type: SectionType, chunks: list[Chunk], request: ReportRequest,
+) -> list[str]:
+    """현황·실적 비교 섹션에서 근거가 0건인 회사의 '근거 자료 없음' 줄을 만든다."""
+    # 회사마다 문단을 쓰는 섹션만 해당돼요.
+    if section_type not in (SectionType.STATUS, SectionType.PERFORMANCE):
+        return []
+    # 📌 R-01의 empty_companies는 "보고서 전체"에서 0건인 회사예요.
+    #    여기서는 "이 섹션 근거"에 없는 회사를 직접 세요. 전체에는 있어도 이 섹션 근거에는 없을 수 있어서예요.
+    present = {_company_of(chunk) for chunk in chunks}
+    missing = [company_id for company_id in request.company_ids if company_id not in present]
+    if not missing:
+        return []
+    return [NO_COMPANY_EVIDENCE_TEMPLATE.format(company=name) for name in get_company_names(missing)]
+
+
+def build_scope_sentence(request: ReportRequest, collection: CollectionResult) -> str:
+    """R-02 개요 맨 앞에 붙일 범위 문장(대상 회사·기간·근거 문서 수)을 코드로 만든다."""
+    # 이 문장에는 붙일 근거 번호가 없어서 AI에게 시키면 검사에 무조건 걸려요. 그래서 코드가 써요.
+    # 근거가 1건 이상 있는 회사만 세요. 순서는 사용자가 고른 회사 순서를 따라요.
+    present = {_company_of(chunk) for chunk in collection.chunks}
+    company_ids = [company_id for company_id in request.company_ids if company_id in present]
+    # 문서 수: 같은 문서의 청크가 여러 개여도 1건으로 세요.
+    # doc_id가 없으면 chunk_id의 "#" 앞부분(예: "doc-elv#0003" → "doc-elv")을 문서 번호로 봐요.
+    doc_ids = {
+        str(chunk.metadata.get("doc_id") or chunk.chunk_id.split("#")[0])
+        for chunk in collection.chunks
+    }
+    if not company_ids or not doc_ids:
+        return ""  # 근거가 하나도 없으면 범위 문장을 쓰지 않아요
+    return SCOPE_SENTENCE_TEMPLATE.format(
+        companies="·".join(get_company_names(company_ids)),  # "현대엘리베이터·현대무벡스"
+        company_count=len(company_ids),
+        start_date=request.start_date.isoformat(),
+        end_date=request.end_date.isoformat(),
+        doc_count=len(doc_ids),
     )
 
 
@@ -267,54 +441,84 @@ def generate_section(
     # 프롬프트에는 남기고 출처에서만 빠지면 [2]가 엉뚱한 출처를 가리켜서, 처음부터 같이 빼요.
     chunks = [chunk for chunk in chunks if chunk.text and chunk.text.strip()]
 
-    # ── 글자 예산 안의 청크만 남겨요 ──
+    # ── 청크 개수·글자 예산 안의 청크만 남겨요 (R-01이 놓쳤을 때를 위한 안전장치) ──
     # 여기서 잘라야 프롬프트 번호 [n], evidence, sources가 모두 같은 청크 목록을 써요.
+    if len(chunks) > MAX_SECTION_CHUNKS:
+        logger.warning("R-02 근거 청크 개수 초과 used=%d/%d", MAX_SECTION_CHUNKS, len(chunks))
+        chunks = chunks[:MAX_SECTION_CHUNKS]
     chunks = select_chunks_within_budget(chunks)
+
+    # 근거 없는 섹션을 만드는 짧은 도우미. 아래에서 여러 번 써서 함수로 묶었어요.
+    def no_evidence_section() -> Section:
+        return Section(
+            section_type=section_type, title=title, body=NO_EVIDENCE_TEXT,
+            evidence=[], has_evidence=False,
+        )
 
     # ── 근거가 0개면 AI를 부르지 않아요 ──
     # 근거 없이 쓰라고 하면 AI가 지어낼 위험이 크고, 비용도 아까워요.
     if not chunks:
-        return Section(
-            section_type=section_type,
-            title=title,
-            body=NO_EVIDENCE_TEXT,
-            evidence=[],
-            has_evidence=False,
-        )
+        return no_evidence_section()
 
     # ── 프롬프트 만들기 → AI에게 보내기 ──
     prompt = build_section_prompt(section_type, chunks, request, previous_sections)
     # 팀 규칙: 문서 본문은 로그에 남기지 않아요. 그래서 섹션 이름과 개수만 남겨요.
     logger.info("R-02 섹션 생성 section=%s chunks=%d", section_type.value, len(chunks))
+    body, truncated = _ask_llm(prompt)
 
-    # invoke(글자)는 AI에게 글자를 보내고 답을 받아요. 답의 글자는 .content에 들어 있어요.
-    # API 오류가 나면 여기서 예외가 발생해요. 일부러 잡지 않고 위로 올려 보내요.
-    # → 보고서 전체 흐름(create_report)이 "중간에 실패하면 저장하지 않고 오류 반환"하도록 명세되어 있어서예요.
-    response = _get_llm().invoke(prompt)
-    body = response.content.strip()  # strip(): 앞뒤 빈칸·빈 줄 제거
-
-    # AI가 "근거 자료 없음"이라고 답했거나, 아무것도 쓰지 않았으면(빈 답) 근거 없는 섹션으로 표시해요.
+    # AI가 "근거 자료 없음"이라고 답했거나, 아무것도 쓰지 않았으면(빈 답) 근거 없는 섹션이에요.
     # 빈 답을 그냥 두면 본문은 비었는데 근거·출처만 붙은 이상한 섹션이 돼요.
-    has_evidence = bool(body) and not is_no_evidence(body)
+    if not body or is_no_evidence(body):
+        return no_evidence_section()
 
-    # 근거 번호 검사: 번호 없는 문장이나 범위 밖 번호가 있으면 섹션 전체를 "근거 자료 없음"으로 바꿔요.
-    # S-04도 검증에 실패한 답변은 통째로 "찾을 수 없음"으로 바꿔요.
-    # 일부 문장만 지우면 남은 글의 앞뒤가 안 맞을 수 있어서, 섹션 단위로 처리해요.
-    if has_evidence and not has_valid_citations(body, len(chunks)):
-        # 팀 규칙: 본문은 로그에 남기지 않아요. 섹션 이름만 남겨요.
-        logger.warning("R-02 근거 번호 검증 실패 section=%s", section_type.value)
-        has_evidence = False
+    # ── 문장마다 검사 ──
+    checks = check_sentences(body, chunks, section_type)
+    problems = _problem_lines(checks, truncated)
 
-    if not has_evidence:
-        body = NO_EVIDENCE_TEXT  # "근거 자료 없음." 같은 변형을 정해진 문구 하나로 맞춰요
+    # ── 1단계: 재시도 1번 ──
+    # 무엇이 틀렸는지 알려 주고 섹션 전체를 다시 쓰게 해요. 실패한 섹션만 다시 불러서 비용이 작아요.
+    if problems:
+        logger.warning("R-02 근거 검증 재시도 section=%s problems=%d", section_type.value, len(problems))
+        retry_prompt = RETRY_PROMPT_TEMPLATE.format(
+            prompt=prompt, answer=body, problems="\n".join(problems),
+        )
+        retry_body, retry_truncated = _ask_llm(retry_prompt)
+        # 다시 쓴 답이 비었거나 "근거 자료 없음"이면, 첫 답을 가지고 2단계로 가요.
+        if retry_body and not is_no_evidence(retry_body):
+            body, truncated = retry_body, retry_truncated
+            checks = check_sentences(body, chunks, section_type)
+            problems = _problem_lines(checks, truncated)
+
+    # ── 2단계: 문장 단위 제거 / 3단계: 포기 ──
+    partial = False
+    if problems:
+        total = len(checks)
+        bad = [sentence for sentence, problem in checks if problem is not None]
+        kept = total - len(bad)
+        # 남은 문장 수 ÷ 원래 문장 수 ≥ 60% 이고, 2문장 이상 남으면 섹션을 살려요.
+        if total and kept / total >= KEEP_RATIO and kept >= MIN_KEPT_SENTENCES:
+            logger.warning("R-02 문장 제외 section=%s removed=%d/%d", section_type.value, len(bad), total)
+            # 끊긴 답이라도, 끊긴 마지막 문장은 번호가 없어서 bad에 들어가 함께 빠져요.
+            body = _remove_sentences(body, bad)
+            partial = True
+        else:
+            logger.warning("R-02 근거 검증 실패로 섹션 제외 section=%s", section_type.value)
+            return no_evidence_section()
+
+    # ── 코드가 쓰는 줄: 근거가 0건인 회사 표시 (현황·실적 비교) ──
+    # 검사가 끝난 뒤에 붙여요. 이 줄은 근거 번호가 없어서 검사 대상이 아니에요.
+    missing_lines = _missing_company_lines(section_type, chunks, request)
+    if missing_lines:
+        body = body + "\n\n" + "\n".join(missing_lines)
 
     return Section(
         section_type=section_type,
         title=title,
         body=body,
-        evidence=chunks if has_evidence else [],  # [1]=chunks[0], [2]=chunks[1] ...
-        has_evidence=has_evidence,
-        sources=build_section_sources(chunks) if has_evidence else [],
+        evidence=chunks,  # [1]=chunks[0], [2]=chunks[1] ...
+        has_evidence=True,
+        sources=build_section_sources(chunks),
+        partial=partial,
     )
 
 
@@ -338,6 +542,14 @@ def generate_draft(request: ReportRequest, collection: CollectionResult) -> list
         previous = sections if section_type == SectionType.ADVICE else None
 
         section = generate_section(section_type, chunks, request, previous_sections=previous)
+
+        # 개요 맨 앞에 범위 문장(대상 회사·기간·근거 문서 수)을 코드로 붙여요.
+        # 수집 결과 전체(collection)를 알아야 해서 generate_section()이 아니라 여기서 붙여요.
+        if section_type == SectionType.OVERVIEW and section.has_evidence:
+            scope = build_scope_sentence(request, collection)
+            if scope:
+                section.body = scope + "\n\n" + section.body
+
         sections.append(section)  # 완성된 섹션을 목록 끝에 추가
 
     return sections
