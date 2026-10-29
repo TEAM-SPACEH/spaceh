@@ -1,4 +1,4 @@
-import re
+import re, logging
 
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -15,6 +15,8 @@ from openai import APIError
 
 from core import config  # 모델 이름 등 설정값은 .env를 거쳐 config에서 읽는다(하드코딩 금지)
 from app.admin.services.audit_service import record_audit_log
+
+logger = logging.getLogger(__name__)
 
 def _get_field(chunk: Any, name: str, default=None) :
     """딕셔너리 또는 객체에서 필드 값을 가져옵니다"""
