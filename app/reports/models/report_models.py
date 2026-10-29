@@ -78,3 +78,6 @@ class Section:
     # 같은 모양이라 보고서 화면에서 S-04 출처 패널(render_rag_source_panel)과
     # S-05 원문 뷰어(render_selected_source)를 고치지 않고 그대로 쓸 수 있어요.
     sources: list[dict] = field(default_factory=list)
+    # True면 "검증에 실패한 문장 일부를 빼고 남긴 섹션"이에요.
+    # 화면·요약(R-04)·내보내기(R-05)에서 "일부 문장이 검증에 실패해 제외됨" 유의사항을 보여 줄 때 써요.
+    partial: bool = False
