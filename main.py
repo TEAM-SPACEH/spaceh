@@ -12,7 +12,7 @@ from app.common.layout import company_label, render_header, render_sidebar
 from app.common.ui import apply_theme, empty_state, page_header
 from app.search.views.search_page import render_search
 from app.users.views.mypage import render_mypage
-from core.constants import ROLE_COMPANY_ADMIN, ROLE_EMPLOYEE, ROLE_SUPER_ADMIN
+from core.constants import ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN
 
 st.set_page_config(page_title="spaceH", layout="wide")
 apply_theme()
@@ -30,17 +30,14 @@ def coming_soon_page(title: str, url_path: str, icon: str) -> st.Page:
 
 def build_pages(user: dict) -> dict:
     """역할별 사이드바 메뉴 (Figma UI v4). 섹션 이름이 키이고, 빈 문자열은 제목 없는 맨 위 묶음이다."""
+    # M-02 내 정보는 명세상 전체 사용자 기능이라 관리자에게도 보인다 (#108).
     pages = {
         "": [
             st.Page(render_search, title="통합 검색", icon=":material/search:", default=True),
             coming_soon_page("보고서", "reports", ":material/show_chart:"),
+            st.Page(render_mypage, title="내 정보", url_path="mypage", icon=":material/person:"),
         ],
     }
-    # UI v4는 일반 사원에게만 내 정보 메뉴를 두고, 관리자는 위쪽 헤더의 계정 메뉴를 쓴다.
-    if user["role"] == ROLE_EMPLOYEE:
-        pages[""].append(
-            st.Page(render_mypage, title="내 정보", url_path="mypage", icon=":material/person:")
-        )
 
     def documents() -> None:
         """A-01 로그인한 관리자의 문서 업로드 화면을 연다."""
@@ -59,6 +56,7 @@ def build_pages(user: dict) -> dict:
         render_admin_companies(user)
 
     manage = [
+        coming_soon_page("대시보드", "admin-dashboard", ":material/space_dashboard:"),
         st.Page(documents, title="문서", url_path="admin-documents", icon=":material/description:"),
         st.Page(access_requests, title="열람 권한 요청", url_path="admin-access-requests", icon=":material/inbox:"),
         st.Page(audit_logs, title="감사 로그", url_path="admin-audit-logs",
@@ -66,8 +64,9 @@ def build_pages(user: dict) -> dict:
     ]
     if user["role"] == ROLE_SUPER_ADMIN:
         pages["전체 관리"] = [
+            manage[0],
             st.Page(companies, title="계열사", url_path="admin-companies", icon=":material/apartment:"),
-            *manage,
+            *manage[1:],
             coming_soon_page("DART 수집", "admin-dart", ":material/cloud_download:"),
         ]
     elif user["role"] == ROLE_COMPANY_ADMIN:
