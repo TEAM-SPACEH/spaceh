@@ -10,12 +10,18 @@ Streamlit 기본 헤더는 숨기지 않고 투명하게만 한다. 숨기면 �
 """
 
 import html
+import logging
 
 import streamlit as st
 
+from app.admin.services.access_service import get_access_request_counts
+from app.admin.services.document_service import get_document_list
 from app.auth.services.auth_service import logout
 from app.common.ui import show_text
+from app.history.services.history_service import get_access_request_history
 from core.constants import ROLE_COMPANY_ADMIN, ROLE_EMPLOYEE, ROLE_SUPER_ADMIN
+
+logger = logging.getLogger(__name__)
 
 # 사이드바 사용자 정보의 역할 이름 (UI v4: 사원 / 현대무벡스 관리자 / 최종 어드민)
 HEADER_ROLE_LABELS = {
@@ -76,6 +82,10 @@ section[data-testid="stSidebar"]{width:232px !important;min-width:232px !importa
 [data-testid="stSidebarNavLink"][aria-current="page"] [data-testid="stIconMaterial"]{color:#007A36;font-weight:600}
 [data-testid="stNavSectionHeader"]{padding:14px 10px 6px;margin:0;font-size:11px;font-weight:600;color:#6B7280}
 [data-testid="stSidebarNavSeparator"]{display:none}
+/* 메뉴 오른쪽 숫자 배지: 글자는 nav_badge_css가 만든 ::after 규칙이 넣는다 */
+[data-testid="stSidebarNavLink"]::after{margin-left:auto;font-size:12px;line-height:18.6px;color:#868E96;letter-spacing:-.1px}
+[data-testid="stSidebarNavLink"][href$="/admin-access-requests"]::after{font-weight:700}
+[data-testid="stSidebarNavLink"][aria-current="page"]::after{font-weight:700;color:#007A36}
 /* 범위 안내 상자와 사용자 정보는 사이드바 맨 아래에 붙인다.
    화면이 사이드바에 더 그리는 내용(예: 통합 검색의 최근 질문)은 메뉴 바로 아래에 오도록 아래 묶음 뒤로 순서를 민다. */
 [data-testid="stSidebarUserContent"]{flex:1;display:flex;flex-direction:column;padding:0}
@@ -87,6 +97,43 @@ section[data-testid="stSidebar"]{width:232px !important;min-width:232px !importa
 .sh-scope-lines{display:flex;flex-direction:column;gap:3px;padding-top:6px;font-size:12px;line-height:18.6px;color:#495057}
 </style>
 """
+
+
+# 사이드바 메뉴 오른쪽 숫자 배지(Figma UI v4): 메뉴 주소(url_path 끝) → 그 메뉴에 붙일 숫자.
+# 숫자 0은 보여 주지 않는다. 배지 글자는 정수라 CSS에 그대로 넣어도 안전하다.
+NAV_BADGE_PATHS = {"mypage": "내 정보", "admin-documents": "문서", "admin-access-requests": "열람 권한 요청"}
+
+
+def nav_badge_counts(user: dict) -> dict[str, int]:
+    """메뉴별 숫자 배지. 내 정보=내가 낸 대기 중 요청, 문서=관리 범위 문서 수, 열람 권한 요청=처리할 대기 요청.
+
+    숫자를 못 읽어도 화면이 막히면 안 되므로, 실패한 배지만 빼고 로그를 남긴다.
+    """
+    counts: dict[str, int] = {}
+    try:
+        history = get_access_request_history(user["id"])
+        counts["mypage"] = sum(1 for request in history if request["status"] == "pending")
+    except Exception:
+        logger.exception("사이드바 내 정보 배지 조회 실패")
+    if user["role"] in (ROLE_COMPANY_ADMIN, ROLE_SUPER_ADMIN):
+        try:
+            counts["admin-documents"] = get_document_list(user, None, 1, 1)["total"]
+        except Exception:
+            logger.exception("사이드바 문서 배지 조회 실패")
+        try:
+            counts["admin-access-requests"] = get_access_request_counts(user)["pending"]
+        except Exception:
+            logger.exception("사이드바 열람 권한 요청 배지 조회 실패")
+    return counts
+
+
+def nav_badge_css(counts: dict[str, int]) -> str:
+    """메뉴 주소 끝으로 링크를 찾아 오른쪽에 숫자를 붙이는 <style>. 현재 화면 메뉴는 초록으로 굵게 보인다."""
+    rules = "".join(
+        f'[data-testid="stSidebarNavLink"][href$="/{path}"]::after{{content:"{int(count)}"}}'
+        for path, count in counts.items() if path in NAV_BADGE_PATHS and int(count) > 0
+    )
+    return f"<style>{rules}</style>" if rules else ""
 
 
 def company_label(user: dict) -> str:
@@ -201,6 +248,9 @@ def render_sidebar(user: dict) -> None:
 
     사용자 정보 칩을 누르면 계정 메뉴가 열리고, 여기서 로그아웃(계정 전환)한다.
     """
+    badge_css = nav_badge_css(nav_badge_counts(user))
+    if badge_css:
+        st.html(badge_css)
     with st.sidebar, st.container(key="sh_sidebar_bottom"):
         st.html(scope_html(user))
         with st.container(key="sh_account"):
