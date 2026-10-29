@@ -14,6 +14,7 @@ from .rag_prompt import SYSTEM_PROMPT, USER_PROMPT
 from openai import APIError
 
 from core import config  # 모델 이름 등 설정값은 .env를 거쳐 config에서 읽는다(하드코딩 금지)
+from app.admin.services.audit_service import record_audit_log
 
 def _get_field(chunk: Any, name: str, default=None) :
     """딕셔너리 또는 객체에서 필드 값을 가져옵니다"""
@@ -231,6 +232,56 @@ def generate_answer(query: str, chunks: Sequence[Any]) -> dict[str, Any]:
         "sources": cited_sources,
     }
 
+def generate_answer_with_audit(
+    query: str,
+    chunks: Sequence[Any],
+    user: dict,
+    filters: dict | None = None,
+) -> dict[str, Any]:
+    """AI 답변을 생성하고 질의응답 감사 로그를 기록합니다."""
+
+    # 1. 기존 AI 답변 생성 로직 재사용
+    result = generate_answer(query, chunks)
+
+    # 2. 실제 인용된 출처 추출
+    sources = result.get("sources") or []
+
+    # 3. 인용 문서 ID 중복 제거
+    doc_ids = list(dict.fromkeys(
+        str(source["doc_id"])
+        for source in sources
+        if source.get("doc_id")
+    ))
+
+    # 4. 회사 코드 중복 제거
+    companies = list(dict.fromkeys(
+        str(source["company_id"])
+        for source in sources
+        if source.get("company_id")
+    ))
+
+    # 5. S-04 질의응답 감사 로그 기록
+    try:
+        record_audit_log(
+            user_id=user.get("id"),
+            action_type="ask",
+            target_id=None,
+            ip_address=None,
+            blocked=False,
+            block_reason=None,
+            query=query.strip(),
+            filters=filters or None,
+            doc_ids=doc_ids,
+            doc_companies=companies,
+            result_count=len(doc_ids),
+        )
+
+    except Exception:
+        # 감사 로그 기록 실패가 AI 답변을 막지 않도록 처리
+        logger.exception("감사 로그 기록 실패(ask)")
+
+    # 6. 기존 AI 답변 반환
+    return result
 
 def validate_answer(answer: str, chunks: Sequence[Any]) -> bool:
     """AI 답변의 출처 번호가 실제 검색 청크에 존재하는지 검증합니다."""
@@ -412,8 +463,13 @@ def answer_question(
     if not isinstance(chunks, list):
         raise TypeError("검색 결과는 리스트여야 합니다.")
 
-    # 5. 검색 결과를 기반으로 AI 답변 생성
-    return generate_answer(query, chunks)
+    # 5. 검색 결과를 기반으로 AI 답변 생성 및 감사 로그 기록
+    return generate_answer_with_audit(
+        query,
+        chunks,
+        user,
+        filters,
+    )
 
 FOLLOWUP_COUNT = 3
 
