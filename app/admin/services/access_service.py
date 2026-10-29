@@ -246,6 +246,37 @@ def get_access_request_list(user: dict, filters: dict, page: int, size: int) -> 
     return {"requests": rows, "total_count": total, "page": page, "total_pages": total_pages}
 
 
+def get_access_request_counts(user: dict) -> dict:
+    """A-05 관리자 범위의 상태별 열람 요청 수. 목록 탭의 숫자에 쓰는 보조 함수다.
+
+    메소드 명세서에는 없는 보조 함수다.
+    반환: {"pending": 대기, "approved": 승인, "rejected": 반려}
+    PermissionError: 활성 관리자가 아니거나, 소속 없는 계열사 관리자일 때
+    """
+    reviewer = _review_require_admin(find_active_admin((user or {}).get("id")))
+    company_id = reviewer["company_id"] if reviewer["role"] == ROLE_COMPANY_ADMIN else None
+    return access_request_repository.count_by_status(company_id)
+
+
+def get_requester_summary(user: dict, request_id: int) -> dict:
+    """A-05 요청자가 같은 회사 문서에 이전에 낸 요청의 처리 결과 요약. 승인 판단에 참고하는 보조 함수다.
+
+    메소드 명세서에는 없는 보조 함수다.
+    반환: {"total", "approved", "rejected", "pending", "last_approved_at"}. 이번 요청은 세지 않는다.
+    PermissionError: 활성 관리자가 아니거나, 계열사 관리자가 타사 문서의 요청을 볼 때
+    LookupError: 요청이 없을 때
+    """
+    reviewer = _review_require_admin(find_active_admin((user or {}).get("id")))
+    if type(request_id) is not int or request_id < 1:
+        raise ValueError("올바른 요청을 선택해 주세요.")
+    request = access_request_repository.find_request_scope(request_id)
+    if request is None:
+        raise LookupError("열람 요청을 찾을 수 없습니다.")
+    if reviewer["role"] == ROLE_COMPANY_ADMIN and request["company_id"] != reviewer["company_id"]:
+        raise PermissionError("자사 소유 문서의 열람 요청만 볼 수 있습니다.")
+    return access_request_repository.summarize_requester(request["user_id"], request["company_id"], request_id)
+
+
 def process_access_request(request_id: int, decision: str, user: dict,
                            rejection_reason: str) -> dict:
     """A-05 대기 요청을 승인하거나 사유와 함께 반려하고 감사 로그를 기록한다."""
