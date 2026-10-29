@@ -211,6 +211,144 @@ _CSS = """
 .sh-hero-title b{color:#007A36}
 .sh-hero-sub{font-size:26px;font-weight:700;line-height:1.4;color:#343A40;margin-top:4px}
 .sh-hero-desc{font-size:14px;color:#6B7280;margin-top:8px}
+/* S-05 원문 보기 (Figma 03): 왼쪽 쪽 미리보기 112 · 가운데 원문 · 오른쪽 문서 정보 340 */
+.st-key-s05_viewer [data-testid="stHorizontalBlock"]{gap:0;align-items:stretch}
+[data-testid="stColumn"]:has(.st-key-s05_thumbs){flex:0 0 112px;width:112px;min-width:112px;padding:16px 18px}
+[data-testid="stColumn"]:has(.st-key-s05_page_area){padding:18px 32px}
+[data-testid="stColumn"]:has(.st-key-s05_info){flex:0 0 340px;width:340px;min-width:340px;background:#FFFFFF;
+  border-left:1px solid #E9ECEF;padding:22px}
+.st-key-s05_thumbs{align-items:center;gap:12px}
+.sh-v-thumb-count{font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px}
+.sh-v-thumb-no{font-size:12px;line-height:18.6px;font-weight:700;color:#007A36;letter-spacing:-.1px}
+.st-key-s05_thumbs>*{width:100%}
+.sh-v-thumb-count,.sh-v-thumb-no{text-align:center}
+[data-testid="stLayoutWrapper"]:has(>[class*="st-key-s05_thumb_"]){display:flex;justify-content:center}
+[class*="st-key-s05_thumb_"]{flex:none;width:64px;height:84px;box-sizing:border-box;background:#FFFFFF;border:1px solid #E9ECEF;
+  border-radius:2px;overflow:hidden;gap:0}
+.st-key-s05_thumb_current{border:2px solid #DEE2E6}
+[class*="st-key-s05_thumb_"] img{display:block;width:100%;height:100%;object-fit:cover;object-position:top}
+.st-key-s05_page_area{gap:14px}
+.st-key-s05_toolbar{align-items:center;justify-content:space-between;gap:8px;flex-wrap:nowrap}
+.st-key-s05_zoom{align-items:center;gap:8px;flex:0 0 auto;width:auto}
+.st-key-s05_toolbar>*,.st-key-s05_zoom>*{flex:0 0 auto;width:auto}
+[data-testid="stLayoutWrapper"]:has(>.st-key-s05_zoom){flex:0 0 auto;width:auto;margin-left:auto}
+.st-key-s05_back{width:fit-content;flex:0 0 auto;align-self:flex-start}
+.st-key-s05_back button{min-height:0;height:20px;padding:0;gap:8px;justify-content:flex-start;color:#004098;font-size:12px;letter-spacing:-.1px;background:transparent;border:none}
+.st-key-s05_back button::before{content:"";width:14px;height:14px;flex:none;background:url("app/static/icons/arrow-left.svg") center/contain no-repeat}
+.st-key-s05_back button p{font-size:12px;line-height:18.6px}
+.st-key-s05_back button:hover{text-decoration:underline;background:transparent}
+.st-key-s05_zoom_out,.st-key-s05_zoom_in{width:auto;flex:0 0 auto}
+.st-key-s05_zoom_out button,.st-key-s05_zoom_in button{min-height:30px;height:30px;padding:0 10px;background:#FFFFFF;border:1px solid #CED4DA;
+  border-radius:8px;color:#111111}
+.st-key-s05_zoom_out button p,.st-key-s05_zoom_in button p{font-size:12.5px;font-weight:700;line-height:19.4px}
+.sh-v-zoom{display:flex;align-items:center;justify-content:center;width:44px;height:30px;font-size:12px;line-height:18.6px;color:#343A40;letter-spacing:-.1px}
+.st-key-s05_page{background:#FFFFFF;border:1px solid #E9ECEF;border-radius:2px;padding:56px 72px;gap:14px;
+  width:720px;max-width:100%;margin:0 auto;overflow-x:auto;min-height:640px}
+.st-key-s05_page [data-testid="stImage"],.st-key-s05_page [data-testid="stImageContainer"],.st-key-s05_page img{max-width:none!important}
+.sh-v-page-head{display:flex;justify-content:space-between;font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px}
+.sh-v-para{font-size:14px;line-height:24.5px;color:#111111;letter-spacing:-.1px;white-space:pre-wrap;overflow-wrap:anywhere}
+.sh-v-para-hl{background:rgba(250,190,0,.2);padding:10px 14px}
+.sh-v-info-head{display:flex;gap:8px;align-items:center}
+.sh-v-type{display:flex;align-items:flex-end;justify-content:center;flex:none;width:30px;height:34px;padding-bottom:5px;
+  border-radius:4px;box-sizing:border-box;font-size:9px;line-height:13.95px;font-weight:700;letter-spacing:.2px}
+.sh-v-type-pdf{background:#FFF5F5;color:#C92A2A}
+.sh-v-type-docx{background:#E7F5FF;color:#1971C2}
+.sh-v-type-pptx{background:#FFF4E6;color:#D9480F}
+.sh-v-type-dart_xml{background:#EBFBEE;color:#2B8A3E}
+.sh-v-tags{display:flex;gap:8px;align-items:center}
+.sh-v-tags .sh-tag{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:6px;font-size:11.5px;line-height:17.8px}
+.sh-v-tags .sh-co{letter-spacing:.2px}
+.sh-v-title{padding-top:10px;font-size:17px;line-height:26.35px;font-weight:700;color:#111111;letter-spacing:-.3px;overflow-wrap:anywhere}
+.sh-v-sub{font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px}
+.sh-v-section{display:flex;flex-direction:column;gap:8px}
+.sh-v-section-title{font-size:12px;line-height:18.6px;font-weight:700;color:#343A40;letter-spacing:-.1px}
+.sh-v-answer{display:flex;flex-direction:column;border:1px solid #E9ECEF;border-radius:6px;padding:12px}
+.sh-v-answer-head{display:flex;gap:8px;align-items:center;font-size:12px;line-height:18.6px;font-weight:700;color:#111111}
+.sh-v-answer-head .sh-cite{margin-left:0;flex:none;width:19px;box-sizing:border-box;padding:0 4px;font-size:10.5px;line-height:18px}
+.sh-v-answer-sub{padding-top:4px;font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px;overflow-wrap:anywhere}
+.sh-v-rows{display:flex;flex-direction:column;gap:9px}
+.sh-v-row{display:flex;justify-content:space-between;gap:12px;font-size:12px;line-height:18.6px;letter-spacing:-.1px}
+.sh-v-row span:first-child{color:#6B7280;flex:none}
+.sh-v-row span:last-child{color:#111111;text-align:right;overflow-wrap:anywhere}
+.st-key-s05_info{gap:20px;height:100%}
+.st-key-s05_download{margin-top:auto;gap:8px}
+.st-key-s05_download [data-testid="stDownloadButton"] button{width:100%;min-height:36px;height:36px;padding:0 14px;gap:6px;background:#FFFFFF;
+  border:1px solid #DEE2E6;border-radius:8px;color:#007A36}
+.st-key-s05_download [data-testid="stDownloadButton"] button::before{content:"";width:15px;height:15px;flex:none;
+  background:url("app/static/icons/download.svg") center/contain no-repeat}
+.st-key-s05_download [data-testid="stDownloadButton"] button p{font-size:13.5px;font-weight:700;line-height:20.9px;letter-spacing:-.1px}
+.sh-v-note{font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px}
+/* R-01 새 보고서 (Figma 04): 왼쪽 세 단계 입력 카드 · 오른쪽 380 근거 문서·목차·만들기 */
+.sh-r-crumb{font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px}
+.sh-r-title{padding-top:2px;font-size:28px;line-height:31.2px;font-weight:700;color:#111111;letter-spacing:-.5px}
+.sh-r-desc{padding-top:3px;font-size:14px;line-height:21.7px;color:#343A40;letter-spacing:-.1px}
+[data-testid="stColumn"]:has(.st-key-r01_side){flex:0 0 380px;width:380px;min-width:380px}
+.stVerticalBlock.st-key-sh-card-r01_form{padding:24px 28px;gap:26px}
+.stVerticalBlock.st-key-sh-card-r01_evidence{padding:20px}
+.stVerticalBlock.st-key-sh-card-r01_outline{padding:18px 20px}
+.st-key-r01_side{gap:14px}
+[class*="st-key-r01_step"]{padding-left:40px;gap:12px}
+.sh-r-step-head{position:relative;font-size:16px;line-height:23.25px;font-weight:700;color:#111111;letter-spacing:-.2px}
+.sh-r-no{position:absolute;left:-40px;top:-1px;display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border-radius:4px;background:#E6F4EA;color:#007A36;font-size:12px;line-height:18.6px;letter-spacing:-.1px}
+.sh-r-sep{height:1px;background:#E9ECEF}
+.sh-r-label{font-size:12.5px;line-height:19.4px;font-weight:700;color:#343A40;letter-spacing:-.1px}
+.st-key-r01_topic [data-testid="stTextInputRootElement"]{height:42px;background:#FFFFFF;border:1px solid #CED4DA;border-radius:8px}
+.st-key-r01_topic input{padding:0 11px;font-size:14.5px;letter-spacing:-.1px}
+.st-key-r01_quick{align-items:center;justify-content:flex-start;gap:8px}
+.st-key-r01_quick>*{flex:0 0 auto;width:auto}
+.sh-r-quick-label{font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px;white-space:nowrap}
+.st-key-r01_quick .stButton{width:auto;flex:0 0 auto}
+.st-key-r01_quick button{min-height:30px;height:30px;padding:0 11px;background:#FFFFFF;border:1px solid #DEE2E6;border-radius:15px;color:#111111}
+.st-key-r01_quick button p{font-size:12.5px;line-height:19.4px;letter-spacing:-.1px}
+.st-key-r01_companies [data-testid="stButtonGroup"]{gap:8px;flex-wrap:wrap}
+.st-key-r01_companies button{min-height:30px;height:30px;padding:0 11px;gap:6px;background:#FFFFFF;border:1px solid #DEE2E6;border-radius:15px;color:#111111}
+.st-key-r01_companies button p{font-size:12.5px;line-height:19.4px;letter-spacing:-.1px}
+.st-key-r01_companies button[data-selected="true"]{background:#F0FDF4;border-color:#B2DFC2;color:#007A36}
+.st-key-r01_companies button[data-selected="true"] p{font-weight:700}
+.st-key-r01_companies button[data-selected="true"]::before{content:"";width:13px;height:13px;flex:none;
+  background:url("app/static/icons/chip-check.svg") center/contain no-repeat}
+.st-key-r01_start label p,.st-key-r01_end label p{font-size:12.5px;line-height:19.4px;font-weight:700;color:#343A40;letter-spacing:-.1px}
+/* 날짜 칸: 흰 바탕·회색 테두리, 달력 아이콘은 Streamlit 기본(오른쪽) 대신 Figma처럼 왼쪽에 둔다 */
+.st-key-r01_start [data-testid="stDateInputField"],.st-key-r01_end [data-testid="stDateInputField"]{box-sizing:border-box;height:38px;
+  padding-left:18px;background:#FFFFFF url("app/static/icons/calendar.svg") 11px center/15px 15px no-repeat;border:1px solid #CED4DA;border-radius:8px}
+.st-key-r01_start [data-testid="stDateInputField"] svg,.st-key-r01_end [data-testid="stDateInputField"] svg{display:none}
+.st-key-r01_start [data-testid="stDateInputField"] span,.st-key-r01_end [data-testid="stDateInputField"] span{font-size:14px;letter-spacing:-.1px;color:#111111}
+[class*="st-key-r01_tpl_"]{width:100%}
+[class*="st-key-r01_tpl_"] button{display:block;width:100%;height:auto;min-height:87px;padding:14px 16px;text-align:left;background:#FFFFFF;
+  border:1px solid #DEE2E6;border-radius:6px;position:relative}
+[class*="st-key-r01_tpl_"] button>div,[class*="st-key-r01_tpl_"] button span,[class*="st-key-r01_tpl_"] [data-testid="stMarkdownContainer"]{
+  display:block;width:100%;text-align:left}
+[class*="st-key-r01_tpl_"] [data-testid="stMarkdownContainer"]{height:auto;overflow:visible}
+[class*="st-key-r01_tpl_"] button p{display:block;margin:0;font-size:12px;line-height:18.6px;font-weight:400;color:#343A40;letter-spacing:-.1px;text-align:left}
+[class*="st-key-r01_tpl_"] button p:first-child{padding-bottom:4px;font-size:14px;line-height:21.7px;font-weight:700;color:#111111}
+[class*="st-key-r01_tpl_"][class*="_on"] button{border-color:#E9ECEF;border-radius:10px}
+[class*="st-key-r01_tpl_"][class*="_on"] button::after{content:"";position:absolute;top:14px;right:16px;width:16px;height:16px;
+  background:url("app/static/icons/check.svg") center/contain no-repeat}
+.sh-r-h{font-size:16px;line-height:23.25px;font-weight:700;color:#111111;letter-spacing:-.2px}
+.sh-r-ev-head{display:flex;align-items:center;justify-content:space-between}
+.sh-r-total{font-size:18px;line-height:27.9px;font-weight:700;color:#111111;letter-spacing:-.1px}
+.sh-r-ev-desc{padding-top:2px;font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.3px}
+.sh-r-ev-empty{padding-top:14px}
+.sh-r-rows{display:flex;flex-direction:column;gap:14px;padding-top:18px}
+.sh-r-co-top{display:flex;align-items:center;justify-content:space-between}
+.sh-r-co-name{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18.6px;color:#111111;letter-spacing:-.1px}
+.sh-r-co-name .sh-tag{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:6px;font-size:11.5px;line-height:17.8px;letter-spacing:.2px}
+.sh-r-co-count{font-size:12px;line-height:18.6px;color:#111111;letter-spacing:-.1px}
+.sh-r-zero{color:#6B7280}
+.sh-r-bar{height:6px;margin-top:7px;border-radius:3px;background:#F1F3F5;overflow:hidden}
+.sh-r-bar i{display:block;height:6px;border-radius:3px;background:#009944}
+.sh-r-warn{display:flex;gap:8px;align-items:flex-start;margin-top:16px;padding:10px 12px;border-radius:4px;background:#FFF9DB;
+  font-size:12px;line-height:18.6px;color:#111111;letter-spacing:-.1px}
+.sh-r-warn img{flex:none;margin-top:2px}
+.sh-r-outline{display:flex;flex-direction:column;gap:7px;padding-top:10px;font-size:12px;line-height:18.6px;color:#343A40;letter-spacing:-.1px}
+.st-key-r01_submit button{display:flex;align-items:center;justify-content:center;min-height:46px;height:46px;padding:0 14px;gap:6px;
+  border:none;border-radius:8px;background:#009944;box-shadow:0 2px 3px rgba(0,153,68,.22)}
+.st-key-r01_submit button>div{width:auto;flex:none}
+.st-key-r01_submit button:hover:not(:disabled){background:#007A36}
+.st-key-r01_submit button::before{content:"";width:16px;height:16px;flex:none;background:url("app/static/icons/chart-line.svg") center/contain no-repeat}
+.st-key-r01_submit button p{font-size:15px;line-height:23.25px;font-weight:700;color:#FFFFFF;letter-spacing:-.1px}
+.sh-r-note{text-align:center;font-size:12px;line-height:18.6px;color:#6B7280;letter-spacing:-.1px}
 </style>
 """
 
