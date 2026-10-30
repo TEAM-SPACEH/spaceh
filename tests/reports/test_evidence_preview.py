@@ -13,6 +13,8 @@ from unittest.mock import patch
 from app.reports.services import evidence_preview as preview
 
 REPOSITORY = "app.reports.services.evidence_preview.get_chunk_metadatas"
+# 권한 조건을 만들 때 부르는 승인 문서 조회(MySQL). DB 없이 돌도록 빈 목록으로 바꾼다.
+APPROVED_DOC_IDS = "app.permissions.services.permission_service.get_approved_doc_ids"
 
 EMPLOYEE = {"id": 4, "role": "employee", "company_id": "MVX"}
 SUPER = {"id": 1, "role": "super_admin", "company_id": None}
@@ -25,6 +27,11 @@ def _chunk(doc_id: str, company_id: str) -> dict:
 
 
 class CountVisibleDocumentsTest(unittest.TestCase):
+
+    def setUp(self):
+        patcher = patch(APPROVED_DOC_IDS, return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch(REPOSITORY)
     def test_counts_distinct_documents_per_company(self, repository):
