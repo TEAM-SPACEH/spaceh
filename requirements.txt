@@ -20,8 +20,8 @@ pypdfium2==5.14.0          # PDF 페이지 이미지 (S-05)
 
 # 승인된 I-01 OCR 확장 (CPU 사용, 모델은 python -m scripts.prepare_ocr)
 easyocr==1.7.2
-torch==2.8.0
-torchvision==0.23.0
+torch==2.11.0
+torchvision==0.26.0
 Pillow==13.0.0
 
 # 예외: 수업에 없지만 대체할 수 없는 것 (docs/decisions.md)
