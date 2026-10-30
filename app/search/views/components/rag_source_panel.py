@@ -4,7 +4,7 @@ import html
 
 import streamlit as st
 
-from app.common.ui import card, citation_html, company_tag_html, empty_state
+from app.common.ui import card, citation_html, company_tag_html
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 
 
@@ -18,7 +18,12 @@ def render_rag_source_panel(sources: list[dict], key_prefix: str = "s61_source")
     st.html('<div class="sh-s61-source-title">출처<span>회사별로 나눠 보기</span></div>')
 
     if not sources:
-        empty_state("표시할 인용 출처가 없습니다.")
+        # Figma 14: 출처 칸에 빈 카드로 근거가 없음을 알린다.
+        with card(f"{key_prefix}-empty"):
+            st.html(
+                '<div class="sh-src-empty-title">근거로 쓴 문서가 없습니다.</div>'
+                '<div class="sh-src-empty-note">검색 결과가 있어도 질문과 관련이 낮으면 답변 근거로 쓰지 않습니다.</div>'
+            )
         return
 
     # 기업별 출처 묶기 (입력 순서 유지)
