@@ -61,7 +61,6 @@ def build_pages(user: dict) -> dict:
         render_admin_companies(user)
 
     manage = [
-        coming_soon_page("대시보드", "admin-dashboard", ":material/space_dashboard:"),
         st.Page(documents, title="문서", url_path="admin-documents", icon=":material/description:"),
         st.Page(access_requests, title="열람 권한 요청", url_path="admin-access-requests", icon=":material/inbox:"),
         st.Page(audit_logs, title="감사 로그", url_path="admin-audit-logs",
@@ -69,9 +68,8 @@ def build_pages(user: dict) -> dict:
     ]
     if user["role"] == ROLE_SUPER_ADMIN:
         pages["전체 관리"] = [
-            manage[0],
             st.Page(companies, title="계열사", url_path="admin-companies", icon=":material/apartment:"),
-            *manage[1:],
+            *manage,
             coming_soon_page("DART 수집", "admin-dart", ":material/cloud_download:"),
         ]
     elif user["role"] == ROLE_COMPANY_ADMIN:
