@@ -109,6 +109,9 @@ def _render_viewer(document: dict, location: dict, user: dict, back_label: str) 
     is_dart = document["source_type"] == "dart"
     is_pdf = not is_dart and document["file_format"] == "pdf"
     page = get_source_page(location)  # 알 수 없으면 0
+    if is_pdf and document["page_count"] and not 1 <= page <= document["page_count"]:
+        # 위치가 없거나(관리자 요청 상세의 [문서 보기]) 범위 밖이면 첫 쪽을 보여 준다. 0쪽은 그릴 수 없다.
+        page = 1
 
     with st.container(key="s05_viewer"):
         if is_pdf and document["page_count"]:
