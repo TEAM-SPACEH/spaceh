@@ -26,9 +26,11 @@ ACCOUNT = "계좌"
 
 # 휴대전화: 010·011·016~019 로 시작, 중간 3~4자리, 끝 4자리. 구분자는 -, ., 공백 허용.
 # 국제 형식(+82 10-1234-5678, +8210-1234-5678, +82 010-1234-5678)도 잡는다.
+# 괄호 표기 (010)1234-5678 과 구분자 앞뒤 공백 010 - 1234 - 5678 도 잡는다.
 # 02·031 같은 유선과 1588 대표번호는 01x 로 시작하지 않으므로 걸리지 않는다.
 _PHONE_RE = re.compile(
-    r"(?:(?<!\d)\+82[-.\s]?0?|(?<!\d)0)1[016-9][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)"
+    r"(?:(?<!\d)\+82[-.\s]?0?|(?<!\d)\(?0)1[016-9]\)?"
+    r"\s*[-.]?\s*\d{3,4}\s*[-.]?\s*\d{4}(?!\d)"
 )
 # 법인등록번호(6-7자리, 예: 110111-1234567)는 계좌번호 모양(숫자-숫자)과 겹친다.
 # "은행·계좌" 같은 키워드가 있는 줄에서도 아래 두 경우는 계좌로 마스킹하지 않는다.
@@ -42,14 +44,25 @@ _CORP_NUMBER_RE = re.compile(r"(?<!\d)\d{6}-?\d{7}(?!\d)")
 _CELL_SPLIT_RE = re.compile(r"\s*\|\s*|	+|\s{2,}")
 
 # 이메일: 로컬파트@도메인(점 1개 이상). 엄밀한 RFC 검증이 아니라 문서 속 일반적인 형태만 잡는다.
-_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+# 수집 방지용으로 @ 대신 (at)·[at] 을 붙여 쓴 표기와 @ 앞뒤 공백 한 칸도 잡는다.
+# (at) 앞뒤 공백은 허용하지 않는다. "look (at) page.2" 같은 영어 문장을 이메일로 오인하지 않게.
+_EMAIL_RE = re.compile(
+    r"[A-Za-z0-9._%+-]+(?:\s?@\s?|\((?i:at)\)|\[(?i:at)\])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+"
+)
 
 # 계좌번호 후보: 하이픈으로 구분된 숫자열 2~4덩어리 (예: 110-123-456789).
 # 앞뒤에 숫자·하이픈이 더 붙은 경우는 제외한다 (더 긴 숫자열의 일부).
 # 사업자번호·날짜와 모양이 겹치므로 아래 두 정규식으로 후처리에서 걸러 낸다.
 _ACCOUNT_RE = re.compile(r"(?<![\d-])\d{2,6}(?:-\d{2,8}){1,3}(?![\d-])")
+# 하이픈 없는 계좌번호(10~14자리). 금액·접수번호와 모양이 같아서 "계좌(번호):" 라벨 바로 뒤이거나
+# 계좌번호 표 열 안에 있을 때만 계좌로 본다.
+_BARE_ACCOUNT_RE = re.compile(r"(?<![\d,.-])\d{10,14}(?![\d,.-])")
+_ACCOUNT_LABEL_RE = re.compile(r"계좌\s*(?:번호)?\s*[:：]?\s*$")
 # 이 단어 중 하나가 같은 줄에 있을 때만 계좌번호로 취급한다 (오탐 방지).
-_ACCOUNT_KEYWORDS = ("계좌", "은행", "입금")
+# "뱅크"는 카카오뱅크·토스뱅크·케이뱅크처럼 '은행'이 들어가지 않는 은행 이름 때문에 넣었다.
+_ACCOUNT_KEYWORDS = ("계좌", "은행", "입금", "뱅크", "예금주", "송금", "이체")
+# 표 머리글 셀이 이 모양과 정확히 같으면, 아래 데이터 행의 같은 열은 키워드가 없어도 계좌로 본다.
+_ACCOUNT_HEADER_RE = re.compile(r"(?:입금\s*)?계좌\s*(?:번호)?")
 # 사업자등록번호 (3-2-5). 마스킹하지 않는다.
 _BIZ_NO_RE = re.compile(r"\d{3}-\d{2}-\d{5}")
 # 날짜 (YYYY-MM-DD). 계좌 키워드가 있는 줄(예: "2024-03-12 입금")에서도 마스킹하지 않는다.
@@ -73,9 +86,11 @@ def _mask_text(
     `counts`는 호출자가 넘긴 딕셔너리를 직접 갱신한다 (블록 여러 개의 합계를 내기 위함).
     `state["corp_col"]` 은 가장 최근 표 머리글에서 찾은 "법인등록번호" 열 번호이며,
     머리글과 데이터 행이 다른 줄·다른 블록에 있어도 법인등록번호를 유지하는 데 쓴다.
+    `state["account_col"]` 은 같은 방식으로 기억한 "계좌번호" 열 번호다. 데이터 행에는
+    "은행·계좌" 키워드가 없는 경우가 많아서, 이 열의 번호는 키워드 없이도 계좌로 본다.
     """
     if state is None:
-        state = {"corp_col": None}
+        state = {"corp_col": None, "account_col": None}
 
     def is_corp_number(line: str, start: int) -> bool:
         """`line[start:]` 에서 시작하는 번호가 법인등록번호인지 판단한다."""
@@ -85,10 +100,17 @@ def _mask_text(
         return corp_col is not None and _cell_index(line, start) == corp_col
 
     def track_header(line: str) -> None:
-        """번호가 없는 머리글 줄이면 법인등록번호 열 위치를 기억(또는 해제)한다."""
+        """번호가 없는 머리글 줄이면 법인등록번호·계좌번호 열 위치를 기억(또는 해제)한다."""
+        cells = _CELL_SPLIT_RE.split(line.strip())
+        if not re.search(r"\d", line):
+            account_col = next(
+                (i for i, cell in enumerate(cells) if _ACCOUNT_HEADER_RE.fullmatch(cell.strip())),
+                None,
+            )
+            if account_col is not None:
+                state["account_col"] = account_col
         if _CORP_NUMBER_RE.search(line):
             return
-        cells = _CELL_SPLIT_RE.split(line.strip())
         corp_col = next(
             (i for i, cell in enumerate(cells) if _CORP_HEADER_RE.fullmatch(cell.strip())),
             None,
@@ -106,11 +128,20 @@ def _mask_text(
         counts[label] += n
         return line
 
-    def sub_account(line: str) -> str:
-        """계좌 후보 중 사업자번호·날짜·유선/대표번호가 아닌 것만 치환한다."""
+    def sub_account(line: str, has_keyword: bool) -> str:
+        """계좌 후보 중 사업자번호·날짜·유선/대표번호가 아닌 것만 치환한다.
+
+        키워드 줄이면 줄 전체, 아니면 계좌번호 열 안의 번호만 본다.
+        """
+        account_col = state.get("account_col")
+
+        def in_account_col(text: str, start: int) -> bool:
+            return account_col is not None and _cell_index(text, start) == account_col
 
         def repl(match: re.Match[str]) -> str:
             value = match.group()
+            if not has_keyword and not in_account_col(line, match.start()):
+                return value
             if is_corp_number(line, match.start()):
                 return value
             # 사업자번호·날짜·유선/대표번호는 원문 그대로 둔다 (건수에도 포함하지 않는다).
@@ -123,7 +154,17 @@ def _mask_text(
             counts[ACCOUNT] += 1
             return f"[마스킹: {ACCOUNT}]"
 
-        return _ACCOUNT_RE.sub(repl, line)
+        line = _ACCOUNT_RE.sub(repl, line)
+
+        def repl_bare(match: re.Match[str]) -> str:
+            # 하이픈 없는 번호는 "계좌번호:" 라벨 바로 뒤이거나 계좌번호 열 안일 때만 가린다.
+            if not (_ACCOUNT_LABEL_RE.search(line[:match.start()])
+                    or in_account_col(line, match.start())):
+                return match.group()
+            counts[ACCOUNT] += 1
+            return f"[마스킹: {ACCOUNT}]"
+
+        return _BARE_ACCOUNT_RE.sub(repl_bare, line)
 
     lines = []
     # 줄 단위로 처리해야 "계좌 키워드가 같은 줄에 있는지"를 판단할 수 있다.
@@ -133,9 +174,10 @@ def _mask_text(
         track_header(line)
         line = sub_with(_PHONE_RE, PHONE, line)
         line = sub_with(_EMAIL_RE, EMAIL, line)
-        # 계좌는 키워드가 있는 줄에서만 (회사 번호·접수번호 등 오탐 방지).
-        if any(keyword in line for keyword in _ACCOUNT_KEYWORDS):
-            line = sub_account(line)
+        # 계좌는 키워드가 있는 줄 또는 계좌번호 열에서만 (회사 번호·접수번호 등 오탐 방지).
+        has_keyword = any(keyword in line for keyword in _ACCOUNT_KEYWORDS)
+        if has_keyword or state.get("account_col") is not None:
+            line = sub_account(line, has_keyword)
         lines.append(line)
     return "\n".join(lines)
 
@@ -154,12 +196,13 @@ def mask_sensitive_data(
     # 항상 세 유형을 모두 담아 호출자가 키 존재 여부를 따로 확인하지 않게 한다.
     counts = {PHONE: 0, EMAIL: 0, ACCOUNT: 0}
     masked_blocks: list[dict] = []
-    state: dict[str, int | None] = {"corp_col": None}
+    state: dict[str, int | None] = {"corp_col": None, "account_col": None}
 
     for block in blocks:
         # 표 머리글은 같은 표를 잇는 다음 블록까지만 유효하다. 표가 아닌 블록을 만나면 해제한다.
         if block.get("block_type") != "table":
             state["corp_col"] = None
+            state["account_col"] = None
         # 얕은 복사: 원본 dict 를 건드리지 않고 text·section만 교체한다.
         # page·location·block_type 등 나머지 키는 그대로 유지된다.
         new_block = dict(block)

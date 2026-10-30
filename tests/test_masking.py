@@ -152,6 +152,71 @@ class MaskSensitiveDataTest(unittest.TestCase):
         self.assertEqual(masked[1]["section"], "입금 계좌 [마스킹: 계좌]")
         self.assertEqual(sum(counts.values()), 0)
 
+    def test_masks_phone_with_parentheses_or_spaced_separators(self):
+        for number in ("(010)1234-5678", "(010) 1234-5678", "010 - 1234 - 5678", "010 .1234. 5678"):
+            with self.subTest(number=number):
+                text, counts = _mask(f"담당 {number}")
+                self.assertEqual(text, "담당 [마스킹: 연락처]")
+                self.assertEqual(counts["연락처"], 1)
+
+    def test_landline_in_parentheses_is_kept(self):
+        original = "본사 (02)2072-6000, (031) 123-4567"
+        self.assertEqual(_mask(original)[0], original)
+
+    def test_masks_obfuscated_and_spaced_email(self):
+        for email in ("kim(at)example.com", "kim[AT]example.co.kr", "kim @ example.com"):
+            with self.subTest(email=email):
+                text, counts = _mask(f"문의 {email}")
+                self.assertEqual(text, "문의 [마스킹: 이메일]")
+                self.assertEqual(counts["이메일"], 1)
+
+    def test_english_sentence_with_at_is_not_email(self):
+        original = "Please look (at) page.2 and review"
+        self.assertEqual(_mask(original)[0], original)
+
+    def test_internet_bank_and_transfer_keywords_mask_account(self):
+        for line in ("카카오뱅크 3333-12-1234567", "토스뱅크 1000-1234-5678",
+                     "예금주 홍길동 110-123-456789", "아래 번호로 송금 110-123-456789",
+                     "자동이체 302-1234-5678-91"):
+            with self.subTest(line=line):
+                text, counts = _mask(line)
+                self.assertIn("[마스킹: 계좌]", text)
+                self.assertEqual(counts["계좌"], 1)
+
+    def test_account_without_hyphen_only_after_label(self):
+        text, counts = _mask("계좌번호: 110123456789\n입금액 1234567890원, 접수번호 20240312000123 입금")
+        self.assertEqual(
+            text, "계좌번호: [마스킹: 계좌]\n입금액 1234567890원, 접수번호 20240312000123 입금"
+        )
+        self.assertEqual(counts["계좌"], 1)
+
+    def test_account_column_under_table_header_is_masked_without_keyword(self):
+        header = "| 거래처 | 계좌번호 | 예금주 |"
+        rows = "| 가나상사 | 284-019372-01-018 | 김가나 |\n| 다라물산 | 110123456789 | 이다라 |"
+        text, counts = _mask(f"{header}\n| --- | --- | --- |\n{rows}")
+        self.assertEqual(
+            text,
+            f"{header}\n| --- | --- | --- |\n"
+            "| 가나상사 | [마스킹: 계좌] | 김가나 |\n| 다라물산 | [마스킹: 계좌] | 이다라 |",
+        )
+        self.assertEqual(counts["계좌"], 2)
+
+    def test_account_column_keeps_other_columns_and_company_numbers(self):
+        original = "| 계좌번호 | 사업자번호 | 날짜 |\n| 2025-03-18 | 123-45-67890 | 2025-03-18 |"
+        self.assertEqual(_mask(original)[0], original)
+
+    def test_account_column_does_not_carry_into_text_blocks(self):
+        table = {"text": "| 거래처 | 계좌번호 |", "block_type": "table"}
+        body = {"text": "| 참고 | 110-123-456789 |", "block_type": "text"}
+        masked, counts = mask_sensitive_data([table, body])
+        self.assertEqual(masked[1]["text"], body["text"])
+        self.assertEqual(counts["계좌"], 0)
+
+        next_table = {"text": "| 가나상사 | 110-123-456789 |", "block_type": "table"}
+        masked, counts = mask_sensitive_data([table, next_table])
+        self.assertEqual(masked[1]["text"], "| 가나상사 | [마스킹: 계좌] |")
+        self.assertEqual(counts["계좌"], 1)
+
     def test_input_not_mutated_and_other_keys_kept(self):
         blocks = [{"text": "010-1234-5678", "page": 3}, {"text": ""}]
         masked, _ = mask_sensitive_data(blocks)
