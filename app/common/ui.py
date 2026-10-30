@@ -148,15 +148,21 @@ _CSS = """
 .st-key-sh-card-company-dart [data-testid="stPopover"] button p{font-size:13px}
 .st-key-sh-card-audit-detail h3{font-size:18px;padding-top:0}
 .st-key-audit-pager{gap:12px}
-/* M-03 내 권한 요청 팝업 (Figma 15) */
-[role="dialog"]:has(.st-key-sh-req-dialog) h2{font-size:20px;padding-bottom:0}
-.st-key-sh-req-dialog{gap:12px}
-.st-key-sh-req-dialog [data-testid="stWidgetLabel"] p{font-size:13px;font-weight:700;color:#343A40;opacity:1}
-.st-key-sh-req-dialog [data-testid="stWidgetLabel"]{opacity:1}
-.st-key-sh-req-dialog [data-testid="stTextAreaRootElement"]{background:#FFFFFF;border-color:#CED4DA}
-.st-key-sh-req-dialog [data-testid="stAlertContainer"] p{font-size:12.5px;line-height:1.5}
-.st-key-sh-req-dialog [data-testid="stAlertContainer"]{padding:10px 12px}
-.st-key-sh-req-footer>[data-testid="stElementContainer"]:first-child{flex:1}
+/* 팝업 공통 (Figma 15 내 권한 요청, 16 내 정보 수정): 화면은 팝업 내용을 st.container(key="sh-dlg-…")로 감싼다 */
+[role="dialog"]:has([class*="st-key-sh-dlg-"]) h2{font-size:20px;padding-bottom:0}
+[class*="st-key-sh-dlg-"]{gap:12px}
+[class*="st-key-sh-dlg-"] [data-testid="stWidgetLabel"] p{font-size:13px;font-weight:700;color:#343A40;opacity:1}
+[class*="st-key-sh-dlg-"] [data-testid="stWidgetLabel"]{opacity:1}
+[class*="st-key-sh-dlg-"] [data-testid="stTextAreaRootElement"],
+[class*="st-key-sh-dlg-"] [data-testid="stTextInputRootElement"]:has(input:not(:disabled)){background:#FFFFFF;border-color:#CED4DA}
+[class*="st-key-sh-dlg-"] [data-testid="stAlertContainer"] p{font-size:12.5px;line-height:1.5}
+[class*="st-key-sh-dlg-"] [data-testid="stAlertContainer"]{padding:10px 12px}
+[class*="st-key-sh-dlg-footer"]>[data-testid="stElementContainer"]:first-child{flex:1}
+.sh-dlg-info{margin:0;background:#F4F6F8;border-radius:10px;padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.sh-dlg-info dt{font-size:12px;color:#6B7280}
+.sh-dlg-info dd{margin:2px 0 0;font-size:14px;font-weight:700;color:#111111}
+.sh-dlg-info p{grid-column:1/-1;margin:0;font-size:12px;color:#6B7280}
+.sh-dlg-section{font-size:15px;font-weight:700;color:#111111;border-top:1px solid #E9ECEF;padding-top:14px}
 /* M-03 내 권한 요청 팝업의 문서 상자 */
 .sh-req-doc{background:#F4F6F8;border-radius:10px;padding:12px 14px}
 .sh-req-title{margin-top:6px;font-size:15px;font-weight:700;color:#111111;overflow-wrap:anywhere}
