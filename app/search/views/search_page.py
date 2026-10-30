@@ -181,7 +181,9 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
             # S-06 하이브리드 검색 (S-03 권한 필터는 검색 전에 적용된다)
             # search 감사 로그는 기본값(audit=True)을 유지한다.
-            with st.spinner("문서를 검색하고 있습니다..."):
+            # 로딩 문구는 검색 상자처럼 가운데에 둔다 (스피너 폭이 내용 크기라 컨테이너 정렬을 따른다).
+            loading = st.container(horizontal_alignment="center")
+            with loading, st.spinner("문서를 검색하고 있습니다..."):
                 chunks = hybrid_search(
                     current_query,
                     where,
@@ -194,7 +196,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             # S-04 검색된 청크를 활용한 AI 답변 생성 및 ask 감사 로그 기록
             # 결과가 0건이어도 일반 무결과 질의로 기록한다.
             try:
-                with st.spinner("AI 답변을 생성하고 있습니다..."):
+                with loading, st.spinner("AI 답변을 생성하고 있습니다..."):
                     rag_result = generate_answer_with_audit(
                         current_query,
                         chunks,

@@ -137,8 +137,6 @@ def render_document_upload(user: dict) -> None:
             show_text(f"{len(files)}개 파일 · {names[company_id]} · {DOC_TYPE_NAMES[doc_type]} · "
                       f"{ACCESS_LABELS[access_level]}로 등록", muted=True)
         with actions, st.container(horizontal=True, horizontal_alignment="right", gap="small"):
-            if st.button("취소"):
-                st.rerun()
             submitted = st.button("업로드", type="primary", disabled=not pending)
     if submitted:
         for file in pending:
