@@ -189,8 +189,10 @@ class ExportReportFileTest(unittest.TestCase):
     def test_markdown_download_logged(self, audit):
         with patch(DECIDE, return_value=ALLOWED) as decide:
             content = report_exporter.export_report_file(USER, make_report(), "md")
-        # A-06에는 각주의 문서 ID를 순서대로 중복 없이, 보고서 ID는 글자로 넘겨요.
-        decide.assert_called_once_with(USER, ["doc-elv", "doc-mvx", "doc-hri"], "md", "12")
+        # A-06에는 각주의 문서 ID를 순서대로 중복 없이, 보고서 ID는 글자로, 최고 보안 등급도 같이 넘겨요.
+        decide.assert_called_once_with(
+            USER, ["doc-elv", "doc-mvx", "doc-hri"], "md", "12", max_access_level="public",
+        )
         # 워터마크는 A-06이 준 문구를 그대로 넣어요.
         self.assertTrue(content.decode("utf-8").startswith(f"> {WATERMARK}"))
         audit.assert_called_once_with(

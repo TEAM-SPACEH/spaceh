@@ -14,7 +14,7 @@ from app.reports.services import download_policy_service as policy
 ACCESS = "app.reports.services.download_policy_service.check_document_access"
 AUDIT = "app.reports.services.download_policy_service.record_audit_log"
 
-EMPLOYEE = {"id": 4, "role": "employee", "company_id": "MVX"}
+EMPLOYEE = {"id": 4, "role": "employee", "company_id": "MVX", "name": "박사원", "employee_no": "MVX-0001"}
 SUPER = {"id": 1, "role": "super_admin", "company_id": None}
 
 
@@ -35,17 +35,43 @@ class DecideReportDownloadTest(unittest.TestCase):
         self.assertTrue(result["allowed"])
         self.assertIsNone(result["reason"])
         self.assertEqual(result["blocked_doc_ids"], [])
-        self.assertIn("MVX", result["watermark"])
-        self.assertIn("사용자 4", result["watermark"])
+        # 합의한 형식: 워터마크: 이름(사원번호) · 일시 다운로드 · 외부 유출 금지
+        self.assertRegex(
+            result["watermark"],
+            r"^워터마크: 박사원\(MVX-0001\) · \d{4}-\d{2}-\d{2} \d{2}:\d{2} 다운로드 · 외부 유출 금지$",
+        )
         audit.assert_not_called()
 
-    def test_super_admin_watermark_has_no_company(self, access, audit):
+    def test_watermark_without_name_uses_user_id(self, access, audit):
+        # 세션에 이름·사원번호가 없으면 사용자 번호라도 남겨 누가 받았는지 알 수 있게 한다
         access.return_value = True
 
         result = policy.decide_report_download(SUPER, ["d1"], "md")
 
         self.assertTrue(result["allowed"])
-        self.assertIn("전사", result["watermark"])
+        self.assertIn("이름 없음(사용자 1)", result["watermark"])
+
+    def test_confidential_report_is_blocked_even_if_visible(self, access, audit):
+        # 팀 결정(10/30): 근거에 기밀 문서가 있으면 볼 권한이 있어도 내려받기 차단
+        access.return_value = True
+
+        result = policy.decide_report_download(
+            SUPER, ["d1"], "docx", report_id="r9", max_access_level="confidential",
+        )
+
+        self.assertFalse(result["allowed"])
+        self.assertIsNone(result["watermark"])
+        self.assertIn("기밀", result["reason"])
+        access.assert_not_called()  # 등급만으로 막히므로 문서마다 권한을 볼 필요가 없다
+        self.assertEqual(audit.call_args.args[:5], (1, "download", "r9", None, True))
+
+    def test_internal_report_is_allowed_with_watermark(self, access, audit):
+        access.return_value = True
+
+        result = policy.decide_report_download(EMPLOYEE, ["d1"], "md", max_access_level="internal")
+
+        self.assertTrue(result["allowed"])
+        self.assertIsNotNone(result["watermark"])
 
     def test_one_invisible_document_blocks_whole_report(self, access, audit):
         access.side_effect = _only_visible("d1")

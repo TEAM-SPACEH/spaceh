@@ -17,11 +17,15 @@ from datetime import datetime
 
 from app.admin.services.audit_service import KST, record_audit_log
 from app.permissions.services.permission_service import check_document_access
+from core.constants import ACCESS_CONFIDENTIAL
 
 logger = logging.getLogger(__name__)
 
 # 내려받을 수 있는 파일 형식 (R-05 내보내기 형식과 같다).
 DOWNLOAD_FORMATS = ("md", "docx")
+
+# 워터마크 문구 (R-05와 합의한 형식). 예: 워터마크: 박사원(MVX-0001) · 2026-10-30 13:40 다운로드 · 외부 유출 금지
+WATERMARK_TEMPLATE = "워터마크: {name}({employee_no}) · {downloaded_at} 다운로드 · 외부 유출 금지"
 
 
 def decide_report_download(
@@ -29,6 +33,8 @@ def decide_report_download(
     doc_ids: list[str],
     file_format: str,
     report_id: str | None = None,
+    *,
+    max_access_level: str | None = None,
 ) -> dict:
     """A-06 사용자가 이 보고서를 파일로 받아도 되는지 판정한다.
 
@@ -36,6 +42,8 @@ def decide_report_download(
     doc_ids: 보고서 근거(각주)에 쓰인 문서 ID 목록. 중복이 있어도 된다.
     file_format: "md" 또는 "docx". 그 밖의 값은 부르는 쪽 실수이므로 ValueError
     report_id: 감사 로그에 남길 보고서 ID. 아직 저장 전이면 None
+    max_access_level: 보고서 근거 중 가장 높은 보안 등급(Report.max_access_level).
+        "confidential"이면 열람 권한과 관계없이 차단한다 (docs/decisions.md 10/30)
     반환: {
         "allowed": True/False,
         "reason": 차단 사유 (허용이면 None),
@@ -57,6 +65,10 @@ def decide_report_download(
     if not unique_ids:
         return _block(user, report_id, unique_ids, "근거 문서 정보가 없어 권한을 확인할 수 없습니다.", [])
 
+    # 기밀 문서가 근거에 있으면 볼 권한이 있어도 파일로는 내보내지 않는다. 기밀은 그룹사 공유도 못 하는 등급이다.
+    if max_access_level == ACCESS_CONFIDENTIAL:
+        return _block(user, report_id, unique_ids, "기밀 문서가 포함된 보고서는 내려받을 수 없습니다.", [])
+
     blocked_ids = [doc_id for doc_id in unique_ids if not check_document_access(user_id, doc_id)]
     if blocked_ids:
         reason = f"열람 권한이 없는 근거 문서가 {len(blocked_ids)}건 포함되어 있습니다."
@@ -72,9 +84,11 @@ def decide_report_download(
 
 def _make_watermark(user: dict) -> str:
     """파일에 넣을 워터마크 문구. 유출됐을 때 누가 받은 파일인지 알 수 있게 사용자와 시각을 넣는다."""
-    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
-    company = user.get("company_id") or "전사"
-    return f"사내용 · {company} · 사용자 {user['id']} · {now}"
+    return WATERMARK_TEMPLATE.format(
+        name=user.get("name") or "이름 없음",
+        employee_no=user.get("employee_no") or f"사용자 {user['id']}",
+        downloaded_at=datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
+    )
 
 
 def _block(user: dict | None, report_id: str | None, doc_ids: list[str], reason: str, blocked_ids: list[str]) -> dict:

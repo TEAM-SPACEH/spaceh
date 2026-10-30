@@ -76,7 +76,10 @@ def get_download_policy(user: dict, report: Report, file_format: str) -> dict:
     # 돌려받는 모양: {"allowed": True/False, "reason": 차단 사유, "watermark": 넣을 문구, "blocked_doc_ids": [...]}
     # ⚠️ 차단이면 A-06이 감사 로그를 남겨요. 그래서 화면을 그릴 때(버튼 표시)는 부르지 않고,
     #    버튼을 누른 순간에만 불러요. 화면은 다시 실행될 때마다 그려져서, 그때 부르면 차단 기록이 계속 쌓여요.
-    return decide_report_download(user, _doc_ids(report), file_format, _report_id_text(report))
+    return decide_report_download(
+        user, _doc_ids(report), file_format, _report_id_text(report),
+        max_access_level=report.max_access_level,  # 기밀이 있으면 A-06이 차단해요 (docs/decisions.md 10/30)
+    )
 
 
 # ─────────────────────────────────────────────────────────────
