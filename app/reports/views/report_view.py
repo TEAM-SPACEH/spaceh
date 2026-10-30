@@ -265,9 +265,10 @@ def _render_head(user: dict, report: Report, created_at) -> None:
 
 
 def render_export_buttons(user: dict, report: Report) -> None:
-    """R-05 Markdown·DOCX 다운로드 버튼과 [다시 만들기]. 누르는 순간 A-06 판정을 거쳐 파일을 만든다."""
-    # 허용·차단은 A-06 decide_report_download() 한 곳에서 정한다. 화면은 버튼을 끄지 않고, 누를 때 판정을 따른다.
-    # (화면을 그릴 때마다 판정하면 누르지도 않은 "다운로드 차단"이 감사 로그에 쌓인다.)
+    """R-05 Markdown·DOCX 다운로드 버튼과 [다시 만들기]. 근거에 기밀 문서가 있으면 내려받기 버튼을 끈다."""
+    # 팀 결정: 근거에 기밀 문서가 하나라도 있으면 열람 권한과 관계없이 내려받기를 막는다 (docs/decisions.md).
+    # 버튼을 끄는 건 안내용이고, 누르는 순간 export_report_file()이 A-06으로 다시 판정한다(화면을 우회한 호출도 막힘).
+    blocked = download_notice(report.max_access_level)["blocked"]
     with st.container(horizontal=True, key="rv_actions"):
         for file_format, label in ((report_exporter.FORMAT_MARKDOWN, "Markdown"), (report_exporter.FORMAT_DOCX, "DOCX")):
             # data에 "함수"를 넘기면 버튼을 눌렀을 때만 파일을 만들어요(눌러야 감사 로그에 다운로드가 남아요).
@@ -284,6 +285,7 @@ def render_export_buttons(user: dict, report: Report) -> None:
                 mime=report_exporter.MIME_TYPES[file_format],
                 key=f"rv_dl_{file_format}",
                 on_click="ignore",  # 내려받아도 화면을 다시 그리지 않아요. 보던 탭·스크롤이 그대로예요.
+                disabled=blocked,
             )
         st.button("다시 만들기", key="rv_rebuild", type="primary", on_click=_rebuild, args=(report,))
 
