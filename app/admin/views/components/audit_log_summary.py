@@ -3,7 +3,7 @@
 import streamlit as st
 
 from app.admin.services.audit_service import HOURLY_START
-from app.common.ui import show_text
+from app.common.ui import card, show_text
 
 
 def render_audit_log_summary(summary: dict) -> None:
@@ -12,7 +12,7 @@ def render_audit_log_summary(summary: dict) -> None:
     summary: get_audit_summary() 결과. 숫자는 모두 관리자 조회 범위 안의 오늘 로그 기준이다.
     색·글꼴은 테마가 정하므로 st.metric 의 기본 모양을 쓴다.
     """
-    with st.container(border=True):
+    with card("audit-summary"):
         today_col, blocked_col, download_col, hourly_col = st.columns(4)
 
         with today_col:

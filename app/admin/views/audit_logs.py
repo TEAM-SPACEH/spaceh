@@ -19,7 +19,7 @@ from app.admin.views.components.audit_log_detail import render_audit_log_detail
 from app.admin.views.components.audit_log_filters import render_audit_log_filters, show_result_count
 from app.admin.views.components.audit_log_list import render_audit_log_list
 from app.admin.views.components.audit_log_summary import render_audit_log_summary
-from app.common.ui import page_header, show_text
+from app.common.ui import card, page_header, show_text
 from core.constants import ROLE_SUPER_ADMIN
 
 logger = logging.getLogger(__name__)
@@ -62,8 +62,9 @@ def render_admin_audit_logs(user: dict) -> None:
 
     render_audit_log_summary(summary)
 
-    with st.container(border=True):
-        filters, count_slot = render_audit_log_filters(options, today)
+    with card("audit-logs"):
+        with st.container(key="audit-filter-row"):
+            filters, count_slot = render_audit_log_filters(options, today)
 
         # 필터가 바뀌면 1페이지부터 다시 본다. 3페이지를 보다가 조건을 바꾸면 결과가 그 페이지에 없을 수 있다.
         # st.session_state 는 화면을 다시 그려도 유지되는 저장 공간이다. 입력칸(key)을 그리기 전에 값을 넣어야 반영된다.
@@ -71,7 +72,8 @@ def render_admin_audit_logs(user: dict) -> None:
         if st.session_state.get(_FILTER_KEY) != signature:
             st.session_state[_FILTER_KEY] = signature
             st.session_state[_PAGE_KEY] = 1
-        page = int(st.number_input("페이지", min_value=1, step=1, key=_PAGE_KEY))
+        # 페이지 입력칸은 목록 아래에 그리지만, 조회에 쓸 값은 그 전에 세션에서 읽는다 (Figma 10은 표가 먼저).
+        page = int(st.session_state.get(_PAGE_KEY, 1))
 
         try:
             result = search_audit_logs(user, filters, page, DEFAULT_PAGE_SIZE)
@@ -82,7 +84,12 @@ def render_admin_audit_logs(user: dict) -> None:
 
         show_result_count(count_slot, result["total_count"])
         log_id = render_audit_log_list(result["logs"])
-        st.caption(f"{result['page']} / {result['total_pages']} 페이지")
+
+        with st.container(key="audit-pager", horizontal=True, vertical_alignment="center"):
+            st.number_input(
+                "페이지", min_value=1, step=1, key=_PAGE_KEY, label_visibility="collapsed", width=120
+            )
+            st.caption(f"{result['page']} / {result['total_pages']} 페이지")
         st.caption("감사 로그는 지우거나 고칠 수 없습니다. 차단된 행동도 모두 남습니다.")
 
     # 내려받기는 눌렀을 때 만들어지고(함수를 넘긴 지연 생성), 그때 내려받기 기록도 감사 로그에 남는다.
