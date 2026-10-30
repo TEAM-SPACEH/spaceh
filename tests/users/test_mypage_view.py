@@ -118,7 +118,7 @@ class ChangePasswordDialogTest(_MypageTestCase):
         at.text_input[0].input(current)
         at.text_input[1].input(new)
         at.text_input[2].input(confirm)
-        [b for b in at.button if b.label == "변경"][0].click().run(timeout=30)
+        [b for b in at.button if b.label == "저장"][0].click().run(timeout=30)
         return at
 
     def test_edit_button_opens_dialog_with_three_password_fields(self):

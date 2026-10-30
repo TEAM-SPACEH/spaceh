@@ -105,7 +105,7 @@ def _render_profile(info: dict, requests: list[dict] | None, history: list[dict]
             if requests is not None and history is not None:
                 st.html(_stats_html(mypage_data.usage_counts(history, requests, now.date())))
             if st.button("내 정보 수정", key="mp_edit"):
-                _edit_dialog(info["user_id"])
+                _edit_dialog(info)
 
 
 def _profile_html(info: dict) -> str:
@@ -134,22 +134,45 @@ def _stats_html(counts: dict[str, int]) -> str:
     return f'<div class="sh-mp-stats">{body}</div>'
 
 
-@st.dialog("내 정보 수정")
-def _edit_dialog(user_id: int) -> None:
-    """[내 정보 수정] 대화상자. 지금 수정할 수 있는 내 정보는 비밀번호다."""
-    _render_password_form(user_id)
+@st.dialog("내 정보")
+def _edit_dialog(info: dict) -> None:
+    """[내 정보 수정] 대화상자 (Figma 16): 위에 바꿀 수 없는 내 정보, 아래에 비밀번호 변경."""
+    # 팝업 안 글자 크기·입력칸 모양은 공통 CSS가 key(sh-dlg-…)로 맞춘다.
+    with st.container(key="sh-dlg-profile"):
+        st.caption("비밀번호만 직접 바꿀 수 있습니다.")
+        st.html(_info_grid_html(info))
+        _render_password_form(info["user_id"])
+
+
+def _info_grid_html(info: dict) -> str:
+    """바꿀 수 없는 내 정보 (이름·사원번호·역할·소속). 이름·소속은 DB 값이라 escape한다."""
+    rows = (
+        ("이름", info["name"] or "-"),
+        ("사원번호", info["employee_no"]),
+        ("역할", _ROLE_LABELS.get(info["role"], info["role"])),
+        ("소속", info["company_name"] or "소속 없음"),
+    )
+    cells = "".join(f"<div><dt>{label}</dt><dd>{html.escape(str(value))}</dd></div>" for label, value in rows)
+    return f'<dl class="sh-dlg-info">{cells}<p>역할·소속은 관리자만 바꿀 수 있습니다.</p></dl>'
 
 
 def _render_password_form(user_id: int) -> None:
     """M-02 현재 비밀번호 확인 → 새 비밀번호 검증 → 변경. user_service에 맡기고 결과만 안내한다."""
     # clear_on_submit=True: 제출하면 입력칸을 비운다(비밀번호를 화면에 남기지 않는다. 기본값은 False).
     with st.form("change_password_form", clear_on_submit=True, border=False):
-        st.markdown("**비밀번호 바꾸기**")
+        st.html('<div class="sh-dlg-section">비밀번호 변경</div>')
         current = st.text_input("현재 비밀번호", type="password")
-        new = st.text_input("새 비밀번호 (8~20자, 영문·숫자 포함, 공백 없음)", type="password")
-        confirm = st.text_input("새 비밀번호 확인", type="password")
-        submitted = st.form_submit_button("변경", type="primary")
+        new_col, confirm_col = st.columns(2)
+        new = new_col.text_input("새 비밀번호", type="password", placeholder="8~20자, 영문·숫자 포함")
+        confirm = confirm_col.text_input("새 비밀번호 확인", type="password", placeholder="한 번 더 입력")
+        # 왼쪽 안내, 오른쪽 [취소] [저장] (Figma 16)
+        with st.container(horizontal=True, vertical_alignment="center", key="sh-dlg-footer-profile"):
+            st.caption("비밀번호를 바꾸려면 현재 비밀번호가 맞아야 합니다.")
+            cancelled = st.form_submit_button("취소")
+            submitted = st.form_submit_button("저장", type="primary")
 
+    if cancelled:
+        st.rerun()
     if not submitted:
         return
 
