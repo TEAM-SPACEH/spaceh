@@ -64,6 +64,12 @@ _CSS = """
 .sh-rag-meta{font-size: 12px; color: #6B7280;}
 .sh-rag-body{font-size: 14px; line-height: 1.75; color: #343A40; white-space: pre-wrap; overflow-wrap: anywhere;}
 .sh-rag-footer{margin-top: 14px; font-size: 12px; color: #6B7280;}
+/* S-04 근거 없음 (Figma 14): 초록 강조 없는 흰 카드 */
+.st-key-s61_rag_card_none{background:#FFFFFF;border:1px solid #CED4DA!important;border-radius:12px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.06)}
+.sh-rag-none-title{font-size:16px;font-weight:700;color:#111111;margin-bottom:4px}
+.sh-src-empty-title{font-size:13px;font-weight:700;color:#111111}
+.sh-src-empty-note{margin-top:2px;font-size:12px;color:#6B7280}
 .sh-rag-sources{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
 .sh-rag-src{display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 4px;background:#FFFFFF;
   border:1px solid #D3EEDD;border-radius:6px;font-size:12px;color:#343A40}
