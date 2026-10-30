@@ -1,6 +1,10 @@
 """I-01 OCR의 위치·중복·실패 처리. 외부 모델 호출은 대체한다."""
 
 import io
+import base64
+import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -8,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 from docx import Document
-from docx.oxml import OxmlElement
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn as docx_qn
 from pptx import Presentation
 from pptx.util import Inches
@@ -26,6 +30,47 @@ def image_bytes():
 
 
 class OcrTest(unittest.TestCase):
+    @patch("app.ingestion.parsers.docx.extract_image_text")
+    def test_docx_textbox_and_fallback_are_excluded(self, extract):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "textbox.docx"
+            doc = Document()
+            paragraph = doc.add_paragraph("본문 문장")
+            paragraph._p.append(parse_xml('''
+                <mc:AlternateContent
+                  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                  <mc:Choice Requires="a"><w:r><w:drawing><w:txbxContent>
+                    <w:p><w:r><w:t>상자 글자</w:t><a:blip r:embed="rIdMissing"/></w:r></w:p>
+                  </w:txbxContent></w:drawing></w:r></mc:Choice>
+                  <mc:Fallback><w:r><w:t>상자 글자</w:t><a:blip r:embed="rIdMissing"/></w:r></mc:Fallback>
+                </mc:AlternateContent>'''))
+            doc.save(path)
+            self.assertEqual([b["text"] for b in parse_docx(path)], ["본문 문장"])
+            extract.assert_not_called()
+
+    def test_worker_library_prints_do_not_corrupt_json_response(self):
+        class Reader:
+            def __init__(self, *args, **kwargs):
+                print("library startup")
+
+            def readtext(self, *args, **kwargs):
+                print("library diagnostic")
+                return ["OCR result"]
+
+        response, diagnostic = io.StringIO(), io.StringIO()
+        request = SimpleNamespace(buffer=io.BytesIO(base64.b64encode(b"image") + b"\n"))
+        with patch.dict(sys.modules, {"easyocr": SimpleNamespace(Reader=Reader)}), \
+                patch.object(sys, "stdin", request), patch.object(sys, "stdout", response), \
+                patch.object(sys, "stderr", diagnostic), patch.object(sys, "argv", ["worker", "models"]):
+            ocr._worker()
+            self.assertIs(sys.stdout, response)
+        self.assertEqual(json.loads(response.getvalue()), [True, ["OCR result"]])
+        self.assertIn("library startup", diagnostic.getvalue())
+        self.assertIn("library diagnostic", diagnostic.getvalue())
+
     @patch("app.ingestion.parsers.docx.extract_image_text", return_value="정상 그림")
     def test_missing_docx_image_relation_preserves_text_and_other_images(self, extract):
         with TemporaryDirectory() as directory:

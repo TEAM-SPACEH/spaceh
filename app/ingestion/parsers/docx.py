@@ -22,6 +22,11 @@ def _paragraph_text(paragraph: Paragraph) -> str:
     parts = []
     existing = paragraph.text
     for element in paragraph._p.iter():
+        if any(parent.tag in (
+            qn("w:txbxContent"),
+            "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback",
+        ) for parent in element.iterancestors()):
+            continue
         if element.tag == "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t":
             parts.append(element.text or "")
         elif element.tag == qn("w:tab") and element.getparent().tag == qn("w:r"):

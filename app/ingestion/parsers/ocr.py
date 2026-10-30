@@ -50,6 +50,8 @@ def ocr_document(parser):
 
 def _worker():
     """모델은 프로세스당 한 번만 읽고 원문·오류 원문은 출력하지 않는다."""
+    response = sys.stdout
+    sys.stdout = sys.stderr
     try:
         reader = None
         for line in sys.stdin.buffer:
@@ -61,12 +63,15 @@ def _worker():
                     download_enabled=False, verbose=False,
                 )
             lines = reader.readtext(data, detail=0, paragraph=False, workers=0)
-            print(json.dumps((True, lines)), flush=True)
+            print(json.dumps((True, lines)), file=response, flush=True)
     except Exception as error:
         try:
-            print(json.dumps((False, ("model" if reader is None else "image", type(error).__name__))), flush=True)
+            print(json.dumps((False, ("model" if reader is None else "image", type(error).__name__))),
+                  file=response, flush=True)
         except (BrokenPipeError, EOFError, OSError):
             pass  # 부모가 시간 초과로 닫았으면 오류를 다시 보내지 않는다.
+    finally:
+        sys.stdout = response
 
 
 class _WorkerPipe:
