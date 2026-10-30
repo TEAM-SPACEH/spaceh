@@ -250,39 +250,38 @@ def count_document_overview(company_id: str | None) -> dict:
         shared는 공유 ON 사내 문서 수. failed_title은 가장 최근에 실패한 문서 제목(없으면 빈 문자열).
         oldest_pending_hours는 가장 오래된 대기 열람 요청이 몇 시간 지났는지(대기가 없으면 0).
     """
-    # 회사 조건은 코드에 고정된 조각이고, 회사 코드는 %s 로만 넘긴다.
-    doc_where = "WHERE company_id = %s" if company_id else "WHERE 1 = 1"
-    params = [company_id] if company_id else []
+    # 회사 조건은 (%s IS NULL OR ... = %s) 고정 SQL로 둔다. company_id가 None이면 전체 회사가 된다.
+    params = [company_id, company_id]
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) AS total, "
             "COALESCE(SUM(access_level = 'internal'), 0) AS internal_total, "
             "COALESCE(SUM(access_level = 'internal' AND is_group_shared = 1), 0) AS shared, "
             "COALESCE(SUM(index_status = 'failed'), 0) AS failed "
-            f"FROM documents {doc_where}",
+            "FROM documents WHERE (%s IS NULL OR company_id = %s)",
             params,
         )
         counts = cur.fetchone()
         cur.execute(
-            f"SELECT title FROM documents {doc_where} AND index_status = 'failed' "
+            "SELECT title FROM documents WHERE (%s IS NULL OR company_id = %s) AND index_status = 'failed' "
             "ORDER BY updated_at DESC, doc_id LIMIT 1",
             params,
         )
         failed = cur.fetchone()
         cur.execute(
             "SELECT DATEDIFF(CURDATE(), DATE(created_at)) AS days_ago, COUNT(*) AS n "
-            f"FROM documents {doc_where} AND created_at >= CURDATE() - INTERVAL %s DAY "
+            "FROM documents WHERE (%s IS NULL OR company_id = %s) "
+            "AND created_at >= CURDATE() - INTERVAL %s DAY "
             "GROUP BY days_ago",
             [*params, OVERVIEW_DAYS - 1],
         )
         by_day = {int(row["days_ago"]): int(row["n"]) for row in cur.fetchall()}
         # 열람 요청은 문서 소유 회사 기준이다 (A-05 목록과 같은 범위).
-        request_where = "AND d.company_id = %s" if company_id else ""
         cur.execute(
             "SELECT COUNT(*) AS pending, "
             "COALESCE(TIMESTAMPDIFF(HOUR, MIN(r.created_at), NOW()), 0) AS oldest_hours "
             "FROM access_requests r JOIN documents d ON d.doc_id = r.doc_id "
-            f"WHERE r.status = 'pending' {request_where}",
+            "WHERE r.status = 'pending' AND (%s IS NULL OR d.company_id = %s)",
             params,
         )
         pending = cur.fetchone()

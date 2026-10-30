@@ -192,9 +192,10 @@ class OverviewRepositoryTest(unittest.TestCase):
     def test_all_companies_scope_adds_no_company_condition(self):
         cursor = self._cursor()
         self._run(None, cursor)
-        for sql, params in cursor.executed[:3]:
-            self.assertNotIn("company_id = %s", sql)
-        self.assertEqual(cursor.executed[0][1], [])
+        # 전체 회사는 회사 코드 자리에 None을 넘겨 (%s IS NULL OR ...) 조건이 모두 참이 되게 한다.
+        for sql, params in cursor.executed:
+            self.assertIn("%s IS NULL OR", sql)
+            self.assertEqual(params[:2], [None, None])
 
     def test_no_failed_document_gives_empty_title(self):
         cursor = FakeCursor(ones=[{"total": 0, "internal_total": 0, "shared": 0, "failed": 0}, None,
