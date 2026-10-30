@@ -218,10 +218,14 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         self.assertEqual([b["location"] for b in blocks], ["p.1"] * 3 + ["p.2"])
         self.assert_common_blocks(blocks)
 
-    def test_scanned_cover_is_warned_and_text_pages_are_kept(self):
-        """이미지 표지를 경고하되 뒤 페이지의 실제 번호와 본문을 보존한다."""
+    @patch("app.ingestion.parsers.pdf.extract_image_text", return_value="Scanned cover")
+    def test_scanned_cover_is_read_and_text_pages_are_kept(self, ocr):
+        """이미지 표지를 OCR하고 뒤 페이지의 실제 번호와 본문을 보존한다."""
         page = MagicMock()
-        page.images = [{}]
+        page.images = [{"x0": 0, "top": 0, "x1": 100, "bottom": 100}]
+        page.bbox = (0, 0, 100, 100)
+        page.find_tables.return_value = []
+        page.filter.return_value.extract_text_lines.return_value = []
         page.chars = []
         text_page = MagicMock()
         text_page.images = []
@@ -231,24 +235,26 @@ BT /F1 12 Tf 50 640 Td (After) Tj ET
         ]
         with patch("app.ingestion.parsers.pdf.pdfplumber.open") as opened:
             opened.return_value.__enter__.return_value.pages = [page, text_page]
-            with self.assertLogs("app.ingestion.parsers.pdf", level="WARNING") as logs:
-                blocks = parse_pdf("scanned.pdf")
-        self.assertIn("1페이지", logs.output[0])
-        self.assertIn("OCR", logs.output[0])
-        self.assertEqual(blocks, [{"block_type": "text", "text": "Second page",
+            blocks = parse_pdf("scanned.pdf")
+        ocr.assert_called_once()
+        self.assertEqual(blocks, [{"block_type": "text", "text": "Scanned cover",
+                                  "page": 1, "location": "p.1", "section": ""},
+                                 {"block_type": "text", "text": "Second page",
                                   "page": 2, "location": "p.2", "section": ""}])
-        page.find_tables.assert_not_called()
 
-    def test_all_scanned_pdf_still_fails_as_empty_document(self):
+    @patch("app.ingestion.parsers.pdf.extract_image_text", return_value="")
+    def test_all_scanned_pdf_still_fails_as_empty_document(self, ocr):
         """모든 페이지가 이미지인 문서는 빈 색인 성공으로 처리하지 않는다."""
         path = self.root / "scanned.pdf"
         path.touch()
-        page = MagicMock(images=[{}], chars=[])
+        page = MagicMock(images=[{"x0": 0, "top": 0, "x1": 100, "bottom": 100}], chars=[])
+        page.bbox = (0, 0, 100, 100)
+        page.find_tables.return_value = []
+        page.filter.return_value.extract_text_lines.return_value = []
         with patch("app.ingestion.parsers.pdf.pdfplumber.open") as opened:
             opened.return_value.__enter__.return_value.pages = [page]
-            with self.assertLogs("app.ingestion.parsers.pdf", level="WARNING"):
-                with self.assertRaisesRegex(ValueError, "추출 가능한"):
-                    load_document(path)
+            with self.assertRaisesRegex(ValueError, "추출 가능한"):
+                load_document(path)
 
     def test_missing_unsupported_corrupt_and_empty_documents(self):
         """잘못된 파일을 성공한 빈 결과로 반환하지 않는지 확인한다."""

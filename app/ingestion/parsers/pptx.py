@@ -1,14 +1,18 @@
 """I-01 PPTX 파싱 (슬라이드 번호)."""
 
 from pathlib import Path
+import logging
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from app.ingestion.parsers.ocr import extract_image_text, ocr_document
 
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
     table_to_markdown,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _iter_shapes(shapes):
@@ -22,12 +26,19 @@ def _iter_shapes(shapes):
             yield shape
 
 
+@ocr_document
 def parse_pptx(file_path: str | Path) -> list[dict]:
     """I-01 슬라이드의 텍스트·표를 위→아래, 왼쪽→오른쪽으로 추출한다."""
     blocks = []
     for number, slide in enumerate(Presentation(file_path).slides, 1):
         title = slide.shapes.title
         section = title.text.strip() if title is not None else ""
+        existing = "\n".join(shape.text for shape in _iter_shapes(slide.shapes)
+                             if shape.has_text_frame)
+        existing += "\n" + "\n".join(
+            cell.text for shape in _iter_shapes(slide.shapes) if shape.has_table
+            for row in shape.table.rows for cell in row.cells if not cell.is_spanned
+        )
         for shape in _iter_shapes(slide.shapes):
             if shape.has_table:
                 kind = "table"
@@ -41,11 +52,21 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
                 is_title = title is not None and shape.shape_id == title.shape_id
                 kind = "title" if is_title else "text"
                 text = shape.text.replace("\v", "\n")
+            elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                kind = "text"
+                try:
+                    data = shape.image.blob
+                except (ValueError, KeyError):
+                    logger.warning("PPTX %s슬라이드 내장 이미지 또는 이미지 관계가 없어 건너뜁니다.", number)
+                    continue
+                text = extract_image_text(data, existing)
+                existing += "\n" + text
             else:
                 continue
             blocks.append({
                 "block_type": kind, "text": text, "page": number,
-                "location": f"슬라이드 {number}",
+                "location": (f"슬라이드 {number} 이미지 {shape.shape_id}"
+                             if shape.shape_type == MSO_SHAPE_TYPE.PICTURE else f"슬라이드 {number}"),
                 "section": section,
             })
     return normalize_blocks(blocks)

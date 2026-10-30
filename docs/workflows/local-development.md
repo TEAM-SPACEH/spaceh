@@ -22,6 +22,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+python -m scripts.prepare_ocr
 cp .env.example .env      # 값 채우기
 ```
 
@@ -34,7 +35,9 @@ cd spaceh
 py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
+python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
+python -m scripts.prepare_ocr
 copy .env.example .env
 ```
 
@@ -52,6 +55,17 @@ cmd를 쓰면 가상환경은 `.venv\Scripts\activate.bat`으로 켠다.
 python --version   # Python 3.11.x
 pip check          # No broken requirements found.
 ```
+
+### OCR 모델 준비
+
+위 OS별 가상환경을 활성화한 상태에서 실행한다. Windows/Linux에서는 `pip install -r requirements.txt` 직전에 CPU PyTorch를 먼저 설치한다(macOS는 일반 PyPI). 외부 Tesseract 프로그램과 개인 `.env` 경로 설정은 필요 없다.
+
+```bash
+python -m scripts.prepare_ocr
+python -m pip check
+```
+
+EasyOCR 1.7.2·PyTorch 2.11.0·Torchvision 0.26.0을 사용한다. 최초 모델 다운로드에는 인터넷이 필요하고 `data/ocr`는 Git에서 제외한다. 적재 중 다운로드는 하지 않는다. Streamlit 재시작 후 사용하며 기존 문서는 재색인해야 반영된다. OCR 누락·오류·시간 초과는 경고 후 해당 이미지만 건너뛰고, 문서 전체에 추출 결과가 없을 때만 실패한다. 저해상도 이미지·처리 한도로 일부 내용이 누락될 수 있으며 OCR 오인식은 마스킹 정확도에도 영향을 준다.
 
 ## 매일 실행
 
