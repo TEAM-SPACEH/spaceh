@@ -17,6 +17,8 @@ from dataclasses import dataclass, field  # dataclass: 데이터를 담는 클�
 from datetime import date                 # 날짜 자료형 (예: date(2025, 1, 1))
 from enum import Enum                     # Enum: 정해진 값 중에서만 고르게 하는 도구
 
+from core.constants import ACCESS_PUBLIC  # 보안 등급 값 "public" (팀 공통 상수)
+
 
 class ReportTemplate(str, Enum):
     """R-02 보고서 양식."""
@@ -119,12 +121,16 @@ class ExecSummary:
 
 @dataclass
 class Report:
-    """R-02 보고서 전체: 조건·섹션·각주·1페이지 요약."""
-    # 📌 명세서의 작성자·최고 보안 등급은 저장 기능(report_repository)을 만들 때 추가해요.
+    """R-02 보고서 전체: 조건·섹션·각주·1페이지 요약·작성자·최고 보안 등급."""
+    # 명세서: "Report는 보고서 ID·작성자·조건·섹션 목록·각주 목록·1페이지 요약·최고 보안 등급을 담는다."
     request: ReportRequest
     # ⚠️ Report 안의 섹션 본문 [n]은 "보고서 전체 번호"예요(= footnotes의 number).
     #    섹션마다 1부터 매기던 R-02 번호와 다르니, 번호로 근거를 찾을 때는 footnotes를 써요.
     sections: list[Section]
     footnotes: list[Footnote] = field(default_factory=list)
     exec_summary: ExecSummary | None = None
-    report_id: int | None = None  # 저장 기능이 생기면 채워져요
+    report_id: int | None = None  # 저장(report_repository.save)하면 DB가 매긴 번호가 들어가요
+    user_id: int | None = None    # 작성자 (users.id). 저장할 때 꼭 있어야 해요
+    # 근거 문서 중 가장 높은 보안 등급: "public"(공개) < "internal"(사내) < "confidential"(기밀).
+    # A-06 다운로드 통제가 이 값으로 허용·차단·워터마크를 정해요. 📌 계산은 create_report()에서 해요.
+    max_access_level: str = ACCESS_PUBLIC
