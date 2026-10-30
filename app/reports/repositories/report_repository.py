@@ -33,11 +33,6 @@ from core.database import get_connection  # 팀 규칙: DB 연결은 반드시 �
 # reports.title 칸 길이 (VARCHAR(300)). 넘으면 INSERT가 실패해서 잘라서 넣어요.
 TITLE_MAX_LENGTH = 300
 
-# 조회할 칸. SELECT * 대신 필요한 칸만 적어요(팀 규칙과 같은 방식).
-_SELECT_COLUMNS = (
-    "id, user_id, template, params, sections, footnotes, exec_summary, max_access_level"
-)
-
 
 # ─────────────────────────────────────────────────────────────
 # 저장·조회 (명세서 함수)
@@ -78,8 +73,11 @@ def find_by_id(report_id: int, user_id: int) -> Report | None:
     # user_id까지 WHERE에 거는 이유: 남의 보고서 번호를 넣어도 꺼내지 못하게요.
     # 📌 다시 열 때 근거 문서 권한을 다시 확인하는 일(팀 규칙)은 services에서 해요. 여기는 읽기만 해요.
     with get_connection() as conn, conn.cursor() as cur:
+        # SELECT * 대신 필요한 칸만 적어요. SQL은 f-string·문자열 연결 없이 고정 글자로만 써요. (팀 규칙)
+        # 따옴표 글자 두 개를 나란히 쓰면 파이썬이 하나로 붙여 줘요. 줄 끝 공백이 없으면 "levelFROM"이 돼요.
         cur.execute(
-            f"SELECT {_SELECT_COLUMNS} FROM reports WHERE id = %s AND user_id = %s",
+            "SELECT id, user_id, template, params, sections, footnotes, exec_summary, max_access_level "
+            "FROM reports WHERE id = %s AND user_id = %s",
             (report_id, user_id),
         )
         row = cur.fetchone()  # 결과 1줄(딕셔너리). 없으면 None

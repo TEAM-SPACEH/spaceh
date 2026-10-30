@@ -185,6 +185,7 @@ class FindByIdTest(unittest.TestCase):
         _report, cursor = self.find(None, report_id=5, user_id=7)
         sql, params = cursor.executed[0]
         self.assertIn("WHERE id = %s AND user_id = %s", sql)
+        self.assertIn("max_access_level FROM reports", sql)  # 두 줄로 나눈 SQL이 띄어쓰기로 잘 붙었는지
         self.assertEqual(params, (5, 7))
 
     def test_not_found(self):

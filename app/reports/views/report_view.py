@@ -28,7 +28,7 @@ from app.documents.views.components.document_viewer import render_selected_sourc
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.reports.models.report_models import Footnote, Report, SectionType, SummaryItem
 from app.reports.services import report_exporter
-from app.reports.services.citation_mapper import build_section_anchor
+from app.reports.services.citation_mapper import build_section_anchor, build_source_link
 from app.reports.services.prompts import NO_EVIDENCE_TEXT
 from app.reports.services.report_view_service import (
     OPEN_BLOCKED,
@@ -149,12 +149,8 @@ def _reset_view_state() -> None:
 
 def _open_source(note: Footnote) -> None:
     """각주 [원문]: S-05 원문 뷰어가 읽는 세션 칸에 출처를 넣는다."""
-    # S-05 render_selected_source()는 S-04 출처 모양(dict)을 읽어요. 각주를 그 모양으로 바꿔 넣어요.
-    source = {
-        "text": note.text, "company": note.company, "company_id": note.company_id,
-        "filename": note.filename, "location": note.location,
-        "doc_id": note.doc_id, "chunk_id": note.chunk_id, "citation_number": note.number,
-    }
+    # S-05 render_selected_source()는 S-04 출처 모양(dict)을 읽어요. 각주를 그 모양으로 바꿔 넣어요 (#116 build_source_link).
+    source = build_source_link(note)
     st.session_state[SELECTED_SOURCE_KEY] = source
     st.session_state[OPEN_SOURCE_KEY] = source
 
