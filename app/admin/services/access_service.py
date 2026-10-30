@@ -220,18 +220,7 @@ def set_group_share(doc_id: str, share_enabled: bool, user: dict) -> dict:
 # A-05 권한 요청 승인·반려
 def get_access_request_list(user: dict, filters: dict, page: int, size: int) -> dict:
     """A-05 활성 관리자의 문서 소유 범위와 상태로 열람 요청을 페이지 조회한다."""
-    user = user or {}
-    try:
-        reviewer = _review_require_admin(find_active_admin(user.get("id")))
-    except PermissionError as exc:
-        try:
-            record_audit_log(
-                user.get("id"), "access_review", None, None, True, str(exc),
-                target_type="access_request", context_detail={"decision": "list"},
-            )
-        except Exception:
-            logger.exception("A-05 열람 요청 목록 권한 차단 감사 로그 기록 실패")
-        raise
+    reviewer = _require_reviewer(user, "list")
     company_id = reviewer["company_id"] if reviewer["role"] == ROLE_COMPANY_ADMIN else None
     status = (filters or {}).get("status") or None
     if status not in (None, "pending", "approved", "rejected"):
@@ -253,7 +242,7 @@ def get_access_request_counts(user: dict) -> dict:
     반환: {"pending": 대기, "approved": 승인, "rejected": 반려}
     PermissionError: 활성 관리자가 아니거나, 소속 없는 계열사 관리자일 때
     """
-    reviewer = _review_require_admin(find_active_admin((user or {}).get("id")))
+    reviewer = _require_reviewer(user, "counts")
     company_id = reviewer["company_id"] if reviewer["role"] == ROLE_COMPANY_ADMIN else None
     return access_request_repository.count_by_status(company_id)
 
@@ -266,7 +255,7 @@ def get_requester_summary(user: dict, request_id: int) -> dict:
     PermissionError: 활성 관리자가 아니거나, 계열사 관리자가 타사 문서의 요청을 볼 때
     LookupError: 요청이 없을 때
     """
-    reviewer = _review_require_admin(find_active_admin((user or {}).get("id")))
+    reviewer = _require_reviewer(user, "summary")
     if type(request_id) is not int or request_id < 1:
         raise ValueError("올바른 요청을 선택해 주세요.")
     request = access_request_repository.find_request_scope(request_id)
@@ -297,6 +286,25 @@ def update_document_access(request_id: int, reviewer: dict) -> bool:
     """A-05 승인 권한을 재확인하고 권한 부여와 요청 승인을 함께 저장한다."""
     _review_request(request_id, "approved", reviewer, None)
     return True
+
+
+def _require_reviewer(user: dict | None, decision: str) -> dict:
+    """활성 관리자인지 확인한다. 아니면 차단 감사 로그를 남기고 PermissionError를 그대로 올린다.
+
+    목록 화면은 개수·목록·요청자 요약을 차례로 부르므로, 어느 함수에서 막혀도 차단이 기록되게 한 곳에 둔다.
+    """
+    user = user or {}
+    try:
+        return _review_require_admin(find_active_admin(user.get("id")))
+    except PermissionError as exc:
+        try:
+            record_audit_log(
+                user.get("id"), "access_review", None, None, True, str(exc),
+                target_type="access_request", context_detail={"decision": decision},
+            )
+        except Exception:
+            logger.exception("A-05 열람 요청 %s 권한 차단 감사 로그 기록 실패", decision)
+        raise
 
 
 def _review_require_admin(reviewer: dict | None) -> dict:
