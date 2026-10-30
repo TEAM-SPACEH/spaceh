@@ -56,8 +56,8 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
                 kind = "text"
                 try:
                     data = shape.image.blob
-                except ValueError:
-                    logger.warning("PPTX %s슬라이드 내장되지 않은 그림을 건너뜁니다.", number)
+                except (ValueError, KeyError):
+                    logger.warning("PPTX %s슬라이드 내장 이미지 또는 이미지 관계가 없어 건너뜁니다.", number)
                     continue
                 text = extract_image_text(data, existing)
                 existing += "\n" + text

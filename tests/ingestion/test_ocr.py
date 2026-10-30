@@ -55,6 +55,26 @@ class OcrTest(unittest.TestCase):
     def tearDown(self):
         ocr._close_worker()
 
+    @patch("app.ingestion.parsers.pptx.extract_image_text", return_value="정상 그림")
+    def test_missing_picture_relation_preserves_other_slides(self, extract):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "missing-relation.pptx"
+            ppt = Presentation()
+            slide = ppt.slides.add_slide(ppt.slide_layouts[6])
+            slide.shapes.add_textbox(Inches(0), Inches(0), Inches(2), Inches(1)).text = "첫 슬라이드"
+            broken = slide.shapes.add_picture(io.BytesIO(image_bytes()), Inches(1), Inches(1))
+            broken._element.xpath(".//a:blip")[0].set(pptx_qn("r:embed"), "rIdMissing")
+            other = ppt.slides.add_slide(ppt.slide_layouts[6])
+            other.shapes.add_textbox(Inches(0), Inches(0), Inches(2), Inches(1)).text = "다음 슬라이드"
+            other.shapes.add_picture(io.BytesIO(image_bytes()), Inches(1), Inches(1))
+            ppt.save(path)
+            with self.assertLogs("app.ingestion.parsers.pptx", level="WARNING"):
+                blocks = parse_pptx(path)
+            self.assertEqual([block["text"] for block in blocks],
+                             ["첫 슬라이드", "다음 슬라이드", "정상 그림"])
+            self.assertEqual([block["page"] for block in blocks], [1, 2, 2])
+            extract.assert_called_once()
+
     @patch.object(ocr, "_process")
     @patch.object(ocr, "_connection")
     def test_duplicate_text_and_empty_lines_are_removed(self, connection, process):
