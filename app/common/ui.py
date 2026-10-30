@@ -501,6 +501,9 @@ _CSS_ADMIN_DOCS = """
 <style>
 /* A-01·A-02·A-03 관리자 문서 화면 (Figma 07). 위쪽 카드·표·상세 패널 */
 .st-key-ad_actions{gap:8px;flex-wrap:nowrap}
+/* 재색인 중 스피너는 버튼 줄 안에 생긴다. 줄을 넘치지 않게 다음 줄로 내려 카드 폭에 맞춰 줄바꿈한다. */
+.st-key-ad_actions:has([data-testid="stSpinner"]),.st-key-ad_panel_actions:has([data-testid="stSpinner"]){flex-wrap:wrap}
+.st-key-ad_actions>:has([data-testid="stSpinner"]),.st-key-ad_panel_actions>:has([data-testid="stSpinner"]){flex:1 0 100%;width:100%;min-width:0}
 .st-key-ad_actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;min-height:36px;padding:0 14px;
   border:1px solid #CED4DA;border-radius:8px;background:#FFFFFF}
 .st-key-ad_actions button p{font-size:13.5px;line-height:20.9px;font-weight:700;color:#111111;letter-spacing:-.1px;white-space:nowrap}
