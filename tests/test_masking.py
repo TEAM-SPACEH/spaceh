@@ -170,6 +170,19 @@ class MaskSensitiveDataTest(unittest.TestCase):
                 self.assertEqual(text, "문의 [마스킹: 이메일]")
                 self.assertEqual(counts["이메일"], 1)
 
+    def test_masks_ocr_email_with_missing_or_spaced_dots(self):
+        # OCR이 이메일의 점을 빠뜨리거나 공백·쉼표로 읽은 모양
+        for email in ("kimminsu@examnple com", "kimminsu@examplecom", "kim.minsu @example, co kr",
+                      "lee_jy@examplecokr"):
+            with self.subTest(email=email):
+                text, counts = _mask(f"문의 {email} 로 연락")
+                self.assertEqual(text, "문의 [마스킹: 이메일] 로 연락")
+                self.assertEqual(counts["이메일"], 1)
+
+    def test_at_sign_without_email_shape_is_kept(self):
+        original = "단가 2@3,000원, 공식 계정 @hyundai, 수량 10 @ 500"
+        self.assertEqual(_mask(original)[0], original)
+
     def test_english_sentence_with_at_is_not_email(self):
         original = "Please look (at) page.2 and review"
         self.assertEqual(_mask(original)[0], original)
