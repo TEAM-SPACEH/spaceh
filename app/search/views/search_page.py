@@ -94,7 +94,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     pending = st.session_state.pop("s61_followup_pending", False)
     # 사이드바 최근 질문을 누르면 그 질문으로 새로 검색한다 (후속 질문과 달리 최초 질문도 바뀐다).
     recent = st.session_state.pop(_RECENT_PENDING_KEY, False)
-    _render_recent_questions()
+    _render_recent_questions(user_key)
 
     # 아직 검색 결과가 없으면 초기 화면(Figma 02-0): 인사말 아래 가운데에 검색 상자와 필터를 둔다.
     # 검색 결과가 있으면 검색 화면(Figma 02): 맨 위 검색 상자, 그 아래 필터와 결과.
@@ -260,7 +260,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
         # 최근 질문 목록을 갱신하고, 초기 화면이었으면 검색 화면 배치로 바꾸도록 다시 그린다.
         # (사이드바 최근 질문은 이번 실행에서 이미 그려졌으므로 다시 그려야 새 질문이 보인다.)
-        _remember_query(current_query)
+        _remember_query(user_key, current_query)
         st.rerun()
 
     # 5. 저장된 결과 표시
@@ -414,10 +414,18 @@ def _request_dialog(saved: dict, user: dict, document: dict) -> None:
         st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")
 
 
-def _remember_query(query: str) -> None:
+def _recent_queries(user_key: tuple) -> list[str]:
+    """이 계정의 최근 질문. 같은 브라우저에서 다른 계정으로 바꿔 로그인하면 앞 계정 질문을 보여 주지 않는다."""
+    saved = st.session_state.get(_RECENT_KEY)
+    if not saved or saved.get("user_key") != user_key:
+        return []
+    return saved["queries"]
+
+
+def _remember_query(user_key: tuple, query: str) -> None:
     """사이드바 최근 질문에 이번 검색어를 맨 앞으로 넣는다 (이번 로그인 동안만, 최대 5개)."""
-    queries = [item for item in st.session_state.get(_RECENT_KEY, []) if item != query]
-    st.session_state[_RECENT_KEY] = [query, *queries][:_RECENT_LIMIT]
+    queries = [item for item in _recent_queries(user_key) if item != query]
+    st.session_state[_RECENT_KEY] = {"user_key": user_key, "queries": [query, *queries][:_RECENT_LIMIT]}
 
 
 def _set_recent_query(query: str) -> None:
@@ -426,9 +434,9 @@ def _set_recent_query(query: str) -> None:
     st.session_state[_RECENT_PENDING_KEY] = True
 
 
-def _render_recent_questions() -> None:
+def _render_recent_questions(user_key: tuple) -> None:
     """사이드바 메뉴 아래 최근 질문 (Figma 02). 누르면 같은 질문으로 다시 검색한다."""
-    queries = st.session_state.get(_RECENT_KEY) or []
+    queries = _recent_queries(user_key)
     if not queries:
         return
 
