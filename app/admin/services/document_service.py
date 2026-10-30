@@ -510,3 +510,87 @@ def request_reindex(doc_id: str, user: dict) -> dict:
             {"result": "success" if result["index_status"] == "done" else "failed",
              "chunk_count": result["chunk_count"], "error": result["error_message"][:200]})
     return result
+
+
+# ---------------------------------------------------------------------------
+# A-02·A-03 문서 화면(UI v4) 요약·상세·실패 문서 일괄 재색인
+# ---------------------------------------------------------------------------
+
+def _scope_company(admin: dict) -> str | None:
+    """관리자의 조회 범위. 계열사 관리자는 자사, 최종 어드민은 전체(None)다."""
+    if admin["role"] == ROLE_COMPANY_ADMIN:
+        if not admin["company_id"]:
+            # None(전체)으로 처리하면 권한이 넓어지므로 소속 없는 관리자는 거부한다.
+            raise PermissionError("소속 계열사가 없는 관리자는 문서를 관리할 수 없습니다.")
+        return admin["company_id"]
+    return None
+
+
+def get_document_overview(user: dict) -> dict:
+    """A-02 문서 화면 위쪽 카드(전체·공유 중·색인 실패·열람 요청 대기)에 쓸 집계를 관리 범위 안에서 만든다.
+
+    user: 로그인 사용자. 권한과 범위는 DB의 현재 역할로 다시 확인한다
+    반환: {"total", "week_added"(최근 7일 추가 수), "daily"(7개), "shared", "internal_total", "failed",
+           "failed_title", "pending_requests", "oldest_pending_hours"}
+    PermissionError: 관리자가 아니거나 소속 없는 계열사 관리자일 때
+    """
+    admin = _admin(user)
+    overview = repository.count_document_overview(_scope_company(admin))
+    overview["week_added"] = sum(overview["daily"])
+    return overview
+
+
+def get_document_detail(doc_id: str, user: dict) -> dict:
+    """A-03 상세 패널용: 올린 사람 이름과 "볼 수 있는 사람" 목록을 만든다. 관리할 수 있는 문서만 조회한다.
+
+    반환: {"doc_id", "uploader_name", "viewers": [{"label", "company_id", "note"}]}
+        viewers는 화면에 그대로 한 줄씩 보여 주는 목록이다. company_id가 있으면 화면이 회사 태그를 붙인다.
+    PermissionError: 관리자가 아니거나 타사 문서일 때, LookupError: 문서가 없을 때
+    """
+    admin = _admin(user)
+    document = repository.find_document_detail(doc_id) if isinstance(doc_id, str) else None
+    if document is None:
+        raise LookupError("문서를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.")
+    _check_company(admin, document["company_id"])
+    stats = repository.count_document_viewers(doc_id, document["company_id"])
+
+    company = document["company_name"]
+    level = document["access_level"]
+    viewers: list[dict] = []
+    if level == "public":
+        viewers.append({"label": "모든 계열사 임직원", "company_id": None, "note": "공개"})
+    else:
+        # 소유 회사: 관리자는 등급과 무관하게, 사원은 사내 문서만 본다 (overview.md 2.1 열람 매트릭스).
+        viewers.append({"label": f"{company} 관리자 {stats['company_admins']}명", "company_id": None, "note": "역할"})
+        if level == "internal":
+            viewers.append({"label": f"{company} 사원 {stats['employees']}명", "company_id": None, "note": "소속"})
+            if document["is_group_shared"]:
+                viewers.append({"label": "다른 계열사 임직원", "company_id": None, "note": "공유 중"})
+        for grant in stats["grants"]:
+            granted_at = grant["granted_at"]
+            viewers.append({
+                "label": grant["name"], "company_id": grant["company_id"],
+                "note": f"{granted_at:%m.%d} 승인" if granted_at else "승인",
+            })
+    viewers.append({"label": "최종 어드민", "company_id": None, "note": "전체"})
+    return {"doc_id": doc_id, "uploader_name": document["uploader_name"], "viewers": viewers}
+
+
+def reindex_failed_documents(user: dict) -> dict:
+    """A-02 관리 범위 안에서 색인이 실패한 문서를 하나씩 다시 색인하고 결과를 합산한다.
+
+    DART 공시처럼 원본이 없어 다시 색인할 수 없는 문서는 건너뛴다. 각 문서의 권한·선점·감사 로그는 request_reindex가 한다.
+    반환: {"total": 대상 수, "done": 성공, "failed": 실패, "skipped": 건너뜀}
+    PermissionError: 관리자가 아니거나 소속 없는 계열사 관리자일 때
+    """
+    _admin(user)
+    # 한 번에 MAX_PAGE_SIZE건까지만 돌린다. 더 있으면 다시 눌러서 이어 간다 (한 요청이 너무 오래 걸리지 않게).
+    listed = get_document_list(user, {"index_status": "failed"}, 1, MAX_PAGE_SIZE)
+    summary = {"total": listed["total"], "done": 0, "failed": 0, "skipped": 0}
+    for document in listed["documents"]:
+        if not document["can_reindex"]:
+            summary["skipped"] += 1
+            continue
+        result = request_reindex(document["doc_id"], user)
+        summary["done" if result["index_status"] == "done" else "failed"] += 1
+    return summary

@@ -41,22 +41,25 @@ class DocumentUploadViewTest(unittest.TestCase):
             self.assertEqual(dict(app.session_state["upload-files"]), {})
 
     def test_open_dialog_from_documents(self):
-        """A-01 문서 올리기 버튼으로 모달을 열고 닫는다."""
+        """A-01 문서 올리기 버튼으로 모달을 열고 취소로 닫는다."""
         def page():
             """A-01 관리자 문서 화면을 렌더링한다."""
             from app.admin.views.documents import render_admin_documents
             render_admin_documents({"id": 1})
 
-        with patch("app.admin.views.components.document_upload.get_upload_companies",
-                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]), \
-             patch("app.admin.views.documents.get_upload_companies",
-                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]),              patch("app.admin.views.documents.render_document_list"),              patch("app.admin.views.documents.render_admin_sharing"):
+        companies = [{"company_id": "MVX", "name": "현대무벡스"}]
+        overview = {"total": 1, "week_added": 0, "daily": [0] * 7, "shared": 0, "internal_total": 1, "failed": 0,
+                    "failed_title": "", "pending_requests": 0, "oldest_pending_hours": 0}
+        options = {"doc_types": ("report",), "security_levels": ("public",), "index_statuses": {"done": "완료"}}
+        with patch("app.admin.views.components.document_upload.get_upload_companies", return_value=companies),              patch("app.admin.views.documents.get_upload_companies", return_value=companies),              patch("app.admin.views.documents.get_document_overview", return_value=overview),              patch("app.admin.views.documents.get_share_scope_name", return_value="현대무벡스"),              patch("app.admin.views.documents.get_document_filter_options", return_value=options),              patch("app.admin.views.documents.render_document_list", return_value=None),              patch("app.admin.views.documents.render_document_panel"):
             app = AppTest.from_function(page).run()
-            app.button[0].click().run()
+            app.button(key="ad_upload").click().run()
             self.assertFalse(app.exception)
-            self.assertEqual(app.selectbox(key="upload-access").value, "internal")
+            self.assertEqual(app.radio(key="upload-access").value, "internal")
+            self.assertEqual(app.selectbox(key="upload-company").value, "MVX")
+            self.assertTrue(app.selectbox(key="upload-company").disabled)  # 계열사 관리자는 자사 한 곳뿐
             self.assertTrue(next(b for b in app.button if b.label == "업로드").disabled)
-            next(b for b in app.button if b.label == "닫기").click().run()
+            next(b for b in app.button if b.label == "취소").click().run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.radio), 0)
 
@@ -111,7 +114,7 @@ class DocumentUploadViewTest(unittest.TestCase):
             self.assertIn('sh-upload-status-done', status_html)
             self.assertIn('sh-upload-status-failed', status_html)
             self.assertIn('sh-upload-status-duplicate', status_html)
-            app.selectbox(key="upload-access").set_value("confidential").run()
+            app.radio(key="upload-access").set_value("confidential").run()
             self.assertEqual(upload.call_count, 3)
             self.assertTrue(next(b for b in app.button if b.label == "업로드").disabled)
             next(b for b in app.button if b.label == "전체 지우기").click().run()
@@ -141,3 +144,43 @@ class DocumentUploadViewTest(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(len(app.error), 1)
             self.assertEqual(len(app.radio), 0)
+
+    def test_result_text_shows_size_status_and_failure_reason(self):
+        """A-01 파일 크기와 함께 완료 건수·실패 이유를 한 줄로 보여 준다."""
+        files = [SimpleNamespace(name="a.pdf", size=4_400_000, file_id="a"),
+                 SimpleNamespace(name="b.docx", size=320_000, file_id="b")]
+        results = [{"index_status": "done", "chunk_count": 54},
+                   {"index_status": "failed", "error_message": "표를 인식하지 못했어요."}]
+        with patch("app.admin.views.components.document_upload.get_upload_companies",
+                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]), \
+             patch("app.admin.views.components.document_upload.st.file_uploader",
+                   side_effect=[files] + [[]] * 10), \
+             patch("app.admin.views.components.document_upload.upload_document", side_effect=results):
+            app = AppTest.from_function(upload_page).run()
+            self.assertIn("4.2MB · 업로드 대기", "".join(e.proto.body for e in app.get("html")))
+            next(b for b in app.button if b.label == "업로드").click().run()
+            status_html = "".join(element.proto.body for element in app.get("html"))
+            self.assertIn("4.2MB · 업로드 완료 · 청크 54개", status_html)
+            self.assertIn("312KB · 표를 인식하지 못했어요.", status_html)
+
+    def test_super_admin_chooses_company_and_subtitle_follows(self):
+        """A-01 최종 어드민은 기업을 고를 수 있고, 부제와 업로드 요청이 그 기업을 따른다."""
+        files = [SimpleNamespace(name="a.pdf", size=100, file_id="a")]
+        companies = [{"company_id": "MVX", "name": "현대무벡스"}, {"company_id": "ELV", "name": "현대엘리베이터"}]
+        with patch("app.admin.views.components.document_upload.get_upload_companies", return_value=companies), \
+             patch("app.admin.views.components.document_upload.st.file_uploader", side_effect=[files] + [[]] * 10), \
+             patch("app.admin.views.components.document_upload.upload_document",
+                   return_value={"index_status": "done", "chunk_count": 1}) as upload:
+            app = AppTest.from_function(upload_page).run()
+            self.assertFalse(app.selectbox(key="upload-company").disabled)
+            app.selectbox(key="upload-company").set_value("ELV").run()
+            html_values = "".join(element.proto.body for element in app.get("html"))
+            self.assertIn("현대엘리베이터 문서로 등록됩니다.", html_values)
+            next(b for b in app.button if b.label == "업로드").click().run()
+            self.assertEqual(upload.call_args.args[1]["company_id"], "ELV")
+
+    def test_modal_hint_matches_real_limits(self):
+        """A-01 안내 문구는 실제 제한(파일당 20MB, PDF·DOCX·PPTX)과 같다."""
+        from app.admin.views.components.document_upload import UPLOAD_HINT
+
+        self.assertEqual(UPLOAD_HINT, "파일당 최대 20MB • PDF, DOCX, PPTX")

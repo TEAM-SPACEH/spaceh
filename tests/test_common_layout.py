@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 
-from app.common.layout import account_html, company_label, header_html, scope_html, scope_lines
+from app.common import layout
+from app.common.layout import account_html, company_label, header_html, nav_badge_css, scope_html, scope_lines
 
 EMPLOYEE = {"name": "이물류", "role": "employee", "company_id": "MVX"}
 COMPANY_ADMIN = {"name": "최관리", "role": "company_admin", "company_id": "MVX", "company_name": "현대무벡스"}
@@ -53,6 +55,30 @@ class CommonLayoutTest(unittest.TestCase):
         self.assertIn("현대무벡스 문서와 사용자", scope_lines(COMPANY_ADMIN)[1])
         self.assertEqual(scope_lines(SUPER_ADMIN), ("관리 범위", ["모든 계열사 문서와 사용자"]))
         self.assertNotIn("<i>", scope_html({"name": "a", "role": "employee", "company_id": "<i>"}))
+
+
+class NavBadgeTest(unittest.TestCase):
+    """사이드바 메뉴 숫자 배지: 숫자 0은 숨기고, 숫자 조회가 실패해도 그 배지만 빠진다."""
+
+    def test_css_has_only_positive_known_paths(self):
+        css = nav_badge_css({"mypage": 1, "admin-documents": 48, "admin-access-requests": 0, "unknown": 5})
+        self.assertIn('[href$="/mypage"]::after{content:"1"}', css)
+        self.assertIn('[href$="/admin-documents"]::after{content:"48"}', css)
+        self.assertNotIn("admin-access-requests", css)
+        self.assertNotIn("unknown", css)
+        self.assertEqual(nav_badge_css({}), "")
+
+    def test_employee_counts_only_my_pending_requests(self):
+        history = [{"status": "pending"}, {"status": "approved"}, {"status": "pending"}]
+        with patch.object(layout, "get_access_request_history", return_value=history):
+            self.assertEqual(layout.nav_badge_counts({"id": 1, "role": "employee"}), {"mypage": 2})
+
+    def test_admin_counts_and_partial_failure(self):
+        admin = {"id": 2, "role": "company_admin", "company_id": "MVX"}
+        with patch.object(layout, "get_access_request_history", return_value=[]),                 patch.object(layout, "get_document_list", return_value={"total": 48}),                 patch.object(layout, "get_access_request_counts", side_effect=RuntimeError("db down")):
+            with self.assertLogs(layout.logger, level="ERROR"):
+                counts = layout.nav_badge_counts(admin)
+        self.assertEqual(counts, {"mypage": 0, "admin-documents": 48})
 
 
 if __name__ == "__main__":
