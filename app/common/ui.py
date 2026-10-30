@@ -187,6 +187,20 @@ _CSS = """
 .sh-np-head span{margin-left:auto;font-size:12px;color:#6B7280}
 .sh-np-title{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:14px;font-weight:600;color:#111111}
 .sh-np-note{margin-top:2px;padding-left:20px;font-size:12px;color:#6B7280}
+/* A-04 감사 로그 (Figma 10) */
+.st-key-sh-card-audit-summary [data-testid="stMetricValue"]{font-size:26px;font-weight:700}
+.st-key-sh-card-audit-summary [data-testid="stMetricDelta"]{background:transparent;padding:0;font-size:12px;color:#6B7280}
+.st-key-sh-card-audit-summary [data-testid="stColumn"]:nth-child(2) [data-testid="stMetricValue"]{color:#E03131}
+.st-key-sh-card-audit-summary [data-testid="stColumn"]:nth-child(4) [data-testid="stMetricValue"]{font-size:14px;font-weight:400;color:#6B7280}
+.st-key-audit-filter-row [data-testid="stHorizontalBlock"]{align-items:center;gap:8px}
+.st-key-audit-filter-row [data-testid="stColumn"]{flex:0 0 auto;width:auto;min-width:0}
+.st-key-audit-filter-row [data-testid="stColumn"]:last-child{margin-left:auto}
+.st-key-audit-head{background:#F8F9FA;border-top:1px solid #E9ECEF;border-bottom:1px solid #E9ECEF;
+  margin:0 -17px;padding:8px 17px;width:calc(100% + 34px)!important;max-width:none}
+[class*="st-key-audit-row-"]{border-bottom:1px solid #F1F3F5;margin:0 -17px;padding:4px 17px;width:calc(100% + 34px)!important;max-width:none}
+[class*="st-key-audit-row-"] .sh-text,[class*="st-key-audit-row-"] .stHtml{font-size:14px}
+.st-key-sh-card-audit-detail h3{font-size:18px;padding-top:0}
+.st-key-audit-pager{gap:12px}
 /* M-03 내 권한 요청 팝업 (Figma 15)의 문서 상자 */
 .sh-req-doc{background:#F4F6F8;border-radius:10px;padding:12px 14px}
 .sh-req-title{margin-top:6px;font-size:15px;font-weight:700;color:#111111;overflow-wrap:anywhere}
