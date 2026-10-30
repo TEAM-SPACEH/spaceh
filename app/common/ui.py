@@ -55,7 +55,7 @@ _CSS = """
 [role="dialog"],[data-testid="stPopoverBody"]{background:#FFFFFF}
 /* 흰 카드 안 입력칸은 흰 바탕 + 테두리 (Figma UI v4). 화면별 예외(검색 상자 등)는 아래에서 다시 정한다. */
 [class*="st-key-sh-card-"] [data-testid="stTextInputRootElement"],
-[class*="st-key-sh-card-"] [data-baseweb="textarea"]{background:#FFFFFF;border-color:#CED4DA}
+[class*="st-key-sh-card-"] [data-testid="stTextAreaRootElement"]{background:#FFFFFF;border-color:#CED4DA}
 /* S-04 답변 카드 (Figma 02): 연초록 바탕, 연초록 테두리 + 왼쪽 4px 초록 */
 .st-key-s61_rag_card{background:#F8FCFA;border:1px solid #BFE5CE!important;border-left:4px solid #009944!important;
   border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.06)}
@@ -148,7 +148,16 @@ _CSS = """
 .st-key-sh-card-company-dart [data-testid="stPopover"] button p{font-size:13px}
 .st-key-sh-card-audit-detail h3{font-size:18px;padding-top:0}
 .st-key-audit-pager{gap:12px}
-/* M-03 내 권한 요청 팝업 (Figma 15)의 문서 상자 */
+/* M-03 내 권한 요청 팝업 (Figma 15) */
+[role="dialog"]:has(.st-key-sh-req-dialog) h2{font-size:20px;padding-bottom:0}
+.st-key-sh-req-dialog{gap:12px}
+.st-key-sh-req-dialog [data-testid="stWidgetLabel"] p{font-size:13px;font-weight:700;color:#343A40;opacity:1}
+.st-key-sh-req-dialog [data-testid="stWidgetLabel"]{opacity:1}
+.st-key-sh-req-dialog [data-testid="stTextAreaRootElement"]{background:#FFFFFF;border-color:#CED4DA}
+.st-key-sh-req-dialog [data-testid="stAlertContainer"] p{font-size:12.5px;line-height:1.5}
+.st-key-sh-req-dialog [data-testid="stAlertContainer"]{padding:10px 12px}
+.st-key-sh-req-footer>[data-testid="stElementContainer"]:first-child{flex:1}
+/* M-03 내 권한 요청 팝업의 문서 상자 */
 .sh-req-doc{background:#F4F6F8;border-radius:10px;padding:12px 14px}
 .sh-req-title{margin-top:6px;font-size:15px;font-weight:700;color:#111111;overflow-wrap:anywhere}
 .sh-req-note{margin-top:2px;font-size:12px;color:#6B7280}
