@@ -41,6 +41,8 @@ _LAYOUT_CSS = """
 header[data-testid="stHeader"]{background:transparent}
 /* 본문은 헤더 아래에서 시작 (v4 본문 여백 22px 28px) */
 .stMainBlockContainer{padding-top:78px;padding-left:28px;padding-right:28px}
+/* 페이지 제목(page_header의 st.title)은 Figma UI v4 위계대로 28px */
+.stMainBlockContainer h1{font-size:28px;padding:0 0 4px}
 /* 화면에 안 보이는 요소(테마 CSS·헤더 바)가 요소 사이 간격(1rem)만 차지하지 않게 한다 */
 .stMainBlockContainer .stElementContainer:has(style){margin-bottom:-1rem}
 /* 사이드바 사용자 정보: 칩 위를 계정 메뉴 버튼이 통째로 덮어, 칩 어디를 눌러도 메뉴가 열린다 */
