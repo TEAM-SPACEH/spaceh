@@ -25,15 +25,15 @@ def render_audit_log_list(logs: list[dict]) -> int | None:
         empty_state("조건에 맞는 감사 로그가 없습니다. 기간이나 필터를 바꿔 보세요.")
         return None
 
-    # 머리글 줄 회색 바탕·행 구분선은 공통 CSS가 key(audit-head, audit-row-N)로 그린다 (Figma 10).
-    with st.container(key="audit-head"):
+    # 머리글 줄 회색 바탕·행 구분선은 공통 CSS가 key(sh-thead-…, sh-trow-…-N)로 그린다 (Figma 10).
+    with st.container(key="sh-thead-audit"):
         header = st.columns(_COLUMN_WIDTHS)
     for cell, label in zip(header, _HEADERS):
         with cell:
             show_text(label, bold=True, muted=True)
 
     for index, log in enumerate(logs):
-        with st.container(key=f"audit-row-{index}"):
+        with st.container(key=f"sh-trow-audit-{index}"):
             cells = st.columns(_COLUMN_WIDTHS, vertical_alignment="center")
         with cells[0]:
             # 날짜는 앞의 연도를 떼고 월-일 시:분:초만 보여 준다 (예: 10-28 14:22:08).
