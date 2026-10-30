@@ -14,6 +14,7 @@ from app.common.ui import card, company_tag_html
 from app.reports.models.report_models import ReportRequest, ReportTemplate, SectionType
 from app.reports.services.evidence_preview import count_visible_documents
 from app.reports.services.report_generator import get_template_sections
+from app.reports.services.report_service import create_report
 from app.reports.views.report_form_state import (
     COMPANIES_KEY, DEFAULT_END, DEFAULT_START, END_KEY, REPORT_ID_PARAM, REQUEST_KEY, START_KEY, TEMPLATE_KEY, TOPIC_KEY,
 )
@@ -56,8 +57,21 @@ def render_report_page(user: dict) -> None:
     request = render_report_form(user)
     if request is not None:
         st.session_state[REQUEST_KEY] = request
-        # 근거 수집(R-01)·보고서 생성(R-02)을 이 요청으로 부르는 연결은 아직 없어요.
-        st.info("보고서 조건을 받았습니다. 근거 수집·보고서 생성 기능이 연결되면 이 조건으로 보고서가 만들어집니다.")
+        # R-01~R-04 생성: 근거 수집 → 섹션 작성 → 각주 → 요약 → 저장. report_create 감사 로그와 저장은 create_report()가 한다.
+        try:
+            with st.spinner("근거를 모으고 보고서를 쓰고 있습니다. 1~2분 걸릴 수 있어요."):
+                report = create_report(user, request)
+        except ValueError as error:  # 조건 오류 (메시지 여러 줄)
+            for message in str(error).splitlines():
+                st.error(message)
+        except PermissionError:
+            st.error("보고서를 만들 권한을 확인할 수 없습니다.")
+        except Exception:
+            logger.exception("R-01~R-04 보고서 생성 실패")
+            st.error("보고서를 만드는 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.")
+        else:
+            st.query_params[REPORT_ID_PARAM] = report.report_id  # 저장된 보고서 화면으로
+            st.rerun()
 
 
 def _requested_report_id() -> int | None:
