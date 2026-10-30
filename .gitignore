@@ -2,7 +2,6 @@
 .env
 
 # Python
-data/ocr/
 .venv/
 __pycache__/
 *.pyc
@@ -10,6 +9,7 @@ __pycache__/
 # 원본 문서·벡터 DB (공유는 구글 드라이브)
 data/uploads/*
 data/chroma/*
+data/ocr/
 !data/uploads/.gitkeep
 !data/chroma/.gitkeep
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-from app.ingestion.parsers.ocr import extract_image_text
+from app.ingestion.parsers.ocr import extract_image_text, ocr_document
 
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
@@ -23,6 +23,7 @@ def _iter_shapes(shapes):
             yield shape
 
 
+@ocr_document
 def parse_pptx(file_path: str | Path) -> list[dict]:
     """I-01 슬라이드의 텍스트·표를 위→아래, 왼쪽→오른쪽으로 추출한다."""
     blocks = []

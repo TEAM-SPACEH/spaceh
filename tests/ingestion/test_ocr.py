@@ -29,26 +29,87 @@ class OcrTest(unittest.TestCase):
     @patch.object(ocr, "_process")
     @patch.object(ocr, "_connection")
     def test_duplicate_text_and_empty_lines_are_removed(self, connection, process):
-        process.is_alive.return_value = True
+        process.poll.return_value = None
         connection.recv.return_value = (True, ["Existing text", "새 글자", "새 글자", " "])
         self.assertEqual(ocr.extract_image_text(image_bytes(), "Existing text"), "새 글자")
 
     @patch.object(ocr, "_process")
     @patch.object(ocr, "_connection")
     def test_timeout_stops_worker(self, connection, process):
-        process.is_alive.return_value = True
+        process.poll.return_value = None
         connection.poll.return_value = False
-        with self.assertRaises(TimeoutError):
-            ocr.extract_image_text(image_bytes())
+        with self.assertLogs(ocr.logger, level="WARNING"):
+            self.assertEqual(ocr.extract_image_text(image_bytes()), "")
         process.terminate.assert_called_once()
 
     @patch.object(ocr, "_process")
     @patch.object(ocr, "_connection")
-    def test_model_failure_is_not_empty_success(self, connection, process):
-        process.is_alive.return_value = True
+    def test_model_failure_is_logged_and_skipped(self, connection, process):
+        process.poll.return_value = None
         connection.recv.return_value = (False, [])
-        with self.assertRaises(RuntimeError):
-            ocr.extract_image_text(image_bytes())
+        with self.assertLogs(ocr.logger, level="WARNING"):
+            self.assertEqual(ocr.extract_image_text(image_bytes()), "")
+
+    @patch.object(ocr, "_process")
+    @patch.object(ocr, "_connection")
+    def test_short_numeric_labels_are_not_substring_duplicates(self, connection, process):
+        process.poll.return_value = None
+        connection.recv.return_value = (True, ["10", "%", "매출", "2010"])
+        self.assertEqual(ocr.extract_image_text(image_bytes(), "2010\n연간매출액"), "10\n%\n매출")
+
+    @patch.object(ocr, "_process")
+    @patch.object(ocr, "_connection")
+    def test_broken_pipe_has_safe_model_guidance(self, connection, process):
+        process.poll.return_value = None
+        connection.send_bytes.side_effect = BrokenPipeError("private")
+        with self.assertRaisesRegex(RuntimeError, "모델 준비"):
+            ocr._extract_image_text(image_bytes())
+
+    @patch.object(ocr, "_process")
+    @patch.object(ocr, "_connection")
+    def test_eof_has_safe_model_guidance(self, connection, process):
+        process.poll.return_value = None
+        connection.recv.side_effect = EOFError("private")
+        with self.assertRaisesRegex(ocr.OcrModelError, "모델 준비"):
+            ocr._extract_image_text(image_bytes())
+
+    @patch("app.ingestion.parsers.ocr._extract_image_text")
+    def test_small_image_is_not_sent_to_worker(self, extract):
+        with Image.new("RGB", (99, 200)) as image, io.BytesIO() as buffer:
+            image.save(buffer, format="PNG")
+            self.assertEqual(ocr.extract_image_text(buffer.getvalue()), "")
+        extract.assert_not_called()
+
+    @patch("app.ingestion.parsers.ocr._extract_image_text")
+    def test_document_time_budget_skips_worker(self, extract):
+        from core import config
+        @ocr.ocr_document
+        def parse():
+            return ocr.extract_image_text(image_bytes())
+        with patch.object(config, "OCR_DOCUMENT_SECONDS", 0), self.assertLogs(ocr.logger):
+            self.assertEqual(parse(), "")
+        extract.assert_not_called()
+
+    @patch("app.ingestion.parsers.ocr._extract_image_text", side_effect=ocr.OcrModelError("model"))
+    def test_missing_model_preserves_native_docx_text(self, extract):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "native.docx"
+            doc = Document()
+            doc.add_paragraph("기존 텍스트")
+            doc.add_picture(io.BytesIO(image_bytes()))
+            doc.save(path)
+            with self.assertLogs(ocr.logger):
+                self.assertEqual([b["text"] for b in parse_docx(path)], ["기존 텍스트"])
+
+    @patch("app.ingestion.parsers.ocr._extract_image_text", return_value="OCR")
+    def test_document_count_budget_is_enforced(self, extract):
+        from core import config
+        @ocr.ocr_document
+        def parse():
+            return [ocr.extract_image_text(image_bytes()) for _ in range(3)]
+        with patch.object(config, "OCR_MAX_IMAGES", 1), self.assertLogs(ocr.logger, level="WARNING"):
+            self.assertEqual(parse(), ["OCR", "", ""])
+        extract.assert_called_once()
 
     @patch("app.ingestion.parsers.docx.extract_image_text", return_value="이미지 글자")
     def test_docx_paragraph_and_table_images_keep_location(self, extract):
@@ -63,6 +124,17 @@ class OcrTest(unittest.TestCase):
             self.assertEqual(blocks[1]["location"], "표 2")
             self.assertTrue(all("이미지 글자" in b["text"] for b in blocks))
             self.assertEqual(extract.call_count, 2)
+
+    @patch("app.ingestion.parsers.docx.extract_image_text", return_value="이미지")
+    def test_docx_image_stays_between_text_runs(self, extract):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "order.docx"
+            doc = Document()
+            paragraph = doc.add_paragraph("앞")
+            paragraph.add_run().add_picture(io.BytesIO(image_bytes()))
+            paragraph.add_run("뒤")
+            doc.save(path)
+            self.assertEqual(parse_docx(path)[0]["text"], "앞\n이미지\n뒤")
 
     @patch("app.ingestion.parsers.pptx.extract_image_text", return_value="이미지 글자")
     def test_pptx_image_keeps_slide_and_shape(self, extract):

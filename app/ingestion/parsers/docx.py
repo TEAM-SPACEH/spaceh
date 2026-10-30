@@ -5,7 +5,7 @@ from pathlib import Path
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
-from app.ingestion.parsers.ocr import extract_image_text
+from app.ingestion.parsers.ocr import extract_image_text, ocr_document
 
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
@@ -14,15 +14,25 @@ from app.ingestion.preprocessing.normalizer import (
 
 
 def _paragraph_text(paragraph: Paragraph) -> str:
-    """문단 위치 안에서 이미지 OCR을 기존 글자 뒤에 이어 붙인다."""
-    text = paragraph.text
-    for blip in paragraph._p.xpath(".//a:blip"):
-        relation = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
-        if relation:
-            image_text = extract_image_text(paragraph.part.related_parts[relation].blob, text)
+    """문단 XML 순서대로 글자와 이미지 OCR 결과를 연결한다."""
+    parts = []
+    existing = paragraph.text
+    for element in paragraph._p.iter():
+        if element.tag == "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t":
+            parts.append(element.text or "")
+        elif element.tag.endswith("}tab"):
+            parts.append("\t")
+        elif element.tag.endswith(("}br", "}cr")):
+            parts.append("\n")
+        elif element.tag == "{http://schemas.openxmlformats.org/drawingml/2006/main}blip":
+            relation = element.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+            if not relation:
+                continue
+            image_text = extract_image_text(paragraph.part.related_parts[relation].blob, existing)
             if image_text:
-                text += "\n" + image_text
-    return text
+                parts.append("\n" + image_text + "\n")
+                existing += "\n" + image_text
+    return "".join(parts)
 
 
 def _table_rows(table: Table) -> list[list[str]]:
@@ -49,6 +59,7 @@ def _table_rows(table: Table) -> list[list[str]]:
     return rows
 
 
+@ocr_document
 def parse_docx(file_path: str | Path) -> list[dict]:
     """I-01 DOCX 본문의 문단·표를 원문 순서와 제목 정보로 추출한다."""
     blocks = []
