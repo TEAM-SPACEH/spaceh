@@ -53,6 +53,9 @@ _CSS = """
 .stVerticalBlock[class*="st-key-sh-card-"]{background:#FFFFFF;border:1px solid #E5E8EB!important;border-radius:12px;
   box-shadow:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.06)}
 [role="dialog"],[data-testid="stPopoverBody"]{background:#FFFFFF}
+/* 흰 카드 안 입력칸은 흰 바탕 + 테두리 (Figma UI v4). 화면별 예외(검색 상자 등)는 아래에서 다시 정한다. */
+[class*="st-key-sh-card-"] [data-testid="stTextInputRootElement"],
+[class*="st-key-sh-card-"] [data-baseweb="textarea"]{background:#FFFFFF;border-color:#CED4DA}
 /* S-04 답변 카드 (Figma 02): 연초록 바탕, 연초록 테두리 + 왼쪽 4px 초록 */
 .st-key-s61_rag_card{background:#F8FCFA;border:1px solid #BFE5CE!important;border-left:4px solid #009944!important;
   border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.06)}
@@ -113,10 +116,30 @@ _CSS = """
 .st-key-audit-filter-row [data-testid="stHorizontalBlock"]{align-items:center;gap:8px}
 .st-key-audit-filter-row [data-testid="stColumn"]{flex:0 0 auto;width:auto;min-width:0}
 .st-key-audit-filter-row [data-testid="stColumn"]:last-child{margin-left:auto}
-.st-key-audit-head{background:#F8F9FA;border-top:1px solid #E9ECEF;border-bottom:1px solid #E9ECEF;
+/* 카드 안 표 (감사 로그·계열사 등): 머리글 줄 회색 바탕, 행 사이 구분선. 카드 끝에서 끝까지 이어진다.
+   화면은 st.container(key="sh-thead-…") / st.container(key="sh-trow-…-N") 로 줄을 표시만 한다. */
+[class*="st-key-sh-thead-"]{background:#F8F9FA;border-top:1px solid #E9ECEF;border-bottom:1px solid #E9ECEF;
   margin:0 -17px;padding:8px 17px;width:calc(100% + 34px)!important;max-width:none}
-[class*="st-key-audit-row-"]{border-bottom:1px solid #F1F3F5;margin:0 -17px;padding:4px 17px;width:calc(100% + 34px)!important;max-width:none}
-[class*="st-key-audit-row-"] .sh-text,[class*="st-key-audit-row-"] .stHtml{font-size:14px}
+[class*="st-key-sh-trow-"]{border-bottom:1px solid #F1F3F5;margin:0 -17px;padding:4px 17px;width:calc(100% + 34px)!important;max-width:none}
+[class*="st-key-sh-trow-"] .sh-text,[class*="st-key-sh-trow-"] .stHtml{font-size:14px}
+.sh-card-title{font-size:16px;font-weight:700;color:#111111}
+/* 카드 맨 위가 표 머리글이면 카드 윗변에 붙인다 */
+[class*="st-key-sh-card-"]>[data-testid="stLayoutWrapper"]:first-child>[class*="st-key-sh-thead-"]{margin-top:-17px;
+  border-top:none;border-radius:12px 12px 0 0}
+/* A-07 계열사 (Figma 11) */
+.sh-dist{display:flex;width:160px;height:6px;border-radius:3px;overflow:hidden;background:#E9ECEF}
+.sh-dist span{display:block;height:100%}
+.sh-dist-pub{background:#2B8A3E}.sh-dist-int{background:#FABE00}.sh-dist-con{background:#E03131}
+.sh-legend{display:flex;gap:16px;font-size:12px;color:#6B7280;padding-top:4px}
+.sh-legend i{display:inline-block;width:7px;height:7px;border-radius:4px;margin-right:6px;vertical-align:1px}
+.sh-ok{font-size:13px;color:#2B8A3E}
+.st-key-sh-card-company-dart .stHtml{font-size:14px}
+.st-key-sh-card-company-form [data-testid="stHorizontalBlock"] .sh-text{font-size:13px;line-height:1.5}
+.st-key-sh-card-company-form [data-testid="stHorizontalBlock"] [data-testid="stVerticalBlock"]{gap:2px}
+.st-key-sh-card-company-dart [data-testid="stPopover"]{display:flex;justify-content:flex-end}
+.st-key-sh-card-company-dart [data-testid="stPopover"] button{border:none;background:transparent;color:#004098;
+  min-height:0;padding:2px 0;justify-content:flex-end}
+.st-key-sh-card-company-dart [data-testid="stPopover"] button p{font-size:13px}
 .st-key-sh-card-audit-detail h3{font-size:18px;padding-top:0}
 .st-key-audit-pager{gap:12px}
 /* M-03 내 권한 요청 팝업 (Figma 15)의 문서 상자 */
