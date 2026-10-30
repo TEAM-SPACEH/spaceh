@@ -89,7 +89,9 @@ def render_report_form(user: dict) -> ReportRequest | None:
     names = {option["id"]: option["name"] for option in options}
     st.session_state.setdefault(TEMPLATE_KEY, ReportTemplate.COMPREHENSIVE.value)
     # 기본값은 세션에 미리 넣는다. [다시 만들기]가 같은 칸을 채워도 Streamlit의 "기본값과 세션 값이 함께 있음" 경고가 뜨지 않는다.
-    st.session_state.setdefault(COMPANIES_KEY, [option["id"] for option in options])
+    st.session_state.setdefault(COMPANIES_KEY, list(names))
+    # [다시 만들기]로 채운 계열사 중 지금 선택지에 없는 것(비활성 등)은 뺀다. 선택지 밖 값으로 보고서를 만들지 않게.
+    st.session_state[COMPANIES_KEY] = [company for company in st.session_state[COMPANIES_KEY] if company in names]
     st.session_state.setdefault(START_KEY, DEFAULT_START)
     st.session_state.setdefault(END_KEY, DEFAULT_END)
 
