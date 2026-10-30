@@ -1,28 +1,22 @@
 """I-01 PDF 파싱 (텍스트·표·페이지 위치)."""
 
-import logging
+import io
 from pathlib import Path
 
 import pdfplumber
+from core import config
+from app.ingestion.parsers.ocr import extract_image_text
 
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
     table_to_markdown,
 )
 
-logger = logging.getLogger(__name__)
-
-
 def parse_pdf(file_path: str | Path) -> list[dict]:
     """I-01 텍스트 PDF에서 표 중복 없이 페이지·좌표 순서로 추출한다."""
     blocks = []
     with pdfplumber.open(file_path) as document:
         for number, page in enumerate(document.pages, 1):
-            if page.images and not page.chars:
-                # 이미지 표지 때문에 나머지 텍스트 페이지까지 잃지 않게 한다.
-                logger.warning("PDF %s페이지는 이미지뿐이라 건너뜁니다. OCR이 필요합니다.",
-                               number)
-                continue
             tables = page.find_tables()
 
             def outside_tables(obj):
@@ -39,6 +33,27 @@ def parse_pdf(file_path: str | Path) -> list[dict]:
                 (t.bbox[1], t.bbox[0], "table", table_to_markdown(t.extract()))
                 for t in tables
             )
+            existing = "\n".join(item[3] for item in items)
+            seen_images = set()
+            for image in page.images:
+                bounds = (max(page.bbox[0], image["x0"]), max(page.bbox[1], image["top"]),
+                          min(page.bbox[2], image["x1"]), min(page.bbox[3], image["bottom"]))
+                if bounds in seen_images or bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
+                    continue
+                seen_images.add(bounds)
+                pixels = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]) * (config.OCR_RENDER_DPI / 72) ** 2
+                if pixels > config.OCR_MAX_PIXELS:
+                    raise ValueError("OCR 이미지 크기 한도를 초과했습니다.")
+                rendered = page.crop(bounds).to_image(resolution=config.OCR_RENDER_DPI).original
+                try:
+                    with io.BytesIO() as buffer:
+                        rendered.save(buffer, format="PNG")
+                        text = extract_image_text(buffer.getvalue(), existing)
+                finally:
+                    rendered.close()
+                if text:
+                    items.append((bounds[1], bounds[0], "text", text))
+                    existing += "\n" + text
             # shortcut: PDF 제목 추측 안 함, 제목이 필요하면 실제 문서로 판별 규칙 합의.
             for top, left, kind, text in sorted(items, key=lambda item: item[:2]):
                 blocks.append({

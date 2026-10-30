@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from app.ingestion.parsers.ocr import extract_image_text
 
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
@@ -28,6 +29,12 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
     for number, slide in enumerate(Presentation(file_path).slides, 1):
         title = slide.shapes.title
         section = title.text.strip() if title is not None else ""
+        existing = "\n".join(shape.text for shape in _iter_shapes(slide.shapes)
+                             if shape.has_text_frame)
+        existing += "\n" + "\n".join(
+            cell.text for shape in _iter_shapes(slide.shapes) if shape.has_table
+            for row in shape.table.rows for cell in row.cells if not cell.is_spanned
+        )
         for shape in _iter_shapes(slide.shapes):
             if shape.has_table:
                 kind = "table"
@@ -41,11 +48,16 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
                 is_title = title is not None and shape.shape_id == title.shape_id
                 kind = "title" if is_title else "text"
                 text = shape.text.replace("\v", "\n")
+            elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                kind = "text"
+                text = extract_image_text(shape.image.blob, existing)
+                existing += "\n" + text
             else:
                 continue
             blocks.append({
                 "block_type": kind, "text": text, "page": number,
-                "location": f"슬라이드 {number}",
+                "location": (f"슬라이드 {number} 이미지 {shape.shape_id}"
+                             if shape.shape_type == MSO_SHAPE_TYPE.PICTURE else f"슬라이드 {number}"),
                 "section": section,
             })
     return normalize_blocks(blocks)

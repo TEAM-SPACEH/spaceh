@@ -22,6 +22,10 @@ MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "spaceh")
 UPLOAD_DIR = ROOT_DIR / os.getenv("UPLOAD_DIR", "data/uploads")
 CHROMA_DIR = ROOT_DIR / os.getenv("CHROMA_DIR", "data/chroma")
 CHROMA_COLLECTION = "documents"
+OCR_MODEL_DIR = ROOT_DIR / "data" / "ocr"
+OCR_TIMEOUT_SECONDS = 120
+OCR_MAX_PIXELS = 20_000_000
+OCR_RENDER_DPI = 150
 
 # S-01 검색 결과로 가져올 청크 수
 SEARCH_TOP_K = int(os.getenv("SEARCH_TOP_K", "10"))

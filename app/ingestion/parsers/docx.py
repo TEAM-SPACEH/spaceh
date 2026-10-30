@@ -5,11 +5,24 @@ from pathlib import Path
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from app.ingestion.parsers.ocr import extract_image_text
 
 from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
     table_to_markdown,
 )
+
+
+def _paragraph_text(paragraph: Paragraph) -> str:
+    """문단 위치 안에서 이미지 OCR을 기존 글자 뒤에 이어 붙인다."""
+    text = paragraph.text
+    for blip in paragraph._p.xpath(".//a:blip"):
+        relation = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+        if relation:
+            image_text = extract_image_text(paragraph.part.related_parts[relation].blob, text)
+            if image_text:
+                text += "\n" + image_text
+    return text
 
 
 def _table_rows(table: Table) -> list[list[str]]:
@@ -28,7 +41,7 @@ def _table_rows(table: Table) -> list[list[str]]:
             # cell.text에는 중첩 표가 빠지므로 셀 내부도 문서 순서로 읽는다.
             for item in cell.iter_inner_content():
                 if isinstance(item, Paragraph):
-                    content.append(item.text)
+                    content.append(_paragraph_text(item))
                 else:
                     content.append(table_to_markdown(_table_rows(item)))
             values.append("\n".join(content))
@@ -49,7 +62,7 @@ def parse_docx(file_path: str | Path) -> list[dict]:
             style = item.style.name if item.style is not None else ""
             is_title = style.startswith("Heading") or style == "Title"
             kind = "title" if is_title else "text"
-            text = item.text
+            text = _paragraph_text(item)
             if kind == "title" and text.strip():
                 section = text.strip()
         blocks.append({
