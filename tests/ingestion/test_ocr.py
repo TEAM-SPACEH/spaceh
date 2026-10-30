@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn as docx_qn
 from pptx import Presentation
 from pptx.util import Inches
 from pptx.oxml.ns import qn as pptx_qn
@@ -25,6 +26,32 @@ def image_bytes():
 
 
 class OcrTest(unittest.TestCase):
+    @patch("app.ingestion.parsers.docx.extract_image_text", return_value="정상 그림")
+    def test_missing_docx_image_relation_preserves_text_and_other_images(self, extract):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "missing-image.docx"
+            doc = Document()
+            paragraph = doc.add_paragraph("앞")
+            broken = paragraph.add_run()
+            broken.add_picture(io.BytesIO(image_bytes()))
+            broken._r.xpath(".//a:blip")[0].set(docx_qn("r:embed"), "rIdMissing")
+            paragraph.add_run("뒤")
+            doc.add_paragraph().add_run().add_picture(io.BytesIO(image_bytes()))
+            cell = doc.add_table(1, 1).cell(0, 0)
+            cell.text = "셀 본문"
+            bad_cell_run = cell.paragraphs[0].add_run()
+            bad_cell_run.add_picture(io.BytesIO(image_bytes()))
+            bad_cell_run._r.xpath(".//a:blip")[0].set(docx_qn("r:embed"), "rIdMissing")
+            doc.save(path)
+            with self.assertLogs("app.ingestion.parsers.docx", level="WARNING") as logs:
+                blocks = parse_docx(path)
+            self.assertEqual([block["page"] for block in blocks], [1, 2, 3])
+            self.assertEqual(blocks[0]["text"], "앞뒤")
+            self.assertEqual(blocks[1]["text"], "정상 그림")
+            self.assertIn("셀 본문", blocks[2]["text"])
+            self.assertEqual(len(logs.output), 2)
+            extract.assert_called_once()
+
     def test_docx_tab_stops_are_not_body_tabs(self):
         doc = Document()
         paragraph = doc.add_paragraph("앞")

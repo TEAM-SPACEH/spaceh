@@ -1,6 +1,7 @@
 """I-01 DOCX 파싱 (문단·표 순번)."""
 
 from pathlib import Path
+import logging
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -12,6 +13,8 @@ from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
     table_to_markdown,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _paragraph_text(paragraph: Paragraph) -> str:
@@ -29,7 +32,12 @@ def _paragraph_text(paragraph: Paragraph) -> str:
             relation = element.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
             if not relation:
                 continue
-            image_text = extract_image_text(paragraph.part.related_parts[relation].blob, existing)
+            try:
+                data = paragraph.part.related_parts[relation].blob
+            except KeyError:
+                logger.warning("DOCX 이미지 관계가 없어 해당 그림을 건너뜁니다.")
+                continue
+            image_text = extract_image_text(data, existing)
             if image_text:
                 parts.append("\n" + image_text + "\n")
                 existing += "\n" + image_text
