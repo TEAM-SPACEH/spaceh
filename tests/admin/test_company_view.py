@@ -76,14 +76,14 @@ class CompanyViewTest(unittest.TestCase):
             self.assertIn(expected, html_values)
         self.assertTrue(any("바로 필터와 권한 규칙" in c.value for c in at.caption))
 
-    def test_distribution_shows_level_badges_with_counts(self):
-        """보안 등급 분포는 공통 등급 배지와 문서 수로 보인다 (공개·사내·기밀)."""
+    def test_distribution_shows_ratio_bar_with_counts(self):
+        """보안 등급 분포는 공개·사내·기밀 비율 막대로 보이고, 막대 설명과 범례에 등급별 수·이름이 있다 (Figma 11)."""
         _, at = self._run(companies=[COMPANIES[0]])
         html_values = _html(at)
-        for badge in ("공개", "사내", "기밀"):
-            self.assertIn(badge, html_values)
-        for count in ("190", "100", "22"):
-            self.assertIn(f'<span class="sh-muted">{count}</span>', html_values)
+        self.assertIn('class="sh-dist"', html_values)
+        self.assertIn("공개 190 · 사내 100 · 기밀 22", html_values)
+        for legend in ("공개", "사내", "기밀"):
+            self.assertIn(legend, html_values)
 
     def test_form_has_labels_placeholders_and_default_share_off(self):
         """폼 입력칸 이름·예시·기본값(공유 OFF)이 시안과 같다."""

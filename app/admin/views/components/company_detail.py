@@ -6,7 +6,7 @@ import logging
 import streamlit as st
 
 from app.admin.services.company_service import set_dart_code
-from app.common.ui import company_tag_html, show_text
+from app.common.ui import card, company_tag_html
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,8 @@ def render_dart_connection(companies: list[dict], user: dict) -> None:
     user: 로그인 사용자 (저장할 때 서비스가 최종 어드민인지 다시 확인한다)
     비상장사는 고유번호가 없으므로 "입력 전"으로 보인다 (companies 에 상장 여부 컬럼이 없어 구분하지 않는다).
     """
-    with st.container(border=True):
-        show_text("DART 연결", bold=True)
+    with card("company-dart"):
+        st.html('<div class="sh-card-title">DART 연결</div>')
         for company in companies:
             text_col, action_col = st.columns([4, 1], vertical_alignment="center")
             # 회사 코드와 고유번호도 입력된 값이라 html.escape 한 뒤 HTML 로 그린다.
