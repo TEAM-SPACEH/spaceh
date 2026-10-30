@@ -41,7 +41,7 @@ class DocumentUploadViewTest(unittest.TestCase):
             self.assertEqual(dict(app.session_state["upload-files"]), {})
 
     def test_open_dialog_from_documents(self):
-        """A-01 문서 올리기 버튼으로 모달을 열고 취소로 닫는다."""
+        """A-01 문서 올리기 버튼으로 모달을 연다."""
         def page():
             """A-01 관리자 문서 화면을 렌더링한다."""
             from app.admin.views.documents import render_admin_documents
@@ -59,9 +59,7 @@ class DocumentUploadViewTest(unittest.TestCase):
             self.assertEqual(app.selectbox(key="upload-company").value, "MVX")
             self.assertTrue(app.selectbox(key="upload-company").disabled)  # 계열사 관리자는 자사 한 곳뿐
             self.assertTrue(next(b for b in app.button if b.label == "업로드").disabled)
-            next(b for b in app.button if b.label == "취소").click().run()
-            self.assertFalse(app.exception)
-            self.assertEqual(len(app.radio), 0)
+            self.assertNotIn("취소", [b.label for b in app.button])  # 닫기는 모달 X 버튼만 쓴다
 
     def test_inactive_or_demoted_admin_cannot_open_upload(self):
         """A-01 DB에서 비활성화·강등되면 오래된 관리자 세션에도 업로드 버튼을 숨긴다."""
