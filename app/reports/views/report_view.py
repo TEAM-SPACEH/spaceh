@@ -265,21 +265,25 @@ def _render_head(user: dict, report: Report, created_at) -> None:
 
 
 def render_export_buttons(user: dict, report: Report) -> None:
-    """R-05 Markdown·DOCX 다운로드 버튼과 [다시 만들기]. 기밀 문서가 있으면 내려받기 버튼을 끈다."""
-    # 허용·차단 판단은 화면이 하지 않고 services(report_view_service·report_exporter)에 맡겨요.
-    blocked = download_notice(report.max_access_level)["blocked"]
+    """R-05 Markdown·DOCX 다운로드 버튼과 [다시 만들기]. 누르는 순간 A-06 판정을 거쳐 파일을 만든다."""
+    # 허용·차단은 A-06 decide_report_download() 한 곳에서 정한다. 화면은 버튼을 끄지 않고, 누를 때 판정을 따른다.
+    # (화면을 그릴 때마다 판정하면 누르지도 않은 "다운로드 차단"이 감사 로그에 쌓인다.)
     with st.container(horizontal=True, key="rv_actions"):
         for file_format, label in ((report_exporter.FORMAT_MARKDOWN, "Markdown"), (report_exporter.FORMAT_DOCX, "DOCX")):
+            # data에 "함수"를 넘기면 버튼을 눌렀을 때만 파일을 만들어요(눌러야 감사 로그에 다운로드가 남아요).
+            # 기본값 인자(fmt=file_format): for 반복 안에서 만든 함수가 마지막 형식만 기억하는 실수를 막아요.
+            def make_file(fmt: str = file_format) -> bytes:
+                # 차단이면 export_report_file()이 PermissionError를 내요. 그러면 Streamlit이 다운로드를 멈추고
+                # 브라우저에 실패를 알려요(빈 파일이 받아지지 않아요). 이 함수 안에서는 st.* 화면 명령이 무시돼요.
+                return report_exporter.export_report_file(user, report, fmt)
+
             st.download_button(
                 label,
-                # data에 "함수"를 넘기면 버튼을 눌렀을 때만 파일을 만들어요(눌러야 감사 로그에 다운로드가 남아요).
-                # 기본값 인자(fmt=file_format): for 반복 안에서 만든 함수가 마지막 형식만 기억하는 실수를 막아요.
-                data=lambda fmt=file_format: report_exporter.export_report_file(user, report, fmt) or b"",
+                data=make_file,  # 괄호 없이 함수 자체를 넘겨요. 괄호를 붙이면 지금 바로 실행돼 버려요.
                 file_name=report_exporter.build_file_name(report, file_format),
                 mime=report_exporter.MIME_TYPES[file_format],
                 key=f"rv_dl_{file_format}",
                 on_click="ignore",  # 내려받아도 화면을 다시 그리지 않아요. 보던 탭·스크롤이 그대로예요.
-                disabled=blocked,
             )
         st.button("다시 만들기", key="rv_rebuild", type="primary", on_click=_rebuild, args=(report,))
 
