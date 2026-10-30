@@ -8,12 +8,15 @@
 
 import unittest
 from unittest.mock import patch
+from dataclasses import replace
 
 from app.reports.mock_data import MOCK_COLLECTION, MOCK_REQUEST, build_mock_report, make_quote
 from app.reports.models.report_models import Chunk, Section, SectionType
-from app.reports.services.citation_mapper import build_section_anchor
+from app.reports.services.citation_mapper import build_section_anchor, build_source_link
 from app.reports.services.prompts import NO_EVIDENCE_TEXT
 from app.reports.services.report_generator import build_section_sources
+from app.reports.services.citation_mapper import build_section_anchor, map_footnotes, renumber_footnotes
+from app.reports.services.report_service import assemble_report
 
 # build_section_sources()가 쓰는 S-04 prepare_context()는 DB를 안 써요. 회사 목록만 가짜로 바꿔요.
 COMPANY_OPTIONS = "app.reports.services.report_generator.get_company_options"
@@ -102,3 +105,203 @@ class BuildMockReportTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MapFootnotesTest(unittest.TestCase):
+
+    def test_map_footnotes(self):
+        sections = [
+            make_section(
+                SectionType.OVERVIEW,
+                "가 사실임.[1] 나 사실임.[2]",
+                [ELV, HRI],
+            ),
+            make_section(
+                SectionType.STATUS,
+                "다 사실임.[1] 라 사실임.[2][9]",
+                [MVX, ELV],
+            ),
+        ]
+
+        mapped_sections, footnotes = map_footnotes(
+            sections,
+            MOCK_COLLECTION.chunks,
+        )
+
+        # 섹션별 번호가 보고서 전체 번호로 변경되는지
+        self.assertEqual(
+            mapped_sections[0].body,
+            "가 사실임.[1] 나 사실임.[2]",
+        )
+        self.assertEqual(
+            mapped_sections[1].body,
+            "다 사실임.[3] 라 사실임.[1]",
+        )
+
+        # 같은 청크는 하나의 각주로 통합되는지
+        self.assertEqual(len(footnotes), 3)
+        self.assertEqual(
+            [note.chunk_id for note in footnotes],
+            [ELV.chunk_id, HRI.chunk_id, MVX.chunk_id],
+        )
+
+        # 출처 패널 번호도 변경되는지
+        self.assertEqual(
+            [s["citation_number"] for s in mapped_sections[1].sources],
+            [3, 1],
+        )
+
+
+class RenumberFootnotesTest(unittest.TestCase):
+
+    def test_renumber_footnotes(self):
+        # 기존 함수로 기본 섹션과 각주 준비
+        sections, footnotes = map_footnotes(
+            [
+                make_section(
+                    SectionType.OVERVIEW,
+                    "가.[1] 나.[2]",
+                    [ELV, HRI],
+                ),
+            ],
+            MOCK_COLLECTION.chunks,
+        )
+
+        # 번호가 뒤섞이고 동일 청크가 중복된 상황
+        old_footnotes = [
+            replace(footnotes[0], number=7),
+            replace(footnotes[1], number=4),
+            replace(footnotes[0], number=9),
+        ]
+
+        first_section = replace(
+            sections[0],
+            body="가.[9] 나.[4][99]",
+            sources=[
+                {**sections[0].sources[0], "citation_number":9},
+                {**sections[0].sources[1], "citation_number":4},
+            ],
+        )
+
+        second_section = replace(
+            sections[0],
+            section_type=SectionType.STATUS,
+            body="다.[7]",
+            sources=[
+                {**sections[0].sources[0], "citation_number":7},
+            ],
+        )
+
+        new_sections, new_footnotes = renumber_footnotes(
+            [first_section, second_section],
+            old_footnotes,
+        )
+
+        # 본문 등장 순서대로 번호 재정렬
+        self.assertEqual(new_sections[0].body, "가.[1] 나.[2]")
+        self.assertEqual(new_sections[1].body, "다.[1]")
+
+        # 동일한 청크는 같은 번호 사용
+        self.assertEqual(len(new_footnotes), 2)
+        self.assertEqual(
+            [note.number for note in new_footnotes],
+            [1, 2],
+        )
+        self.assertEqual(
+            [note.chunk_id for note in new_footnotes],
+            [ELV.chunk_id, HRI.chunk_id],
+        )
+
+        # 출처 패널의 번호도 일치
+        self.assertEqual(
+            [s["citation_number"] for s in new_sections[0].sources],
+            [1, 2],
+        )
+        self.assertEqual(
+            [s["citation_number"] for s in new_sections[1].sources],
+            [1],
+        )
+
+class BuildSourceLinkTest(unittest.TestCase):
+
+    def test_build_source_link(self):
+        section = make_section(
+            SectionType.OVERVIEW,
+            "가 사실임.[1]",
+            [ELV],
+        )
+
+        _, footnotes = map_footnotes(
+            [section],
+            MOCK_COLLECTION.chunks,
+        )
+
+        note = footnotes[0]
+        source = build_source_link(note)
+
+        self.assertEqual(source["doc_id"], "doc-elv")
+        self.assertEqual(source["location"], "p.12")
+        self.assertEqual(source["text"], ELV.text)
+        self.assertEqual(source["citation_number"], 1)
+
+
+class AssembleReportTest(unittest.TestCase):
+
+    def test_assemble_report(self):
+        sections = [
+            make_section(
+                SectionType.OVERVIEW,
+                "가 사실임.[1] 나 사실임.[2]",
+                [ELV, HRI],
+            ),
+            make_section(
+                SectionType.STATUS,
+                "다 사실임.[1] 라 사실임.[2]",
+                [MVX, ELV],
+            ),
+            Section(
+                SectionType.SYNERGY,
+                "시너지",
+                NO_EVIDENCE_TEXT,
+                has_evidence=False,
+            ),
+        ]
+
+        report = assemble_report(
+            MOCK_REQUEST,
+            MOCK_COLLECTION,
+            sections,
+        )
+
+        # 보고서 생성 조건 유지
+        self.assertEqual(report.request, MOCK_REQUEST)
+
+        # 보고서 전체 인용 번호 확인
+        self.assertEqual(
+            report.sections[0].body,
+            "가 사실임.[1] 나 사실임.[2]",
+        )
+        self.assertEqual(
+            report.sections[1].body,
+            "다 사실임.[3] 라 사실임.[1]",
+        )
+
+        # 중복 청크는 각주 하나로 통합
+        self.assertEqual(len(report.footnotes), 3)
+        self.assertEqual(
+            [note.chunk_id for note in report.footnotes],
+            [ELV.chunk_id, HRI.chunk_id, MVX.chunk_id],
+        )
+
+        # 출처 패널 번호도 동일하게 반영
+        self.assertEqual(
+            [s["citation_number"] for s in report.sections[1].sources],
+            [3, 1],
+        )
+
+        # 근거 없는 섹션도 유지
+        self.assertFalse(report.sections[2].has_evidence)
+        self.assertEqual(
+            report.sections[2].body,
+            NO_EVIDENCE_TEXT,
+        )
