@@ -70,7 +70,6 @@ def build_pages(user: dict) -> dict:
         pages["전체 관리"] = [
             st.Page(companies, title="계열사", url_path="admin-companies", icon=":material/apartment:"),
             *manage,
-            coming_soon_page("DART 수집", "admin-dart", ":material/cloud_download:"),
         ]
     elif user["role"] == ROLE_COMPANY_ADMIN:
         pages[f"{company_label(user)} 관리"] = manage
