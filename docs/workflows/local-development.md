@@ -4,6 +4,21 @@
 
 ## 준비물
 
+### OCR 모델 준비
+
+I-01 OCR은 EasyOCR 1.7.2, PyTorch 2.8.0·Torchvision 0.23.0의 CPU 실행을 사용한다. Python 3.11 환경에서 설치한다. Windows·Linux에서 CUDA 패키지 다운로드를 줄이려면 먼저 아래 CPU 설치 명령을 실행한 다음 전체 요구사항을 설치한다. macOS는 일반 PyPI 설치를 사용한다.
+
+```bash
+python -m pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements.txt
+python -m scripts.prepare_ocr
+python -m pip check
+```
+
+공식 설치 조합: https://docs.pytorch.org/get-started/previous-versions/
+
+최초 모델 준비에는 인터넷이 필요하다. 모델은 저장소 루트 기준 `data/ocr`에 저장되므로 개인 PC의 절대 경로나 `.env` 변경은 필요 없다. 모델을 Git에 올리지 않는다. 준비 후 Streamlit을 재시작한다. 다른 PC도 같은 명령을 실행한다. 적재 중에는 모델을 자동 다운로드하지 않으며 누락·오류·120초 초과는 실패로 처리한다. 기존 문서는 재색인해야 OCR 결과가 검색에 반영된다. OCR 오인식이 개인정보 마스킹 정확도에도 영향을 줄 수 있으므로 시연 문서로 결과를 검토한다.
+
 | 항목 | 버전 |
 | --- | --- |
 | Python | 3.11.x (3.12·3.13 사용 금지) |
