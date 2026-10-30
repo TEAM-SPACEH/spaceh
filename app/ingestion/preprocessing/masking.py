@@ -49,6 +49,13 @@ _CELL_SPLIT_RE = re.compile(r"\s*\|\s*|	+|\s{2,}")
 _EMAIL_RE = re.compile(
     r"[A-Za-z0-9._%+-]+(?:\s?@\s?|\((?i:at)\)|\[(?i:at)\])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+"
 )
+# OCR(이미지 글자 인식)은 이메일의 점을 빠뜨리거나 공백·쉼표로 읽는다 (kimminsu@examnple com).
+# 그래서 점이 없어도 "영문·숫자@영문으로 시작하는 단어"면 이메일로 보고, 떨어진 도메인 끝도 함께 가린다.
+# @ 뒤가 숫자인 단가 표기(2@3,000원)와 @ 앞이 빈 SNS 아이디(@hyundai)는 걸리지 않는다.
+_OCR_EMAIL_RE = re.compile(
+    r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+\s?@\s?[A-Za-z][A-Za-z0-9-]*"
+    r"(?:[.,\s]{1,2}(?:com|net|org|kr|co|ac|go|or|biz|info|io)(?![A-Za-z0-9]))*"
+)
 
 # 계좌번호 후보: 하이픈으로 구분된 숫자열 2~4덩어리 (예: 110-123-456789).
 # 앞뒤에 숫자·하이픈이 더 붙은 경우는 제외한다 (더 긴 숫자열의 일부).
@@ -174,6 +181,7 @@ def _mask_text(
         track_header(line)
         line = sub_with(_PHONE_RE, PHONE, line)
         line = sub_with(_EMAIL_RE, EMAIL, line)
+        line = sub_with(_OCR_EMAIL_RE, EMAIL, line)
         # 계좌는 키워드가 있는 줄 또는 계좌번호 열에서만 (회사 번호·접수번호 등 오탐 방지).
         has_keyword = any(keyword in line for keyword in _ACCOUNT_KEYWORDS)
         if has_keyword or state.get("account_col") is not None:
