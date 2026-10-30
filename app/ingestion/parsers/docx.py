@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from app.ingestion.parsers.ocr import extract_image_text, ocr_document
@@ -20,9 +21,9 @@ def _paragraph_text(paragraph: Paragraph) -> str:
     for element in paragraph._p.iter():
         if element.tag == "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t":
             parts.append(element.text or "")
-        elif element.tag.endswith("}tab"):
+        elif element.tag == qn("w:tab") and element.getparent().tag == qn("w:r"):
             parts.append("\t")
-        elif element.tag.endswith(("}br", "}cr")):
+        elif element.tag in (qn("w:br"), qn("w:cr")) and element.getparent().tag == qn("w:r"):
             parts.append("\n")
         elif element.tag == "{http://schemas.openxmlformats.org/drawingml/2006/main}blip":
             relation = element.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")

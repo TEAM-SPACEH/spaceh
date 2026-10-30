@@ -8,11 +8,13 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 from docx import Document
+from docx.oxml import OxmlElement
 from pptx import Presentation
 from pptx.util import Inches
+from pptx.oxml.ns import qn as pptx_qn
 
 from app.ingestion.parsers import ocr
-from app.ingestion.parsers.docx import parse_docx
+from app.ingestion.parsers.docx import parse_docx, _paragraph_text
 from app.ingestion.parsers.pptx import parse_pptx
 
 
@@ -23,6 +25,33 @@ def image_bytes():
 
 
 class OcrTest(unittest.TestCase):
+    def test_docx_tab_stops_are_not_body_tabs(self):
+        doc = Document()
+        paragraph = doc.add_paragraph("앞")
+        paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(1))
+        run = paragraph.add_run("\t뒤\n다음")
+        run._r.append(OxmlElement("w:cr"))
+        run.add_text("끝")
+        self.assertEqual(_paragraph_text(paragraph), "앞\t뒤\n다음\n끝")
+
+    @patch("app.ingestion.parsers.pptx.extract_image_text", return_value="내장 그림")
+    def test_pptx_linked_picture_does_not_drop_slide_text(self, extract):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "linked.pptx"
+            ppt = Presentation()
+            slide = ppt.slides.add_slide(ppt.slide_layouts[6])
+            slide.shapes.add_textbox(Inches(0), Inches(0), Inches(2), Inches(1)).text = "본문"
+            linked = slide.shapes.add_picture(io.BytesIO(image_bytes()), Inches(1), Inches(1))
+            blip = linked._element.xpath(".//a:blip")[0]
+            del blip.attrib[pptx_qn("r:embed")]
+            blip.set(pptx_qn("r:link"), "external-image")
+            slide.shapes.add_picture(io.BytesIO(image_bytes()), Inches(1), Inches(2))
+            ppt.save(path)
+            with self.assertLogs("app.ingestion.parsers.pptx", level="WARNING"):
+                blocks = parse_pptx(path)
+            self.assertEqual([block["text"] for block in blocks], ["본문", "내장 그림"])
+            extract.assert_called_once()
+
     def tearDown(self):
         ocr._close_worker()
 

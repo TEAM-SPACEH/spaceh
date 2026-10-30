@@ -1,6 +1,7 @@
 """I-01 PPTX 파싱 (슬라이드 번호)."""
 
 from pathlib import Path
+import logging
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -10,6 +11,8 @@ from app.ingestion.preprocessing.normalizer import (
     normalize_blocks,
     table_to_markdown,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _iter_shapes(shapes):
@@ -51,7 +54,12 @@ def parse_pptx(file_path: str | Path) -> list[dict]:
                 text = shape.text.replace("\v", "\n")
             elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
                 kind = "text"
-                text = extract_image_text(shape.image.blob, existing)
+                try:
+                    data = shape.image.blob
+                except ValueError:
+                    logger.warning("PPTX %s슬라이드 내장되지 않은 그림을 건너뜁니다.", number)
+                    continue
+                text = extract_image_text(data, existing)
                 existing += "\n" + text
             else:
                 continue
