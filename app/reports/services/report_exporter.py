@@ -3,35 +3,33 @@
 # ─────────────────────────────────────────────────────────────
 # services 파일 = "주방"이에요. 화면 코드(st.*)는 쓰지 않아요. (팀 규칙)
 #
-# 다운로드 흐름 (명세서 export_report)
-#   ① 다운로드 통제 확인 (A-06) → 차단이면 파일을 만들지 않고 감사 로그에 "차단"으로 남겨요
+# 다운로드 흐름 (명세서 export_report) — 버튼을 "누른 순간"에만 실행돼요
+#   ① 다운로드 통제 확인 (A-06 decide_report_download) → 차단이면 PermissionError
+#      (차단 감사 로그는 A-06이 남겨요. 여기서 또 남기면 2건이 돼요)
 #   ② 선택한 형식으로 파일 만들기 → to_markdown() / to_docx()
-#   ③ 워터마크 대상이면 apply_watermark()로 "누가·언제 받았는지" 문구를 넣어요
-#   ④ 감사 로그(A-04)에 다운로드를 남겨요
+#   ③ A-06이 준 워터마크 문구를 apply_watermark()로 넣어요
+#   ④ 허용된 다운로드를 감사 로그(A-04)에 남겨요
 #
 # 파일 안 순서 (Markdown·DOCX 똑같아요)
 #   제목·조건 → 1페이지 요약 → 상세보고서 → 각주
 #   요약 항목마다 [상세 보기] 링크 → 같은 파일 안 상세 섹션으로 이동해요.
-#
-# 📌 아직 없는 것 (오면 바꿔 끼워요)
-#   - A-06 check_download_policy() (이승준) → 지금은 get_download_policy()가 "허용 + 워터마크"로 임시 판정
-#   - report_repository.find_by_id() (보고서 저장) → 그 전까지 export_report()는 NotImplementedError
 # ─────────────────────────────────────────────────────────────
 
 import html
 import io
 import logging
 import re
-from datetime import datetime
 
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
-from app.admin.services.audit_service import KST, record_audit_log
+from app.admin.services.audit_service import record_audit_log
 from app.reports.models.report_models import Report, ReportTemplate
+from app.reports.repositories.report_repository import find_by_id
 from app.reports.services.citation_mapper import build_section_anchor
+from app.reports.services.download_policy_service import decide_report_download
 from app.reports.services.prompts import NO_EVIDENCE_TEXT, SUMMARY_KIND_TITLES
 from app.reports.services.report_generator import get_company_names
 
@@ -62,11 +60,7 @@ NO_SUMMARY_TEXT = "1페이지 요약이 없습니다."
 NO_FOOTNOTE_TEXT = "표시할 각주가 없습니다."
 PARTIAL_TEXT = "일부 문장이 근거 검증에 실패해 제외되었습니다."
 
-# 워터마크 문구. 예: 워터마크: 박예원(E2025001) · 2026-10-29 15:30 다운로드 · 외부 유출 금지
-WATERMARK_TEMPLATE = "워터마크: {name}({employee_no}) · {downloaded_at} 다운로드 · 외부 유출 금지"
-WATERMARK_TIME_FORMAT = "%Y-%m-%d %H:%M"
-
-# 감사 로그(A-04) 행위 코드와 차단 사유
+# 감사 로그(A-04) 행위 코드
 AUDIT_DOWNLOAD = "download"
 
 # 파일 이름에 쓸 수 없는 글자 (Windows 기준: \ / : * ? " < > |)
@@ -74,39 +68,41 @@ FILE_NAME_BAD_CHARS = re.compile(r'[\\/:*?"<>|\s]+')
 
 
 # ─────────────────────────────────────────────────────────────
-# ① 다운로드 통제 (A-06) — 📌 임시
+# ① 다운로드 통제 (A-06)
 # ─────────────────────────────────────────────────────────────
-def get_download_policy(user: dict, report: Report) -> dict:
-    """[임시 A-06] 이 보고서를 내려받아도 되는지, 워터마크를 넣을지 판정한다."""
-    # 📌 이승준님 check_download_policy()가 오기 전까지 "항상 허용 + 워터마크 적용"으로 둬요.
-    #    돌려주는 모양만 맞춰 두면, 나중에 이 함수 안만 바꾸면 화면·다운로드가 그대로 따라가요.
-    #   allowed   : 내려받아도 되면 True
-    #   watermark : 워터마크를 넣어야 하면 True
-    #   reason    : 차단 사유 (허용이면 None) — 화면 안내와 감사 로그에 써요
-    return {"allowed": True, "watermark": True, "reason": None}
+def get_download_policy(user: dict, report: Report, file_format: str) -> dict:
+    """A-06 판정을 부른다. 근거 문서를 하나라도 못 보는 사용자면 차단된다."""
+    # 판정 자체는 이승준님 decide_report_download()가 해요. 여기서는 보고서에서 필요한 값만 꺼내 넘겨요.
+    # 돌려받는 모양: {"allowed": True/False, "reason": 차단 사유, "watermark": 넣을 문구, "blocked_doc_ids": [...]}
+    # ⚠️ 차단이면 A-06이 감사 로그를 남겨요. 그래서 화면을 그릴 때(버튼 표시)는 부르지 않고,
+    #    버튼을 누른 순간에만 불러요. 화면은 다시 실행될 때마다 그려져서, 그때 부르면 차단 기록이 계속 쌓여요.
+    return decide_report_download(user, _doc_ids(report), file_format, _report_id_text(report))
 
 
 # ─────────────────────────────────────────────────────────────
 # ② 다운로드 (명세서 export_report)
 # ─────────────────────────────────────────────────────────────
 def export_report(user: dict, report_id: int, file_format: str) -> bytes:
-    """R-05 다운로드 직전에 통제를 다시 확인하고, 선택한 형식의 보고서 파일을 만든다. (명세서 모양)"""
-    # 📌 report_id로 보고서를 찾으려면 보고서 저장·조회(report_repository.find_by_id)가 있어야 해요.
-    #    그 전까지는 화면이 Report를 직접 넘기는 export_report_file()을 써요.
-    raise NotImplementedError("보고서 저장·조회(report_repository)가 생기면 연결합니다.")
+    """R-05 저장된 본인 보고서를 찾아, 통제를 다시 확인하고 선택한 형식의 파일을 만든다."""
+    # find_by_id는 보고서 ID와 작성자 ID를 함께 걸어서 남의 보고서는 None이에요.
+    report = find_by_id(report_id, user.get("id"))
+    if report is None:
+        raise LookupError("보고서를 찾을 수 없습니다.")
+    return export_report_file(user, report, file_format)
 
 
-def export_report_file(user: dict, report: Report, file_format: str) -> bytes | None:
-    """R-05 통제 확인 → 파일 만들기 → 워터마크 → 감사 로그. 차단이면 None을 돌려준다."""
+def export_report_file(user: dict, report: Report, file_format: str) -> bytes:
+    """R-05 통제 확인 → 파일 만들기 → 워터마크 → 감사 로그. 차단이면 PermissionError를 낸다."""
     if file_format not in MIME_TYPES:  # 'md', 'docx' 말고는 받지 않아요
         raise ValueError(f"지원하지 않는 형식입니다: {file_format}")
 
-    # ① 화면에서 버튼을 막았더라도 여기서 다시 확인해요.
-    #    화면을 거치지 않은 요청도 막아야 해서예요. (명세서: "다운로드 직전에 다시 확인")
-    policy = get_download_policy(user, report)
+    # ① 내려받기 직전에 통제를 확인해요. 화면을 거치지 않은 요청도 여기서 막혀요.
+    policy = get_download_policy(user, report, file_format)
     if not policy["allowed"]:
-        _record_audit(user, report, file_format, blocked=True, reason=policy["reason"])
-        return None
+        # 빈 파일을 돌려주지 않고 오류를 내요. 다운로드 버튼이 실패로 끝나서
+        # 사용자가 "받아졌다"고 오해하지 않아요. (#109 원문 다운로드와 같은 방식)
+        # 차단 감사 로그는 A-06이 이미 남겼어요.
+        raise PermissionError(policy["reason"])
 
     # ② 형식에 맞는 파일 만들기. Markdown은 글자라서 bytes로 바꿔요(utf-8 = 한글이 깨지지 않는 방식).
     if file_format == FORMAT_MARKDOWN:
@@ -114,12 +110,12 @@ def export_report_file(user: dict, report: Report, file_format: str) -> bytes | 
     else:
         content = to_docx(report)
 
-    # ③ 워터마크 대상이면 받은 사람·시각을 넣어요.
+    # ③ 워터마크 문구는 A-06 한 곳에서 만들어요. 여기서는 받은 문구를 그대로 넣기만 해요.
     if policy["watermark"]:
-        content = apply_watermark(content, file_format, user)
+        content = apply_watermark(content, file_format, policy["watermark"])
 
     # ④ 파일을 다 만든 뒤에 기록해요. 만들다 실패하면 "내려받음"으로 남지 않게요.
-    _record_audit(user, report, file_format, blocked=False)
+    _record_audit(user, report, file_format)
     return content
 
 
@@ -130,24 +126,31 @@ def build_file_name(report: Report, file_format: str) -> str:
     return f"{FILE_NAME_BAD_CHARS.sub('_', name).strip('_')}.{file_format}"
 
 
-def _record_audit(
-    user: dict, report: Report, file_format: str, blocked: bool, reason: str | None = None,
-) -> None:
-    """보고서 다운로드를 감사 로그(A-04)에 1건 남긴다. 기록이 실패해도 다운로드는 계속한다."""
-    # 근거 문서 ID·회사 코드는 각주에서 모아요. dict.fromkeys = 순서를 지키면서 중복을 빼는 방법이에요.
-    doc_ids = list(dict.fromkeys(note.doc_id for note in report.footnotes))
+def _doc_ids(report: Report) -> list[str]:
+    """각주의 근거 문서 ID 목록 (순서 유지, 중복 제거)."""
+    # dict.fromkeys: 순서를 지키면서 같은 값을 한 번만 남기는 방법이에요.
+    return list(dict.fromkeys(note.doc_id for note in report.footnotes))
+
+
+def _report_id_text(report: Report) -> str | None:
+    """감사 로그·A-06에 넘길 보고서 ID 글자. 저장 전 보고서면 None."""
+    return str(report.report_id) if report.report_id is not None else None
+
+
+def _record_audit(user: dict, report: Report, file_format: str) -> None:
+    """허용된 보고서 다운로드를 감사 로그(A-04)에 1건 남긴다. 기록이 실패해도 다운로드는 계속한다."""
+    # 차단 기록은 A-06(decide_report_download)이 남기므로 여기서는 허용만 남겨요.
     companies = list(dict.fromkeys(note.company_id for note in report.footnotes))
     try:
         record_audit_log(
             user.get("id"),          # 행동한 사용자 (users.id)
             AUDIT_DOWNLOAD,          # 행위 코드: download
-            # 대상 보고서 ID. 저장 기능 전이라 없으면 None (DB 칸 길이 100자 안이라 안전해요)
-            str(report.report_id) if report.report_id is not None else None,
+            _report_id_text(report), # 대상 보고서 ID (DB 칸 길이 100자 안이라 안전해요)
             None,                    # ip_address: 저장하지 않는 칸이라 None (A-04 규칙)
-            blocked,                 # 통제로 막혔으면 True
-            reason,                  # 차단 사유 (허용이면 None)
+            False,                   # 허용된 다운로드
+            None,                    # 차단 사유 없음
             target_type="report",
-            doc_ids=doc_ids,
+            doc_ids=_doc_ids(report),
             doc_companies=companies,
             context_detail={"file_format": file_format},  # 어떤 형식으로 받았는지
         )
@@ -355,9 +358,10 @@ def _add_internal_link(paragraph, text: str, bookmark: str) -> None:
 # ─────────────────────────────────────────────────────────────
 # ⑤ 워터마크
 # ─────────────────────────────────────────────────────────────
-def apply_watermark(content: bytes, file_format: str, user: dict) -> bytes:
+def apply_watermark(content: bytes, file_format: str, text: str) -> bytes:
     """R-05 보고서 파일에 다운로드한 사용자와 일시를 담은 워터마크를 넣는다. 본문·각주는 바꾸지 않는다."""
-    text = build_watermark_text(user)
+    # 📌 명세서 입력은 user인데, 리뷰 합의로 문구는 A-06 한 곳에서 만들기로 해서 완성된 문구(text)를 받아요.
+    #    (A-06 decide_report_download()의 "watermark" 값. 사용자·일시가 들어 있어요)
     if file_format == FORMAT_MARKDOWN:
         # Markdown: 맨 위와 맨 아래에 인용(>) 줄로 넣어요. 본문은 그대로 사이에 둬요.
         body = content.decode("utf-8")
@@ -374,17 +378,6 @@ def apply_watermark(content: bytes, file_format: str, user: dict) -> bytes:
         document.save(buffer)
         return buffer.getvalue()
     raise ValueError(f"지원하지 않는 형식입니다: {file_format}")
-
-
-def build_watermark_text(user: dict, now: datetime | None = None) -> str:
-    """워터마크 문구를 만든다. now를 넘기면 그 시각을 쓴다(테스트용)."""
-    # 시각은 감사 로그와 같은 한국 시간(KST) 기준이에요.
-    downloaded_at = (now or datetime.now(KST)).strftime(WATERMARK_TIME_FORMAT)
-    return WATERMARK_TEMPLATE.format(
-        name=user.get("name") or "알 수 없음",
-        employee_no=user.get("employee_no") or user.get("id") or "-",
-        downloaded_at=downloaded_at,
-    )
 
 
 # ─────────────────────────────────────────────────────────────

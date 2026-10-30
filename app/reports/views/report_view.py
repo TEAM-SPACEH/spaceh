@@ -193,36 +193,40 @@ def render_footnotes(footnotes: list[Footnote]) -> None:
 
 
 def render_export_buttons(user: dict, report: Report) -> None:
-    """R-05 Markdown·DOCX 다운로드 버튼. 차단이면 버튼을 끄고 사유를, 워터마크 대상이면 안내를 보여 준다."""
-    # 📌 명세서 입력은 report_id인데, 보고서 저장·조회가 아직 없어 Report를 직접 받아요.
-    # 허용·차단 판단은 화면이 하지 않고 services(A-06 판정)에 물어봐요. (팀 규칙: 화면은 판단 X)
-    policy = report_exporter.get_download_policy(user, report)
-    blocked = not policy["allowed"]
-
+    """R-05 Markdown·DOCX 다운로드 버튼. 누르는 순간 A-06 판정을 거쳐 파일을 만든다."""
+    # 📌 명세서 입력은 report_id인데, 보고서 결과 화면이 이미 Report를 들고 있어 그대로 받아요.
+    # 📌 명세서는 "차단이면 버튼을 끄고 사유 안내"인데, 지금은 버튼을 누를 때만 판정해요.
+    #    A-06 판정이 부를 때마다 차단을 감사 로그에 남겨서, 화면을 그릴 때(재실행마다) 부르면
+    #    누르지도 않은 "다운로드 차단" 기록이 쌓이기 때문이에요. (A-06에 audit 인자가 생기면 미리 판정)
     md_col, docx_col = st.columns(2)
     for column, file_format, label in (
         (md_col, report_exporter.FORMAT_MARKDOWN, "Markdown 다운로드"),
         (docx_col, report_exporter.FORMAT_DOCX, "DOCX 다운로드"),
     ):
+        # data에 "함수"를 넘기면 버튼을 눌렀을 때만 이 함수가 실행돼요.
+        #   → 화면을 그릴 때마다 Word 파일을 만들지 않아 가볍고,
+        #   → 누르는 순간의 권한으로 판정하고, 실제로 받은 경우만 감사 로그에 남아요.
+        # 기본값 인자(fmt=file_format): for 반복 안에서 만든 함수가 마지막 형식만 기억하는 실수를 막아요.
+        def make_file(fmt: str = file_format) -> bytes:
+            # 차단이면 export_report_file()이 PermissionError를 내요.
+            # 그러면 Streamlit이 다운로드를 멈추고 브라우저에 실패를 알려요(빈 파일이 받아지지 않아요).
+            # 이 함수 안에서는 st.* 화면 명령이 무시돼서 안내 문구 대신 오류로 알려요.
+            return report_exporter.export_report_file(user, report, fmt)
+
         with column:
             st.download_button(
                 label,
-                # data에 "함수"를 넘기면 버튼을 눌렀을 때만 파일을 만들어요.
-                #   → 화면을 그릴 때마다 Word 파일을 만들지 않아 가볍고,
-                #   → 실제로 누른 사람만 감사 로그에 "다운로드"로 남아요.
-                # 기본값 인자(fmt=file_format): for 반복 안에서 만든 함수가 마지막 형식만 기억하는 실수를 막아요.
-                # 차단이면 None이 오는데, 버튼에는 빈 파일(b"")을 줘요. (버튼은 이미 꺼져 있어요)
-                data=lambda fmt=file_format: report_exporter.export_report_file(user, report, fmt) or b"",
+                data=make_file,  # 괄호 없이 함수 자체를 넘겨요. 괄호를 붙이면 지금 바로 실행돼 버려요.
                 file_name=report_exporter.build_file_name(report, file_format),
                 mime=report_exporter.MIME_TYPES[file_format],
                 key=f"r05_download_{file_format}",
                 # "ignore": 내려받아도 화면을 다시 그리지 않아요. 보던 탭·스크롤이 그대로예요.
                 on_click="ignore",
-                disabled=blocked,
                 width="stretch",
             )
 
-    if blocked:
-        st.warning(f"다운로드할 수 없습니다: {policy['reason'] or '다운로드 권한이 없습니다.'}")
-    elif policy["watermark"]:
-        show_text("워터마크가 적용됩니다. (다운로드한 사람·일시가 파일에 표시됩니다)", muted=True)
+    show_text(
+        "내려받을 때 근거 문서 열람 권한을 다시 확인합니다. 볼 수 없는 근거 문서가 있으면 내려받을 수 없고, "
+        "파일에는 받은 사람·일시가 워터마크로 표시됩니다.",
+        muted=True,
+    )
