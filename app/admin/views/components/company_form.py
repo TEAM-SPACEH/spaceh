@@ -5,7 +5,7 @@ import logging
 import streamlit as st
 
 from app.admin.services.company_service import create_company
-from app.common.ui import show_text
+from app.common.ui import card, show_text
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ def render_company_form(user: dict) -> None:
     user: 로그인 사용자 (등록할 때 서비스가 최종 어드민인지 다시 확인한다)
     등록에 실패하면 입력값을 그대로 두고 오류 문구를 폼 아래에 보여 주며, 성공하면 입력칸을 비운다.
     """
-    with st.container(border=True):
-        show_text("계열사 더하기", bold=True)
+    with card("company-form"):
+        st.html('<div class="sh-card-title">계열사 더하기</div>')
         # st.form: 입력하는 동안에는 화면을 다시 그리지 않고, 버튼(또는 Enter)을 눌렀을 때 한 번에 제출한다.
         with st.form("company-form", border=False):
             st.text_input("회사명", key=NAME_KEY, placeholder="예: 현대투자파트너스")

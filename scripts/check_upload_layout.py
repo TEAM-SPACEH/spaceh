@@ -10,19 +10,23 @@ import shutil
 import subprocess
 from tempfile import TemporaryDirectory
 
-from app.common.ui import _CSS, upload_status_html
+from app.common.ui import _CSS, _CSS_UPLOAD_MODAL, upload_status_html
 from core.config import ROOT_DIR
 
 
 _CONTROLS = """
 <div class="stApp">
-<div data-testid="stDialog"><div role="dialog"><span class="sh-upload-dialog-marker" hidden></span>
-  <div class="stButton"><button kind="primary" data-color="rgb(255, 255, 255)"><div data-testid="stMarkdownContainer">업로드</div></button></div>
-  <div class="stButton"><button kind="secondary" data-color="rgb(0, 122, 54)"><div data-testid="stMarkdownContainer">닫기</div></button></div>
-  <div class="stButton"><button kind="tertiary" data-color="rgb(0, 64, 152)"><div data-testid="stMarkdownContainer">전체 지우기</div></button></div>
-  <div data-testid="stMarkdownContainer" id="body-text">본문</div>
+<div data-testid="stDialog"><section role="dialog"><span class="sh-upload-dialog-marker" hidden></span>
+  <div class="st-key-upload-footer">
+    <button kind="primary" data-primary data-color="rgb(255, 255, 255)"><div data-testid="stMarkdownContainer"><p>업로드</p></div></button>
+    <button kind="secondary" data-color="rgb(17, 17, 17)"><div data-testid="stMarkdownContainer"><p>취소</p></div></button>
+    <span class="sh-muted" id="footer-text">파일 요약</span>
+  </div>
+  <div class="st-key-upload-file-heading">
+    <button kind="tertiary" data-color="rgb(107, 114, 128)"><div data-testid="stMarkdownContainer"><p>전체 지우기</p></div></button>
+  </div>
+  <div data-testid="stMarkdownContainer" id="body-text"><p>본문</p></div>
   <div data-testid="stCaptionContainer" id="caption-text">파일 크기 안내</div>
-  <div class="st-key-upload-footer"><span class="sh-muted" id="footer-text">파일 요약</span></div>
   <div class="st-key-upload-picker"><div data-testid="stFileUploaderDropzone">
     <span><button id="choose"><span>Upload</span></button></span>
   </div></div>
@@ -30,7 +34,7 @@ _CONTROLS = """
     <div><button class="keep-label"><span>Cancel upload</span></button></div>
     <div><button class="keep-label"><span>Remove file</span></button></div>
   </div></div>
-</div></div>
+</section></div>
 <style>.baseline-button{color:rgb(128,0,128)}</style>
 <div class="stButton"><button kind="primary" class="baseline-button" id="outside-button"><div data-testid="stMarkdownContainer">다른 화면</div></button></div>
 </div>
@@ -39,7 +43,7 @@ _CONTROLS = """
 
 _MEASURE = """
 <script>
-document.fonts.ready.then(() => {
+document.fonts.ready.then(() => { try {
   function contrast(element) {
     const rgb = value => value.match(/[0-9.]+/g).map(Number);
     const luminance = channels => channels.slice(0, 3).map(value => {
@@ -53,7 +57,7 @@ document.fonts.ready.then(() => {
     const b = luminance(background ? rgb(getComputedStyle(background).backgroundColor) : [255, 255, 255]);
     return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
   }
-  const rows = [...document.querySelectorAll('section')].map(section => {
+  const rows = [...document.querySelectorAll('section[data-status]')].map(section => {
     const box = section.querySelector('.sh-upload-status');
     const text = box.querySelector('span:last-child');
     const spinner = box.querySelector('.sh-upload-spinner');
@@ -72,9 +76,9 @@ document.fonts.ready.then(() => {
   const report = document.createElement('pre');
   report.id = 'audit-report';
   const controlsOk = [...document.querySelectorAll('button[data-color]')].every(button =>
-    getComputedStyle(button.querySelector('[data-testid="stMarkdownContainer"]')).color === button.dataset.color
-  ) && getComputedStyle(document.querySelector('#body-text')).color === 'rgb(17, 17, 17)' &&
-    getComputedStyle(document.querySelector('#choose'), '::after').content.includes('내 컴퓨터에서 파일 선택') &&
+    getComputedStyle(button.querySelector('[data-testid="stMarkdownContainer"] p')).color === button.dataset.color
+  ) && getComputedStyle(document.querySelector('#body-text p')).color === 'rgb(17, 17, 17)' &&
+    getComputedStyle(document.querySelector('#choose'), '::after').content.includes('파일 찾기') &&
     [...document.querySelectorAll('.keep-label')].every(button =>
       ['none', 'normal'].includes(getComputedStyle(button, '::after').content) &&
       getComputedStyle(button.firstElementChild).display !== 'none') &&
@@ -83,16 +87,24 @@ document.fonts.ready.then(() => {
   report.textContent = JSON.stringify({
     fontLoaded: [...document.fonts].some(f => f.family === 'NeoHyundai' && f.status === 'loaded') &&
       document.fonts.check('13px NeoHyundai'), rows, controlsOk,
-    controlContrast: [...document.querySelectorAll('button[data-color] [data-testid="stMarkdownContainer"], #caption-text, #footer-text')].map(contrast)
+    controlContrast: [...document.querySelectorAll('button[data-color]:not([data-primary]) [data-testid="stMarkdownContainer"] p, #caption-text, #footer-text, #body-text p')].map(contrast),
+    primaryContrast: contrast(document.querySelector('button[data-primary] [data-testid="stMarkdownContainer"] p'))
   });
   document.body.append(report);
-});
+} catch (error) {
+  const failed = document.createElement('pre');
+  failed.id = 'audit-report';
+  failed.textContent = JSON.stringify({error: String(error)});
+  document.body.append(failed);
+} });
 </script>
 """
 
 
 def validate_report(report: dict) -> None:
     """A-01 폰트 누락·검사 누락·중앙 오차·문구 잘림을 실패로 처리한다."""
+    if report.get("error"):
+        raise ValueError(f"브라우저 측정 스크립트 오류: {report['error']}")
     if not report.get("fontLoaded") or len(report.get("rows", [])) != 16:
         raise ValueError("네오현대 폰트 로딩 또는 16개 검사 조건을 확인하지 못했습니다.")
     if not report.get("controlsOk"):
@@ -100,6 +112,9 @@ def validate_report(report: dict) -> None:
     contrasts = report.get("controlContrast", [])
     if len(contrasts) != 5 or not all(value >= 4.5 for value in contrasts):
         raise ValueError(f"버튼·안내 문구 대비 검사 실패: {contrasts}")
+    # 기본(초록 #009944) 버튼의 흰 글자는 디자인(Figma 08·design.md 5.1) 색이라 4.5:1에 못 미친다. 큰 UI 요소 기준 3:1은 지킨다.
+    if not (report.get("primaryContrast") or 0) >= 3.0:
+        raise ValueError(f"기본 버튼 대비 검사 실패: {report.get('primaryContrast')}")
     for row in report["rows"]:
         if not row.get("contrast", 0) >= 4.5:
             raise ValueError(f"상태 문구 대비 검사 실패: {row}")
@@ -124,7 +139,7 @@ def main() -> None:
         font_css += (f'@font-face{{font-family:"NeoHyundai";font-weight:{weight};'
                      f'src:url("{(font_dir / name).as_uri()}") format("truetype")}}')
     # 앱에서는 develop의 테마가 폰트를 제공하므로 독립 검사에서만 등록한다.
-    css = '<style>' + font_css + '</style>' + _CSS
+    css = '<style>' + font_css + '</style>' + _CSS + _CSS_UPLOAD_MODAL
     rows = []
     messages = {"busy": "문서를 저장하고 색인합니다.", "done": "색인 완료 · 청크 366개",
                 "duplicate": "이미 등록된 파일입니다. 기존 문서를 확인해 주세요.",
@@ -150,7 +165,7 @@ def main() -> None:
         if match is None:
             raise ValueError("Chrome 측정 결과가 없습니다. 브라우저 실행 환경을 확인하세요.")
         validate_report(json.loads(html.unescape(match[1])))
-    print("PASS: 상태 행 16조건 + 버튼·안내·상태 대비 4.5:1 + 모달 버튼·본문 색상 + 선택·취소·제거 라벨 + 모달 외부 색상 보존")
+    print("PASS: 상태 행 16조건 + 버튼·안내·상태 대비 4.5:1(기본 버튼 3:1) + 모달 버튼·본문 색상 + 파일 찾기·취소·제거 라벨 + 모달 외부 색상 보존")
 
 
 if __name__ == "__main__":

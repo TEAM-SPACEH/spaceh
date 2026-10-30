@@ -71,11 +71,66 @@ def list_requests(company_id: str | None, status: str | None,
         cursor.execute(
             "SELECT r.id, r.user_id, r.doc_id, r.reason, r.status, "
             "r.review_comment, r.created_at, r.reviewed_at, d.title, "
-            "d.company_id, u.name AS requester_name, u.employee_no "
+            "d.company_id, d.file_format, d.access_level, d.published_date, c.name AS company_name, "
+            "u.name AS requester_name, u.employee_no, u.role AS requester_role, "
+            "u.company_id AS requester_company_id, uc.name AS requester_company_name "
             "FROM access_requests r JOIN documents d ON d.doc_id = r.doc_id "
             "JOIN users u ON u.id = r.user_id "
+            "LEFT JOIN companies c ON c.company_id = d.company_id "
+            "LEFT JOIN companies uc ON uc.company_id = u.company_id "
             "WHERE (%s IS NULL OR d.company_id = %s) AND (%s IS NULL OR r.status = %s) "
             "ORDER BY r.created_at DESC, r.id DESC LIMIT %s OFFSET %s",
             (*params, limit, offset),
         )
         return list(cursor.fetchall()), total
+
+
+def count_by_status(company_id: str | None) -> dict[str, int]:
+    """A-05 관리 범위(회사 코드, None이면 전체) 안의 상태별 열람 요청 수. 없는 상태는 0이다."""
+    counts = {"pending": 0, "approved": 0, "rejected": 0}
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT r.status, COUNT(*) AS total FROM access_requests r "
+            "JOIN documents d ON d.doc_id = r.doc_id "
+            "WHERE (%s IS NULL OR d.company_id = %s) GROUP BY r.status",
+            (company_id, company_id),
+        )
+        for row in cursor.fetchall():
+            if row["status"] in counts:
+                counts[row["status"]] = row["total"]
+    return counts
+
+
+def find_request_scope(request_id: int) -> dict | None:
+    """A-05 요청 1건의 요청자와 문서 소유 회사를 읽기만 한다 (잠금 없음). 없으면 None."""
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT r.id, r.user_id, d.company_id FROM access_requests r "
+            "JOIN documents d ON d.doc_id = r.doc_id WHERE r.id = %s",
+            (request_id,),
+        )
+        return cursor.fetchone()
+
+
+def summarize_requester(user_id: int, company_id: str, exclude_request_id: int) -> dict:
+    """A-05 같은 요청자가 같은 회사 문서에 낸 다른 요청의 처리 결과 요약.
+
+    반환: {"total", "approved", "rejected", "pending", "last_approved_at"(datetime 또는 None)}
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(r.status = 'approved'), 0) AS approved, "
+            "COALESCE(SUM(r.status = 'rejected'), 0) AS rejected, "
+            "COALESCE(SUM(r.status = 'pending'), 0) AS pending, "
+            "MAX(CASE WHEN r.status = 'approved' THEN r.reviewed_at END) AS last_approved_at "
+            "FROM access_requests r JOIN documents d ON d.doc_id = r.doc_id "
+            "WHERE r.user_id = %s AND d.company_id = %s AND r.id <> %s",
+            (user_id, company_id, exclude_request_id),
+        )
+        row = cursor.fetchone()
+    return {
+        "total": int(row["total"]), "approved": int(row["approved"]),
+        "rejected": int(row["rejected"]), "pending": int(row["pending"]),
+        "last_approved_at": row["last_approved_at"],
+    }

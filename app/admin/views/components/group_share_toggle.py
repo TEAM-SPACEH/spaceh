@@ -21,6 +21,7 @@ def render_group_share_toggle(
     on_toggle_callback: Callable[[str, bool], None] | None = None,
     *,
     key_prefix: str = "group-share",
+    compact: bool = False,
 ) -> None:
     """A-03 문서 1건의 그룹사 공유 토글을 그린다.
 
@@ -28,6 +29,7 @@ def render_group_share_toggle(
     user: 로그인 사용자
     on_toggle_callback: 변경에 성공한 뒤 부르는 함수. (doc_id, 바뀐 공유 상태) 를 받는다
     key_prefix: 같은 문서의 토글을 화면의 여러 곳(표·패널)에 둘 때 위젯 이름이 겹치지 않게 붙이는 접두어
+    compact: True면 잠긴 이유를 글자로 덧붙이지 않는다 (표 안처럼 좁은 곳. 이유는 마우스를 올리면 보인다)
     confidential 은 꺼진 채 잠그고, internal 만 바꿀 수 있다.
     """
     state = bool(doc["is_group_shared"])
@@ -44,10 +46,12 @@ def render_group_share_toggle(
         st.toggle(
             "그룹사 공유", value=False, key=key, disabled=True, help=_CONFIDENTIAL_NOTICE, label_visibility="collapsed"
         )
-        st.caption(_CONFIDENTIAL_NOTICE)
+        if not compact:
+            st.caption(_CONFIDENTIAL_NOTICE)
         return
     if level != ACCESS_INTERNAL:
-        st.caption("공유 설정 대상이 아닙니다.")
+        if not compact:
+            st.caption("공유 설정 대상이 아닙니다.")
         return
 
     # 색인이 끝나지 않은 문서는 잠근다 (서비스도 거부한다). 색인 중에 바꾼 값은 나중에 색인되는 청크에 반영되지 않을 수 있다.
@@ -55,7 +59,8 @@ def render_group_share_toggle(
         st.toggle(
             "그룹사 공유", value=state, key=key, disabled=True, help=_NOT_INDEXED_NOTICE, label_visibility="collapsed"
         )
-        st.caption(_NOT_INDEXED_NOTICE)
+        if not compact:
+            st.caption(_NOT_INDEXED_NOTICE)
         return
 
     # 값이 바뀌면 화면을 다시 그리기 전에 _on_change 가 먼저 실행된다. 그래서 같은 실행에서

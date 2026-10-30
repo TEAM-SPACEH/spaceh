@@ -157,5 +157,51 @@ class ListTests(unittest.TestCase):
         listing.assert_not_called()
 
 
+class DetailHelperTests(unittest.TestCase):
+    """목록 탭 숫자와 이전 요청 요약: 관리 범위 밖은 읽지 못한다."""
+
+    @patch.object(repository, "count_by_status", return_value={"pending": 1, "approved": 2, "rejected": 0})
+    @patch.object(service, "find_active_admin", return_value=ADMIN)
+    def test_counts_use_database_company_scope(self, active, counts):
+        service.get_access_request_counts({**ADMIN, "company_id": "ELV"})
+        counts.assert_called_once_with("MVX")
+
+    @patch.object(repository, "count_by_status", return_value={})
+    @patch.object(service, "find_active_admin", return_value={"id": 2, "role": "super_admin", "company_id": None})
+    def test_super_admin_counts_everything(self, active, counts):
+        service.get_access_request_counts(ADMIN)
+        counts.assert_called_once_with(None)
+
+    @patch.object(repository, "count_by_status")
+    @patch.object(service, "find_active_admin", return_value={**ADMIN, "role": "employee"})
+    def test_counts_reject_non_admin(self, active, counts):
+        with self.assertRaises(PermissionError):
+            service.get_access_request_counts(ADMIN)
+        counts.assert_not_called()
+
+    @patch.object(repository, "summarize_requester", return_value={"total": 2})
+    @patch.object(repository, "find_request_scope", return_value={"id": 5, "user_id": 9, "company_id": "MVX"})
+    @patch.object(service, "find_active_admin", return_value=ADMIN)
+    def test_summary_for_own_company_request(self, active, scope, summarize):
+        self.assertEqual(service.get_requester_summary(ADMIN, 5), {"total": 2})
+        summarize.assert_called_once_with(9, "MVX", 5)
+
+    @patch.object(repository, "summarize_requester")
+    @patch.object(repository, "find_request_scope", return_value={"id": 5, "user_id": 9, "company_id": "ELV"})
+    @patch.object(service, "find_active_admin", return_value=ADMIN)
+    def test_summary_blocks_other_company_request(self, active, scope, summarize):
+        with self.assertRaises(PermissionError):
+            service.get_requester_summary(ADMIN, 5)
+        summarize.assert_not_called()
+
+    @patch.object(repository, "find_request_scope", return_value=None)
+    @patch.object(service, "find_active_admin", return_value=ADMIN)
+    def test_summary_missing_request(self, active, scope):
+        with self.assertRaises(LookupError):
+            service.get_requester_summary(ADMIN, 5)
+        with self.assertRaises(ValueError):
+            service.get_requester_summary(ADMIN, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

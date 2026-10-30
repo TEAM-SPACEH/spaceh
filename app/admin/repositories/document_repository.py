@@ -231,3 +231,114 @@ def delete_document_row(doc_id: str) -> bool:
         # rowcount 는 실제로 지운 행 수다. 그 사이 다른 곳에서 이미 지웠다면 0 이 된다.
         cur.execute("DELETE FROM documents WHERE doc_id = %s", (doc_id,))
         return cur.rowcount == 1
+
+
+# ---------------------------------------------------------------------------
+# A-02·A-03 문서 화면(UI v4) 요약·상세. 이 구역 아래는 관리자 문서 화면 전용이다.
+# ---------------------------------------------------------------------------
+
+# 최근 몇 일의 추가 건수를 막대로 보여 줄지 (오늘 포함)
+OVERVIEW_DAYS = 7
+
+
+def count_document_overview(company_id: str | None) -> dict:
+    """A-02 문서 화면 위쪽 카드용 집계를 읽는다. 날짜 계산은 DB 시계(CURDATE·NOW)로 해 앱과 시간대가 달라도 어긋나지 않는다.
+
+    company_id: 이 회사 문서만 센다. None이면 전체 회사 (권한은 services가 정한다)
+    반환: {"total", "internal_total", "shared", "failed", "failed_title", "daily"(오래된 날 → 오늘 순 7개),
+           "pending_requests", "oldest_pending_hours"}
+        shared는 공유 ON 사내 문서 수. failed_title은 가장 최근에 실패한 문서 제목(없으면 빈 문자열).
+        oldest_pending_hours는 가장 오래된 대기 열람 요청이 몇 시간 지났는지(대기가 없으면 0).
+    """
+    # 회사 조건은 (%s IS NULL OR ... = %s) 고정 SQL로 둔다. company_id가 None이면 전체 회사가 된다.
+    params = [company_id, company_id]
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(access_level = 'internal'), 0) AS internal_total, "
+            "COALESCE(SUM(access_level = 'internal' AND is_group_shared = 1), 0) AS shared, "
+            "COALESCE(SUM(index_status = 'failed'), 0) AS failed "
+            "FROM documents WHERE (%s IS NULL OR company_id = %s)",
+            params,
+        )
+        counts = cur.fetchone()
+        cur.execute(
+            "SELECT title FROM documents WHERE (%s IS NULL OR company_id = %s) AND index_status = 'failed' "
+            "ORDER BY updated_at DESC, doc_id LIMIT 1",
+            params,
+        )
+        failed = cur.fetchone()
+        cur.execute(
+            "SELECT DATEDIFF(CURDATE(), DATE(created_at)) AS days_ago, COUNT(*) AS n "
+            "FROM documents WHERE (%s IS NULL OR company_id = %s) "
+            "AND created_at >= CURDATE() - INTERVAL %s DAY "
+            "GROUP BY days_ago",
+            [*params, OVERVIEW_DAYS - 1],
+        )
+        by_day = {int(row["days_ago"]): int(row["n"]) for row in cur.fetchall()}
+        # 열람 요청은 문서 소유 회사 기준이다 (A-05 목록과 같은 범위).
+        cur.execute(
+            "SELECT COUNT(*) AS pending, "
+            "COALESCE(TIMESTAMPDIFF(HOUR, MIN(r.created_at), NOW()), 0) AS oldest_hours "
+            "FROM access_requests r JOIN documents d ON d.doc_id = r.doc_id "
+            "WHERE r.status = 'pending' AND (%s IS NULL OR d.company_id = %s)",
+            params,
+        )
+        pending = cur.fetchone()
+    return {
+        "total": int(counts["total"]),
+        "internal_total": int(counts["internal_total"]),
+        "shared": int(counts["shared"]),
+        "failed": int(counts["failed"]),
+        "failed_title": failed["title"] if failed else "",
+        "daily": [by_day.get(days_ago, 0) for days_ago in range(OVERVIEW_DAYS - 1, -1, -1)],
+        "pending_requests": int(pending["pending"]),
+        "oldest_pending_hours": int(pending["oldest_hours"] or 0),
+    }
+
+
+def find_document_detail(doc_id: str) -> dict | None:
+    """A-03 상세 패널용으로 문서의 소유 회사 이름과 올린 사람 이름을 조회한다. 없으면 None.
+
+    올린 사람이 삭제됐거나 기록이 없으면 uploader_name은 None이다.
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT d.doc_id, d.company_id, c.name AS company_name, d.access_level, d.is_group_shared, "
+            "d.created_at, u.name AS uploader_name "
+            "FROM documents d JOIN companies c ON c.company_id = d.company_id "
+            "LEFT JOIN users u ON u.id = d.uploaded_by WHERE d.doc_id = %s",
+            (doc_id,),
+        )
+        return cur.fetchone()
+
+
+def count_document_viewers(doc_id: str, company_id: str) -> dict:
+    """A-03 "볼 수 있는 사람" 목록 재료: 소유 회사의 사원·관리자 수, 최종 어드민 수, 승인받은 사용자 목록.
+
+    반환: {"employees", "company_admins", "super_admins", "grants": [{"name", "company_id", "granted_at"}]}
+        grants는 이 문서의 열람 승인(access_grants)을 받은 활성 사용자를 최근 승인 순으로 담는다.
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT COALESCE(SUM(role = 'employee' AND company_id = %s), 0) AS employees, "
+            "COALESCE(SUM(role = 'company_admin' AND company_id = %s), 0) AS company_admins, "
+            "COALESCE(SUM(role = 'super_admin'), 0) AS super_admins "
+            "FROM users WHERE is_active = 1",
+            (company_id, company_id),
+        )
+        counts = cur.fetchone()
+        cur.execute(
+            "SELECT u.name, u.company_id, MAX(g.created_at) AS granted_at "
+            "FROM access_grants g JOIN users u ON u.id = g.user_id "
+            "WHERE g.doc_id = %s AND u.is_active = 1 "
+            "GROUP BY u.id, u.name, u.company_id ORDER BY granted_at DESC",
+            (doc_id,),
+        )
+        grants = list(cur.fetchall())
+    return {
+        "employees": int(counts["employees"]),
+        "company_admins": int(counts["company_admins"]),
+        "super_admins": int(counts["super_admins"]),
+        "grants": grants,
+    }

@@ -262,8 +262,8 @@ class ViewerAuditOnceTest(unittest.TestCase):
         app.button(key="other").click().run()
         self.assertEqual(self.view_logs(audit), 1)
 
-        # [원문 닫기] 뒤 같은 출처를 다시 열면 새 열람이라 1건 더 남아요.
-        app.button(key="s05_close_viewer").click().run()
+        # [돌아가기](원문 닫기) 뒤 같은 출처를 다시 열면 새 열람이라 1건 더 남아요.
+        app.button(key="s05_back").click().run()
         app.session_state[SELECTED_SOURCE_KEY] = self.SOURCE
         app.run()
         self.assertEqual(self.view_logs(audit), 2)

@@ -13,16 +13,27 @@ def render_rag_answer_card(result: dict) -> None:
     answer = result.get("answer", "")
     sources = result.get("sources") or []
 
-    with st.container(border=True, key="s61_rag_card"):
+    # 근거가 없으면 초록 강조 없는 회색 카드로 '찾을 수 없음'을 보여 준다 (Figma 14, 모양은 공통 CSS).
+    no_answer = isinstance(answer, str) and bool(answer.strip()) and is_no_answer(answer)
+
+    with st.container(border=True, key="s61_rag_card_none" if no_answer else "s61_rag_card"):
 
         # 답변이 비어 있는 경우
         if not isinstance(answer, str) or not answer.strip():
             empty_state("아직 생성된 답변이 없습니다.")
             return
 
-        # 문서에 답변 근거가 없는 경우
-        if is_no_answer(answer):
-            empty_state("검색된 문서에서 충분한 답변 근거를 찾지 못했습니다.")
+        # 문서에 답변 근거가 없는 경우 (S-04: 근거 없이 추측해서 답하지 않는다)
+        if no_answer:
+            st.html(
+                '<div class="sh-rag-header"><span class="sh-rag-title">답변</span>'
+                '<span class="sh-rag-meta">근거 문서 0건</span></div>'
+                '<div class="sh-rag-none-title">찾을 수 없음</div>'
+                '<div class="sh-rag-body">권한 안의 문서에서 이 질문의 근거를 찾지 못했습니다. '
+                "근거 없이 추측해서 답하지 않습니다.\n"
+                "질문을 바꾸거나 필터(계열사·문서 유형·기간)를 넓혀 다시 검색해 보세요.</div>"
+                '<div class="sh-rag-footer">검색된 문서만 근거로 답합니다. 근거가 없으면 모른다고 답합니다.</div>'
+            )
             return
 
         # HTML 및 Markdown 실행 방지
@@ -54,9 +65,19 @@ def render_rag_answer_card(result: dict) -> None:
             f'<div class="sh-rag-body">{formatted_answer}</div>'
         )
 
+        # S-05 답변 하단 [회사명 · 파일명 · 위치] 배지 (Figma 02). 데이터에서 온 글자라 escape한다.
+        source_chips = "".join(
+            '<span class="sh-rag-src">'
+            f'{citation_html(int(source.get("citation_number") or 0))}'
+            f'{html.escape(" · ".join(str(source.get(k) or "") for k in ("company", "filename", "location")))}'
+            "</span>"
+            for source in sources
+        )
+        sources_html = f'<div class="sh-rag-sources">{source_chips}</div>' if sources else ""
+
         footer_html = (
             '<div class="sh-rag-footer">'
-            '✓ 검색된 문서를 기반으로 생성된 답변입니다.'
+            '검색된 문서만 근거로 답합니다. 근거가 없으면 모른다고 답합니다.'
             '</div>'
         )
 
@@ -82,6 +103,6 @@ def render_rag_answer_card(result: dict) -> None:
         """
 
         st.html(
-            header_html + body_html + footer_html + copy_script,
+            header_html + body_html + sources_html + footer_html + copy_script,
             unsafe_allow_javascript=True,
         )

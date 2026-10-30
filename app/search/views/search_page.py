@@ -1,12 +1,14 @@
 """S-01 통합 검색 화면: render_search(). S-02 필터(기업·문서 유형·기간)를 함께 건다."""
 
+import html
 import logging
+import re
 from datetime import date
 
 import streamlit as st
 
 from app.auth.session import get_current_user
-from app.common.ui import DOC_TYPE_LABELS, no_permission_notice, page_header
+from app.common.ui import DOC_TYPE_LABELS, card, company_tag_html, no_permission_notice
 from app.documents.views.components.document_viewer import render_selected_source
 from app.documents.views.components.source_badge import SELECTED_SOURCE_KEY
 from app.permissions.services.permission_service import request_document_access
@@ -47,6 +49,17 @@ _EARLIEST_DOC_DATE = date(2000, 1, 1)
 # 검색창 위젯 key. 후속 질문(followup_questions)도 이 key로 검색어를 바꾼다.
 _QUERY_KEY = "s61_query_input"
 
+# 초기 화면(Figma 02-0)의 인사말·검색 상자 폭
+_START_WIDTH = 760
+
+# 사이드바 최근 질문 (이번 로그인 동안만 세션에 둔다)
+_RECENT_KEY = "s61_recent_queries"
+_RECENT_PENDING_KEY = "s61_recent_pending"
+_RECENT_LIMIT = 5
+
+# M-03 요청을 보낸 뒤 화면에 한 번 보여 줄 안내
+_REQUEST_FLASH_KEY = "s61_request_flash"
+
 
 def render_search(query: str | None = None, user: dict | None = None) -> None:
     """S-01 통합 검색 및 S-04 근거 기반 AI 답변 화면.
@@ -61,9 +74,6 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.warning("로그인 후 검색할 수 있습니다.")
         return
 
-    # 공통 UI 헤더 사용
-    page_header("통합 검색")
-
     date_range = (_EARLIEST_DOC_DATE, date.today())
 
     # 미리 채울 검색어는 세션 값으로만 넣는다. text_input에 value=를 같이 주면
@@ -71,39 +81,7 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
     if query and _QUERY_KEY not in st.session_state:
         st.session_state[_QUERY_KEY] = query
 
-    # 1. 검색창
-    with st.form("s61_search_form", border=False):
-        search_col, button_col = st.columns(
-            [10, 1],
-            vertical_alignment="bottom",
-            gap="small",
-        )
-
-        with search_col:
-            search_query = st.text_input(
-                "검색어",
-                placeholder="궁금한 내용을 검색해 보세요.",
-                label_visibility="collapsed",
-                key=_QUERY_KEY,
-            )
-
-        with button_col:
-            submitted = st.form_submit_button(
-                "검색",
-                type="primary",
-            )
-
-    # 2. 검색 필터
-    # 폼 밖에 배치하여 후속 질문에서도 최신 필터 상태를 사용한다.
-    selection = render_search_filters(
-        _COMPANIES,
-        _DOC_TYPES,
-        date_range,
-        key="search",
-        compact=True,
-    )
-
-    # 3. 사용자별 검색 상태 관리
+    # 사용자별 검색 상태 관리
     user_key = (
         user.get("id"),
         user.get("company_id"),
@@ -114,12 +92,62 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
     # 후속 질문 자동 검색 여부
     pending = st.session_state.pop("s61_followup_pending", False)
+    # 사이드바 최근 질문을 누르면 그 질문으로 새로 검색한다 (후속 질문과 달리 최초 질문도 바뀐다).
+    recent = st.session_state.pop(_RECENT_PENDING_KEY, False)
+    _render_recent_questions(user_key)
+
+    # 아직 검색 결과가 없으면 초기 화면(Figma 02-0): 인사말 아래 가운데에 검색 상자와 필터를 둔다.
+    # 검색 결과가 있으면 검색 화면(Figma 02): 맨 위 검색 상자, 그 아래 필터와 결과.
+    saved_before = st.session_state.get(state_key)
+    is_start = not (pending or recent) and not (saved_before and saved_before.get("user_key") == user_key)
+
+    with st.container(key="search-hero" if is_start else "search-top", horizontal_alignment="center"):
+        with st.container(width=_START_WIDTH if is_start else "stretch"):
+            if is_start:
+                st.html(
+                    f'<div class="sh-hero-title">안녕하세요, <b>{html.escape(user.get("name") or "")}</b>님</div>'
+                    '<div class="sh-hero-sub">무엇을 찾아볼까요?</div>'
+                    '<div class="sh-hero-desc">현대경제연구원 · 현대무벡스 · 현대엘리베이터 문서 중 '
+                    "내 권한 안의 문서에서 찾아, 근거와 함께 답합니다.</div>"
+                )
+
+            # 1. 검색창
+            with card("search-box"):
+                with st.form("s61_search_form", border=False):
+                    search_col, button_col = st.columns(
+                        [10, 1],
+                        vertical_alignment="center",
+                        gap="small",
+                    )
+
+                    with search_col:
+                        search_query = st.text_input(
+                            "검색어",
+                            placeholder="예: 현대무벡스 3분기 스마트팩토리 수주 현황과 위험 요인은?",
+                            label_visibility="collapsed",
+                            key=_QUERY_KEY,
+                        )
+
+                    with button_col:
+                        submitted = st.form_submit_button(
+                            "검색",
+                            type="primary",
+                        )
+
+                # 2. 검색 필터 (초기 화면은 검색 상자 안)
+                # 폼 밖에 배치하여 후속 질문에서도 최신 필터 상태를 사용한다.
+                if is_start:
+                    selection = _render_filters(date_range)
+
+            # 2. 검색 필터 (검색 화면은 검색 상자 아래)
+            if not is_start:
+                selection = _render_filters(date_range)
 
     # 최초 질문을 유지하기 위해 이전 결과를 보관
     previous_saved = st.session_state.get(state_key)
 
     # 4. 검색 실행
-    if submitted or pending:
+    if submitted or pending or recent:
         current_query = search_query.strip()
         base_query = current_query
 
@@ -230,6 +258,11 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             st.error("검색 중 문제가 발생했습니다.")
             return
 
+        # 최근 질문 목록을 갱신하고, 초기 화면이었으면 검색 화면 배치로 바꾸도록 다시 그린다.
+        # (사이드바 최근 질문은 이번 실행에서 이미 그려졌으므로 다시 그려야 새 질문이 보인다.)
+        _remember_query(user_key, current_query)
+        st.rerun()
+
     # 5. 저장된 결과 표시
     saved = st.session_state.get(state_key)
 
@@ -248,6 +281,13 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
         st.info("검색 결과가 없습니다. 다른 검색어로 찾아보세요.")
         # 결과가 없어도, 권한 때문에 가려졌을 수 있는 문서는 제목만 보여 주고 요청을 받는다 (M-03).
         _render_requestable_documents(saved, user)
+        return
+
+    # 원문 보기 (Figma 03): 출처의 [원문 보기]를 누르면 답변·출처 칸 전체를 원문 뷰어로 바꾼다.
+    # 3단 뷰어가 들어갈 폭이 필요해서 오른쪽 출처 칸 안에 두지 않는다. [검색 결과로 돌아가기]를 누르면
+    # 세션의 출처가 지워지고 저장된 검색 결과가 다시 보인다. 원문을 열기 전 권한 재확인은 S-05가 한다.
+    if st.session_state.get(SELECTED_SOURCE_KEY):
+        render_selected_source(user)
         return
 
     # 6. AI 답변 및 출처 2열 레이아웃
@@ -276,9 +316,6 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
 
         render_search_result_list(chunks)
 
-        # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
-        _render_requestable_documents(saved, user)
-
     # 오른쪽: AI 인용 출처 및 원문 뷰어
     with source_col:
         rag_result = saved.get("rag_result")
@@ -289,13 +326,20 @@ def render_search(query: str | None = None, user: dict | None = None) -> None:
             else []
         )
 
-        if st.session_state.get(SELECTED_SOURCE_KEY):
-            with st.expander(
-                "선택한 문서 원문",
-                expanded=True,
-            ):
-                # 원문 뷰어(S-05)가 열기 전에 문서 접근 권한을 다시 확인한다.
-                render_selected_source(user)
+        # 7. 권한이 없어 본문은 못 보지만 '요청하면 볼 수 있는' 문서는 제목만 보여 주고 요청을 받는다 (M-03).
+        # Figma 02처럼 출처 칸에 회사 카드로 둔다.
+        _render_requestable_documents(saved, user)
+
+
+def _render_filters(date_range: tuple[date, date]) -> dict:
+    """S-02 기업·문서 유형·기간 필터. 초기 화면과 검색 화면에서 놓이는 자리만 다르다."""
+    return render_search_filters(
+        _COMPANIES,
+        _DOC_TYPES,
+        date_range,
+        key="search",
+        compact=True,
+    )
 
 
 def _render_requestable_documents(saved: dict, user: dict) -> None:
@@ -305,26 +349,50 @@ def _render_requestable_documents(saved: dict, user: dict) -> None:
     않는다). 그래서 요청 버튼을 눌러 화면이 재실행돼도 목록·요청 양식이 그대로 유지된다.
     본문·청크는 쓰지 않는다(제목·회사명만). overview.md §2.3-6 규칙.
     """
-    documents = saved.get("requestable") or []
-    if not documents:
-        return
+    # 요청을 보낸 뒤 팝업이 닫히고 다시 그려진 화면에서 한 번만 안내한다.
+    flash = st.session_state.pop(_REQUEST_FLASH_KEY, None)
+    if flash:
+        st.success(flash)
 
-    st.divider()
-    st.subheader("열람 권한을 요청할 수 있는 문서")
+    documents = saved.get("requestable") or []
     for document in documents:
         company = document["company_name"] or document["company_id"]
-        # 제목만 보여 주는 안내 + [열람 권한 요청] 버튼 (공통 컴포넌트). 버튼을 누르면 사유 입력을 연다.
+        # 제목만 보여 주는 안내 + [내 권한 요청] 버튼 (공통 컴포넌트). 버튼을 누르면 사유 입력 팝업을 연다.
         if no_permission_notice(document["title"], company, key=document["doc_id"]):
-            st.session_state["request_open_doc"] = document["doc_id"]
-
-        if st.session_state.get("request_open_doc") == document["doc_id"]:
-            _render_request_form(saved, user, document)
+            _request_dialog(saved, user, document)
 
 
-def _render_request_form(saved: dict, user: dict, document: dict) -> None:
-    """선택한 문서에 사유를 적어 열람 권한 요청을 등록한다. 성공하면 캐시 목록에서 그 문서를 뺀다."""
-    reason = st.text_area("요청 사유 (5~500자)", key=f"reason-{document['doc_id']}")
-    if not st.button("요청 보내기", key=f"send-{document['doc_id']}"):
+@st.dialog("내 권한 요청")
+def _request_dialog(saved: dict, user: dict, document: dict) -> None:
+    """M-03 사유를 적어 열람 권한 요청을 등록하는 팝업 (Figma 15). 성공하면 캐시 목록에서 그 문서를 뺀다."""
+    company = document["company_name"] or document["company_id"]
+    # 팝업 안 글자 크기·입력칸 모양은 공통 CSS가 key(sh-dlg-…)로 맞춘다 (Figma 15).
+    with st.container(key="sh-dlg-request"):
+        st.caption("문서를 가진 회사의 관리자에게 열람 승인을 요청합니다.")
+        # 제목·회사명은 데이터에서 온 글자라 escape해서 st.html로 보여 준다.
+        st.html(
+            f'<div class="sh-req-doc">{company_tag_html(company)}'
+            f'<div class="sh-req-title">{html.escape(document["title"])}</div>'
+            '<div class="sh-req-note">승인 전에는 제목만 보이고 내용은 볼 수 없습니다.</div></div>'
+        )
+        st.text_input("받는 사람", value=f"{company} 관리자", disabled=True, key=f"to-{document['doc_id']}")
+        reason = st.text_area(
+            "요청 사유",
+            placeholder="예: 승강기 부품 물류 공동 운영 방안을 보고서로 정리하려고 합니다.",
+            max_chars=500,
+            key=f"reason-{document['doc_id']}",
+        )
+        st.caption(f"필수 · {len(reason.strip())} / 500자")
+        st.info("요청 상태(대기·승인·반려)와 반려 사유는 내 정보에서 확인할 수 있습니다.")
+
+        # 왼쪽 안내, 오른쪽 [취소] [요청 보내기] (Figma 15)
+        with st.container(horizontal=True, vertical_alignment="center", key="sh-dlg-footer-request"):
+            st.caption("요청은 감사 로그에 남습니다.")
+            cancel = st.button("취소", key=f"cancel-{document['doc_id']}")
+            send = st.button("요청 보내기", key=f"send-{document['doc_id']}", type="primary")
+    if cancel:
+        st.rerun()
+    if not send:
         return
 
     try:
@@ -336,11 +404,52 @@ def _render_request_form(saved: dict, user: dict, document: dict) -> None:
         return
 
     if registered:
-        st.success("열람 권한을 요청했습니다. 소유 회사 관리자의 승인 후 볼 수 있습니다.")
-        st.session_state.pop("request_open_doc", None)
+        st.session_state[_REQUEST_FLASH_KEY] = "열람 권한을 요청했습니다. 소유 회사 관리자의 승인 후 볼 수 있습니다."
         # 이미 요청했으니 캐시 목록에서 빼서 다시 안 보이게 한다(재조회 없이).
         saved["requestable"] = [
             item for item in saved.get("requestable", []) if item["doc_id"] != document["doc_id"]
         ]
+        st.rerun()
     else:
         st.error("요청을 등록하지 못했습니다. 사유(5~500자)를 확인하거나, 이미 요청한 문서인지 확인해 주세요.")
+
+
+def _recent_queries(user_key: tuple) -> list[str]:
+    """이 계정의 최근 질문. 같은 브라우저에서 다른 계정으로 바꿔 로그인하면 앞 계정 질문을 보여 주지 않는다."""
+    saved = st.session_state.get(_RECENT_KEY)
+    if not saved or saved.get("user_key") != user_key:
+        return []
+    return saved["queries"]
+
+
+def _remember_query(user_key: tuple, query: str) -> None:
+    """사이드바 최근 질문에 이번 검색어를 맨 앞으로 넣는다 (이번 로그인 동안만, 최대 5개)."""
+    queries = [item for item in _recent_queries(user_key) if item != query]
+    st.session_state[_RECENT_KEY] = {"user_key": user_key, "queries": [query, *queries][:_RECENT_LIMIT]}
+
+
+def _set_recent_query(query: str) -> None:
+    """최근 질문을 검색창에 넣고 새 검색을 요청한다."""
+    st.session_state[_QUERY_KEY] = query
+    st.session_state[_RECENT_PENDING_KEY] = True
+
+
+def _render_recent_questions(user_key: tuple) -> None:
+    """사이드바 메뉴 아래 최근 질문 (Figma 02). 누르면 같은 질문으로 다시 검색한다."""
+    queries = _recent_queries(user_key)
+    if not queries:
+        return
+
+    with st.sidebar, st.container(key="s61_recent"):
+        st.html('<div class="sh-recent-title">최근 질문</div>')
+        for index, query in enumerate(queries):
+            # 버튼 글자는 Markdown으로 해석되므로 특수문자를 escape한다.
+            label = re.sub(r"([\\`*_\[\]()#+\-.!~>|{}:$])", r"\\\1", query)
+            st.button(
+                label,
+                key=f"s61_recent_{index}",
+                type="tertiary",
+                on_click=_set_recent_query,
+                args=(query,),
+                width="stretch",
+            )

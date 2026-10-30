@@ -72,7 +72,9 @@ def render_search_result_list(chunks: list[dict]) -> None:
 
         rows.append(
             '<div class="sh-s61-result-row">'
-            f'<span class="sh-s61-result-type">{html.escape(file_format)}</span>'
+            # 형식별 타일 색은 공통 CSS가 정한다 (PDF 빨강, DART 초록, DOC·DOCX 파랑, PPT·PPTX 주황)
+            f'<span class="sh-s61-result-type sh-type-{html.escape(file_format.lower())}">'
+            f'{html.escape(file_format)}</span>'
             '<div class="sh-s61-result-content">'
             '<div class="sh-s61-result-name">'
             f'{html.escape(title)} {badges}'

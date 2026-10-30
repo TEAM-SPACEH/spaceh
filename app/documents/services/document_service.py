@@ -87,6 +87,14 @@ def get_viewer_document(doc_id: str, user: dict, *, audit: bool = True) -> dict 
         "file_name": document["file_name"],
         "file_format": document["file_format"],
         "source_type": document["source_type"],
+        # 뷰어 오른쪽 "문서 정보" 칸용. 권한이 있을 때만 넘겨요 (위 can_view False 응답에는 넣지 않아요).
+        "company_name": document.get("company_name") or document["company_id"],
+        "is_group_shared": bool(document.get("is_group_shared")),
+        "page_count": document.get("page_count") or 0,
+        "published_date": document.get("published_date"),
+        "pii_masked_count": document.get("pii_masked_count") or 0,
+        "chunk_count": document.get("chunk_count") or 0,
+        "indexed_at": document.get("updated_at"),
         # 적재(I-05) 때 저장한 DART 주소가 있으면 그대로 쓰고, 없으면 접수번호로 만들어요.
         "dart_url": document.get("source_url") or get_dart_viewer_url("", document.get("doc_no") or ""),
     }
