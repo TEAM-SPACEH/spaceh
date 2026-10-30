@@ -366,27 +366,33 @@ def _render_requestable_documents(saved: dict, user: dict) -> None:
 def _request_dialog(saved: dict, user: dict, document: dict) -> None:
     """M-03 사유를 적어 열람 권한 요청을 등록하는 팝업 (Figma 15). 성공하면 캐시 목록에서 그 문서를 뺀다."""
     company = document["company_name"] or document["company_id"]
-    st.caption("문서를 가진 회사의 관리자에게 열람 승인을 요청합니다.")
-    # 제목·회사명은 데이터에서 온 글자라 escape해서 st.html로 보여 준다.
-    st.html(
-        f'<div class="sh-req-doc">{company_tag_html(company)}'
-        f'<div class="sh-req-title">{html.escape(document["title"])}</div>'
-        '<div class="sh-req-note">승인 전에는 제목만 보이고 내용은 볼 수 없습니다.</div></div>'
-    )
-    st.text_input("받는 사람", value=f"{company} 관리자", disabled=True, key=f"to-{document['doc_id']}")
-    reason = st.text_area(
-        "요청 사유",
-        placeholder="예: 승강기 부품 물류 공동 운영 방안을 보고서로 정리하려고 합니다.",
-        max_chars=500,
-        key=f"reason-{document['doc_id']}",
-    )
-    st.caption("필수 · 5~500자")
-    st.info("요청 상태(대기·승인·반려)와 반려 사유는 내 정보에서 확인할 수 있습니다.")
+    # 팝업 안 글자 크기·입력칸 모양은 공통 CSS가 key(sh-req-dialog)로 맞춘다 (Figma 15).
+    with st.container(key="sh-req-dialog"):
+        st.caption("문서를 가진 회사의 관리자에게 열람 승인을 요청합니다.")
+        # 제목·회사명은 데이터에서 온 글자라 escape해서 st.html로 보여 준다.
+        st.html(
+            f'<div class="sh-req-doc">{company_tag_html(company)}'
+            f'<div class="sh-req-title">{html.escape(document["title"])}</div>'
+            '<div class="sh-req-note">승인 전에는 제목만 보이고 내용은 볼 수 없습니다.</div></div>'
+        )
+        st.text_input("받는 사람", value=f"{company} 관리자", disabled=True, key=f"to-{document['doc_id']}")
+        reason = st.text_area(
+            "요청 사유",
+            placeholder="예: 승강기 부품 물류 공동 운영 방안을 보고서로 정리하려고 합니다.",
+            max_chars=500,
+            key=f"reason-{document['doc_id']}",
+        )
+        st.caption(f"필수 · {len(reason.strip())} / 500자")
+        st.info("요청 상태(대기·승인·반려)와 반려 사유는 내 정보에서 확인할 수 있습니다.")
 
-    cancel_col, send_col = st.columns(2)
-    if cancel_col.button("취소", key=f"cancel-{document['doc_id']}", width="stretch"):
+        # 왼쪽 안내, 오른쪽 [취소] [요청 보내기] (Figma 15)
+        with st.container(horizontal=True, vertical_alignment="center", key="sh-req-footer"):
+            st.caption("요청은 감사 로그에 남습니다.")
+            cancel = st.button("취소", key=f"cancel-{document['doc_id']}")
+            send = st.button("요청 보내기", key=f"send-{document['doc_id']}", type="primary")
+    if cancel:
         st.rerun()
-    if not send_col.button("요청 보내기", key=f"send-{document['doc_id']}", type="primary", width="stretch"):
+    if not send:
         return
 
     try:
