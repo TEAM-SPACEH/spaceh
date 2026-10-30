@@ -148,17 +148,20 @@ class DownloadNoticeTest(unittest.TestCase):
         notice = service.download_notice("internal")
 
         self.assertFalse(notice["blocked"])
-        self.assertIn("'사내'라 내려받은 파일에 워터마크가 들어갑니다", notice["text"])
-        self.assertIn("'기밀' 문서가 있으면 내려받기가 막힙니다", notice["text"])
+        self.assertIn("'사내'입니다", notice["text"])
+        self.assertIn("워터마크가 들어가고", notice["text"])
+        self.assertIn("열람 권한이 없는 근거 문서가 있으면 내려받기가 막힙니다", notice["text"])
 
     def test_public_uses_its_own_level_name(self):
-        self.assertIn("'공개'라", service.download_notice("public")["text"])
+        self.assertIn("'공개'입니다", service.download_notice("public")["text"])
 
-    def test_confidential_blocks_download(self):
+    def test_confidential_is_not_blocked_by_level_alone(self):
+        # A-06은 열람 권한으로만 막는다. 기밀 문서를 볼 수 있는 사용자는 내려받을 수 있다.
         notice = service.download_notice("confidential")
 
-        self.assertTrue(notice["blocked"])
-        self.assertIn("'기밀'이라 내려받기가 막힙니다", notice["text"])
+        self.assertFalse(notice["blocked"])
+        self.assertIn("'기밀'입니다", notice["text"])
+        self.assertNotIn("'기밀' 문서가 있으면", notice["text"])
 
 
 if __name__ == "__main__":

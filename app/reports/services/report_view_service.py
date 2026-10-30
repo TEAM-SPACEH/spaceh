@@ -110,15 +110,15 @@ def link_label(source_type: str | None) -> str:
 
 
 def download_notice(max_access_level: str) -> dict:
-    """다운로드 안내 카드 문구와 차단 여부. 근거 문서 중 최고 보안 등급으로 정한다.
+    """다운로드 안내 카드 문구. 근거 문서 중 최고 보안 등급을 알려 준다.
 
-    반환: {"text": 안내 문구, "blocked": 기밀 문서가 있어 내려받기가 막혔는지}
+    내려받기 허용·차단은 A-06 decide_report_download()가 근거 문서 열람 권한으로만 정한다.
+    기밀 문서도 열람할 수 있으면 내려받을 수 있으므로, 이 문구는 등급으로 차단된다고 말하지 않는다.
+    반환: {"text": 안내 문구, "blocked": 항상 False (등급만으로는 막지 않는다)}
     """
-    if max_access_level == ACCESS_CONFIDENTIAL:
-        return {"text": "포함된 문서의 최고 보안 등급이 '기밀'이라 내려받기가 막힙니다.", "blocked": True}
     label = _LEVEL_LABELS.get(max_access_level, _LEVEL_LABELS[ACCESS_INTERNAL])
     return {
-        "text": f"포함된 문서의 최고 보안 등급이 '{label}'라 내려받은 파일에 워터마크가 들어갑니다. "
-                "'기밀' 문서가 있으면 내려받기가 막힙니다.",
+        "text": f"포함된 문서의 최고 보안 등급이 '{label}'입니다. 내려받은 파일에는 워터마크가 들어가고, "
+                "열람 권한이 없는 근거 문서가 있으면 내려받기가 막힙니다.",
         "blocked": False,
     }
