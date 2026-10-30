@@ -161,6 +161,23 @@ class DocumentUploadViewTest(unittest.TestCase):
             self.assertIn("4.2MB · 업로드 완료 · 청크 54개", status_html)
             self.assertIn("312KB · 표를 인식하지 못했어요.", status_html)
 
+    def test_all_done_closes_dialog_with_notice(self):
+        """A-01 모두 올라가면 선택을 비우고 문서 목록에 보여 줄 완료 안내를 남긴다."""
+        files = [SimpleNamespace(name="a.pdf", size=100, file_id="a"),
+                 SimpleNamespace(name="b.pdf", size=100, file_id="b")]
+        with patch("app.admin.views.components.document_upload.get_upload_companies",
+                   return_value=[{"company_id": "MVX", "name": "현대무벡스"}]), \
+             patch("app.admin.views.components.document_upload.st.file_uploader",
+                   side_effect=[files] + [[]] * 10), \
+             patch("app.admin.views.components.document_upload.upload_document",
+                   return_value={"index_status": "done", "chunk_count": 1}) as upload:
+            app = AppTest.from_function(upload_page).run()
+            next(b for b in app.button if b.label == "업로드").click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(upload.call_count, 2)
+            self.assertEqual(dict(app.session_state["upload-files"]), {})
+            self.assertEqual(app.session_state["admin-docs-notice"], ("success", "문서 2개를 올렸습니다."))
+
     def test_super_admin_chooses_company_and_subtitle_follows(self):
         """A-01 최종 어드민은 기업을 고를 수 있고, 부제와 업로드 요청이 그 기업을 따른다."""
         files = [SimpleNamespace(name="a.pdf", size=100, file_id="a")]
