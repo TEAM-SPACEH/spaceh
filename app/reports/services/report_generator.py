@@ -250,7 +250,21 @@ def _number_problem(sentence: str, cited_chunks: list[Chunk]) -> str | None:
         # 근거에 "1,234억"만 있고 문장에 "1,234억 원"이라고 써도 같은 숫자로 보려고요. ("12.5%p" → "12.5%")
         core = _normalize_number_text(value).removesuffix("원").removesuffix("p")
         # (?<![\d.]) = 바로 앞이 숫자·소수점이 아니어야 해요. "1.5%"가 "11.5%" 안에서 잘못 찾아지지 않게요.
-        if not re.search(r"(?<![\d.])" + re.escape(core), evidence):
+        if re.search(r"(?<![\d.])" + re.escape(core), evidence):
+            continue
+        # 표는 단위를 머리글 "(단위: 천원)"에만 적어서, 칸에는 "6,436,824"처럼 숫자만 있어요.
+        # 근거에 같은 단위 표기("단위:천원")가 있고 숫자가 그대로 있으면 같은 수치로 봐요.
+        # 단위 표기까지 보는 이유: 백만원 표의 "39,230"을 "39,230천원"으로 잘못 옮긴 문장을 거르려고요.
+        # 단위와 숫자는 같은 청크 안에서 함께 찾아요. 다른 청크의 단위를 빌려 오면 안 돼요.
+        digits = _normalize_number_text(re.match(r"\d[\d,]*(?:\.\d+)?", value).group(0))
+        unit = _normalize_number_text(value)[len(digits):]
+        unit_label = re.compile(r"단위[:：]?" + re.escape(unit))
+        number = re.compile(r"(?<![\d.])" + re.escape(digits) + r"(?![\d])")
+        same_chunk = bool(unit) and any(
+            unit_label.search(text) and number.search(text)
+            for text in (_normalize_number_text(chunk.text) for chunk in cited_chunks)
+        )
+        if not same_chunk:
             return PROBLEM_NUMBER_NOT_FOUND.format(value=value)
     return None
 
@@ -272,18 +286,39 @@ def check_sentences(
     #   2. 수치: 단위 붙은 숫자가 인용한 근거에 없으면 문제
     #   3. 시너지만: 인용한 근거의 회사가 2곳 미만이면 문제
     results: list[tuple[str, str | None]] = []
-    for sentence in split_sentences(body):
-        problem = _citation_problem(sentence, len(chunks))
-        if problem is None:
-            # [1]은 chunks[0]이라 1을 빼서 꺼내요. set(...)으로 같은 번호 중복을 없애요.
-            numbers = {int(number) for number in CITATION_PATTERN.findall(sentence)}
-            cited = [chunks[number - 1] for number in sorted(numbers)]
-            problem = _number_problem(sentence, cited)
-            if problem is None and section_type == SectionType.SYNERGY:
+    # AI는 번호를 문단 끝 문장에만 몰아 붙이는 경우가 많아요. ("…함. …임. …계획임[1][4].")
+    # 번호 없는 문장은 같은 문단에서 뒤에 나오는 가장 가까운 번호를 근거로 삼아 검사해요.
+    # (번호 없는 문장이 여러 개 이어져도 문단 끝 번호까지 빌려요. 다른 문단 번호는 빌리지 않아요.)
+    # 수치·시너지 검사는 그 근거로 똑같이 하므로, 근거에 없는 숫자는 그대로 걸러져요.
+    for paragraph in re.split(r"\n\s*\n", body):
+        borrowed = ""
+        checked: list[tuple[str, str | None, set[str]]] = []  # (문장, 문제, 인용한 회사)
+        for sentence in reversed(split_sentences(paragraph)):  # 뒤에서부터 보면서 가장 가까운 뒤 번호를 기억해요
+            own = "".join(f"[{n}]" for n in CITATION_PATTERN.findall(sentence))
+            if own:
+                borrowed = own
+            target = sentence if own else sentence + borrowed
+            problem = _citation_problem(target, len(chunks))
+            companies: set[str] = set()
+            if problem is None:
+                # [1]은 chunks[0]이라 1을 빼서 꺼내요. set(...)으로 같은 번호 중복을 없애요.
+                numbers = {int(number) for number in CITATION_PATTERN.findall(target)}
+                cited = [chunks[number - 1] for number in sorted(numbers)]
+                problem = _number_problem(sentence, cited)
                 companies = {_company_of(chunk) for chunk in cited}
-                if len(companies) < 2:
-                    problem = PROBLEM_SYNERGY_ONE_COMPANY
-        results.append((sentence, problem))
+            checked.append((sentence, problem, companies))
+        checked.reverse()
+
+        # 시너지는 "두 회사를 잇는 문단"이면 돼요. 검사를 통과한 문장의 인용만으로 회사 수를 세요.
+        # 실패한 문장은 나중에 빠지므로, 그 문장의 인용으로 회사 수를 채우면 안 돼요.
+        if section_type == SectionType.SYNERGY:
+            kept = set().union(*(c for _, problem, c in checked if problem is None))
+            if len(kept) < 2:
+                checked = [
+                    (sentence, problem or PROBLEM_SYNERGY_ONE_COMPANY, c)
+                    for sentence, problem, c in checked
+                ]
+        results.extend((sentence, problem) for sentence, problem, _ in checked)
     return results
 
 
