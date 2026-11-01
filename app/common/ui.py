@@ -188,9 +188,10 @@ _CSS = """
 .sh-hero-sub{font-size:26px;font-weight:700;line-height:1.4;color:#343A40;margin-top:4px}
 .sh-hero-desc{font-size:14px;color:#6B7280;margin-top:8px}
 /* S-05 원문 보기 (Figma 03): 왼쪽 쪽 미리보기 112 · 가운데 원문 · 오른쪽 문서 정보 340 */
-.st-key-s05_viewer [data-testid="stHorizontalBlock"]{gap:0;align-items:stretch}
+/* 양옆 칸은 고정 폭이라 가운데 원문 칸이 남는 폭만 쓰게 해야 오른쪽 칸이 아래 줄로 밀리지 않는다 (#135). */
+.st-key-s05_viewer [data-testid="stHorizontalBlock"]{gap:0;align-items:stretch;flex-wrap:nowrap}
 [data-testid="stColumn"]:has(.st-key-s05_thumbs){flex:0 0 112px;width:112px;min-width:112px;padding:16px 18px}
-[data-testid="stColumn"]:has(.st-key-s05_page_area){padding:18px 32px}
+[data-testid="stColumn"]:has(.st-key-s05_page_area){flex:1 1 0;width:auto;min-width:0;padding:18px 32px}
 [data-testid="stColumn"]:has(.st-key-s05_info){flex:0 0 340px;width:340px;min-width:340px;background:#FFFFFF;
   border-left:1px solid #E9ECEF;padding:22px}
 .st-key-s05_thumbs{align-items:center;gap:12px}
