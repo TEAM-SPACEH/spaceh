@@ -64,22 +64,65 @@
 ## 시스템 구조
 
 ```mermaid
-flowchart LR
-    subgraph 적재
-        U[관리자 업로드] --> P[파싱 · OCR] --> M[개인정보 마스킹] --> C[청킹] --> E[임베딩]
+flowchart TB
+    subgraph ING["① 적재 · 관리자"]
+        direction LR
+        UP["문서 업로드<br/>PDF · DOCX · PPTX"] --> PARSE["파싱 · OCR"] --> MASK["개인정보<br/>마스킹"] --> CHUNK["청킹<br/>출처 · 권한 부착"] --> EMB["임베딩"]
     end
-    E --> V[(Chroma<br/>청크 · 벡터 · 권한)]
-    U -.상태.-> D[(MySQL<br/>문서 · 사용자 · 승인 · 감사 로그)]
-    subgraph 사용
-        Q[사원 질문] --> F[권한 사전 필터] --> S[하이브리드 검색]
-        S --> A[답변 생성] --> G[근거 검증] --> R[답변 + 출처]
-        F --> RC[보고서 근거 수집] --> RD[보고서 생성 · 문장 검사]
+
+    subgraph STORE["② 저장"]
+        direction LR
+        CHROMA[("Chroma<br/>청크 · 벡터 · 권한")]
+        MYSQL[("MySQL<br/>문서 · 사용자<br/>승인 · 감사 로그")]
     end
-    V --> S
-    V --> RC
+
+    subgraph USE["③ 검색 · 답변 · 사원"]
+        direction LR
+        Q["질문"] --> RBAC["권한<br/>사전 필터"] --> HYB["하이브리드 검색<br/>BM25 + 벡터"] --> GEN["답변 생성"] --> CHK["근거 검증"] --> OUT["답변 · 출처<br/>원문 보기"]
+    end
+
+    subgraph REP["④ 보고서"]
+        direction LR
+        COL["회사별<br/>근거 수집"] --> DRAFT["섹션 생성"] --> SENT["문장 검사<br/>번호 · 수치 · 시너지"] --> SUM["1페이지 요약<br/>내보내기"]
+    end
+
+    ING --> STORE
+    STORE --> USE
+    STORE --> REP
+
+    classDef ingest fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef ingestAi fill:#E8F5E9,stroke:#7B1FA2,stroke-width:3px,color:#1B5E20
+    classDef use fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef useAi fill:#E3F2FD,stroke:#7B1FA2,stroke-width:3px,color:#0D47A1
+    classDef report fill:#FFF3E0,stroke:#EF6C00,color:#E65100
+    classDef reportAi fill:#FFF3E0,stroke:#7B1FA2,stroke-width:3px,color:#E65100
+    classDef store fill:#F5F5F5,stroke:#616161,color:#212121
+
+    class UP,PARSE,MASK,CHUNK ingest
+    class EMB ingestAi
+    class Q,RBAC,HYB,OUT use
+    class GEN,CHK useAi
+    class COL,SENT report
+    class DRAFT,SUM reportAi
+    class CHROMA,MYSQL store
+    style ING fill:#FAFAFA,stroke:#C8E6C9
+    style STORE fill:#FAFAFA,stroke:#E0E0E0
+    style USE fill:#FAFAFA,stroke:#BBDEFB
+    style REP fill:#FAFAFA,stroke:#FFE0B2
 ```
 
-![spaceH 정보 구조도](docs/images/ia.png)
+> 초록은 적재, 파랑은 검색·답변, 주황은 보고서 단계이고, 보라색 테두리는 OpenAI를 부르는 단계입니다. 권한 필터는 검색과 보고서 수집 **전에** 적용되어, 볼 수 없는 문서는 AI에 전달되지 않습니다.
+
+### 권한 규칙
+
+| 역할 \ 문서 | 공개 | 자사 내부 | 타사 내부 (공유 OFF) | 타사 내부 (공유 ON) | 자사 기밀 | 타사 기밀 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: |
+| 일반 사원 | ✅ | ✅ | 승인 시 | ✅ | 승인 시 | 승인 시 |
+| 계열사 관리자 | ✅ | ✅ | 승인 시 | ✅ | ✅ | 승인 시 |
+| 최종 어드민 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+- 타사 문서는 **그룹사 공유**(내부 문서만 가능)나 소유사 관리자의 **열람 승인**으로만 열립니다.
+- 기밀 문서는 공유할 수 없고, 원문 보기 · 다운로드 · 보고서 파일처럼 문서가 밖으로 나가는 곳마다 권한을 다시 확인합니다.
 
 ## 설계 원칙
 
