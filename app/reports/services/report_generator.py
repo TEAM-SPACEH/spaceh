@@ -250,7 +250,15 @@ def _number_problem(sentence: str, cited_chunks: list[Chunk]) -> str | None:
         # 근거에 "1,234억"만 있고 문장에 "1,234억 원"이라고 써도 같은 숫자로 보려고요. ("12.5%p" → "12.5%")
         core = _normalize_number_text(value).removesuffix("원").removesuffix("p")
         # (?<![\d.]) = 바로 앞이 숫자·소수점이 아니어야 해요. "1.5%"가 "11.5%" 안에서 잘못 찾아지지 않게요.
-        if not re.search(r"(?<![\d.])" + re.escape(core), evidence):
+        if re.search(r"(?<![\d.])" + re.escape(core), evidence):
+            continue
+        # 표는 단위를 머리글 "(단위: 천원)"에만 적어서, 칸에는 "6,436,824"처럼 숫자만 있어요.
+        # 근거에 같은 단위 표기("단위:천원")가 있고 숫자가 그대로 있으면 같은 수치로 봐요.
+        # 단위 표기까지 보는 이유: 백만원 표의 "39,230"을 "39,230천원"으로 잘못 옮긴 문장을 거르려고요.
+        digits = _normalize_number_text(re.match(r"\d[\d,]*(?:\.\d+)?", value).group(0))
+        unit = _normalize_number_text(value)[len(digits):]
+        same_unit = bool(unit) and re.search(r"단위[:：]?" + re.escape(unit), evidence)
+        if not (same_unit and re.search(r"(?<![\d.])" + re.escape(digits) + r"(?![\d])", evidence)):
             return PROBLEM_NUMBER_NOT_FOUND.format(value=value)
     return None
 
@@ -272,18 +280,34 @@ def check_sentences(
     #   2. 수치: 단위 붙은 숫자가 인용한 근거에 없으면 문제
     #   3. 시너지만: 인용한 근거의 회사가 2곳 미만이면 문제
     results: list[tuple[str, str | None]] = []
-    for sentence in split_sentences(body):
-        problem = _citation_problem(sentence, len(chunks))
-        if problem is None:
-            # [1]은 chunks[0]이라 1을 빼서 꺼내요. set(...)으로 같은 번호 중복을 없애요.
-            numbers = {int(number) for number in CITATION_PATTERN.findall(sentence)}
-            cited = [chunks[number - 1] for number in sorted(numbers)]
-            problem = _number_problem(sentence, cited)
-            if problem is None and section_type == SectionType.SYNERGY:
-                companies = {_company_of(chunk) for chunk in cited}
-                if len(companies) < 2:
-                    problem = PROBLEM_SYNERGY_ONE_COMPANY
-        results.append((sentence, problem))
+    # AI는 번호를 문단 끝 문장에만 몰아 붙이는 경우가 많아요. ("…함. …임. …계획임[1][4].")
+    # 번호 없는 문장은 같은 문단에서 바로 뒤 문장의 번호를 근거로 삼아 검사해요.
+    # 수치·시너지 검사는 그 근거로 똑같이 하므로, 근거에 없는 숫자는 그대로 걸러져요.
+    for paragraph in re.split(r"\n\s*\n", body):
+        sentences = split_sentences(paragraph)
+        # 시너지는 "두 회사를 잇는 문단"이면 돼요. 문단 안에서 인용한 회사가 2곳 이상인지 봐요.
+        paragraph_numbers = {
+            int(n) for n in CITATION_PATTERN.findall(paragraph) if 1 <= int(n) <= len(chunks)
+        }
+        paragraph_companies = {_company_of(chunks[n - 1]) for n in paragraph_numbers}
+        borrowed = ""
+        checked: list[tuple[str, str | None]] = []
+        for sentence in reversed(sentences):  # 뒤에서부터 보면서 가장 가까운 뒤 번호를 기억해요
+            own = "".join(f"[{n}]" for n in CITATION_PATTERN.findall(sentence))
+            if own:
+                borrowed = own
+            target = sentence if own else sentence + borrowed
+            problem = _citation_problem(target, len(chunks))
+            if problem is None:
+                # [1]은 chunks[0]이라 1을 빼서 꺼내요. set(...)으로 같은 번호 중복을 없애요.
+                numbers = {int(number) for number in CITATION_PATTERN.findall(target)}
+                cited = [chunks[number - 1] for number in sorted(numbers)]
+                problem = _number_problem(sentence, cited)
+                if problem is None and section_type == SectionType.SYNERGY:
+                    if len(paragraph_companies) < 2:
+                        problem = PROBLEM_SYNERGY_ONE_COMPANY
+            checked.append((sentence, problem))
+        results.extend(reversed(checked))
     return results
 
 

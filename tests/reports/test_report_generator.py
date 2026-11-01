@@ -14,7 +14,9 @@ from app.reports.models.report_models import (
     Chunk, CollectionResult, ReportTemplate, Section, SectionType,
 )
 from app.reports.services import report_generator
-from app.reports.services.prompts import COMMON_RULES, NO_EVIDENCE_TEXT
+from app.reports.services.prompts import (
+    COMMON_RULES, NO_EVIDENCE_TEXT, PROBLEM_NO_CITATION, PROBLEM_SYNERGY_ONE_COMPANY,
+)
 
 # 바꿔치기할 함수의 "주소"
 GET_LLM = "app.reports.services.report_generator._get_llm"
@@ -190,13 +192,30 @@ class CitationCheckTest(unittest.TestCase):
         self.assertEqual(section.sources, [])
 
     def test_sentence_without_number_is_no_evidence(self):
-        # 첫 문장에 번호가 없으면 근거 없는 내용일 수 있어서 섹션 전체를 막아요.
-        with patch(GET_LLM, return_value=make_fake_llm("인용 없는 문장. 다음 문장.[1]")):
+        # 문단 어디에도 번호가 없으면 근거 없는 내용일 수 있어서 섹션 전체를 막아요.
+        with patch(GET_LLM, return_value=make_fake_llm("인용 없는 문장. 다음 문장도 인용 없음.")):
             section = report_generator.generate_section(
                 SectionType.STATUS, MOCK_COLLECTION.chunks, MOCK_REQUEST,
             )
         self.assertFalse(section.has_evidence)
         self.assertEqual(section.evidence, [])
+
+    def test_sentence_borrows_next_number_in_same_paragraph(self):
+        # AI가 번호를 문단 끝에만 붙여도, 같은 문단 뒤 문장의 번호를 근거로 삼아 살려요.
+        body = "가 사실임. 나 사실임.[1]"
+        with patch(GET_LLM, return_value=make_fake_llm(body)):
+            section = report_generator.generate_section(
+                SectionType.STATUS, MOCK_COLLECTION.chunks, MOCK_REQUEST,
+            )
+        self.assertTrue(section.has_evidence)
+        self.assertEqual(section.body, body)
+
+    def test_number_is_not_borrowed_across_paragraphs(self):
+        # 다른 문단의 번호는 빌리지 않아요. 문단 끝 문장에 번호가 없으면 그 문장은 근거 없음이에요.
+        checks = report_generator.check_sentences(
+            "가 사실임.[1]\n\n나 사실임.", MOCK_COLLECTION.chunks, SectionType.STATUS,
+        )
+        self.assertEqual([problem for _, problem in checks], [None, PROBLEM_NO_CITATION])
 
     def test_valid_citations(self):
         check = report_generator.has_valid_citations
@@ -285,7 +304,8 @@ class RetryAndRemovalTest(unittest.TestCase):
 
     def test_bad_sentence_removed_when_60_percent_left(self):
         # 5문장 중 2문장이 틀림(재시도도 같음) → 3/5 = 60% → 틀린 문장만 빼고 살려요.
-        answer = "가 사실임.[1] 나 사실임. 다 사실임.[2] 라 사실임.[99] 마 사실임.[3]"
+        # "나"는 따로 떨어진 문단이라 빌릴 번호가 없어요.
+        answer = "가 사실임.[1] 다 사실임.[2] 라 사실임.[99] 마 사실임.[3]\n\n나 사실임."
         section = self.generate(make_answers(answer, answer))
 
         self.assertTrue(section.has_evidence)
@@ -362,6 +382,24 @@ class NumberAndSynergyCheckTest(unittest.TestCase):
         self.assertIsNotNone(self.problems("물류 협업이 가능함.[1][1]", synergy)[0])
         # 시너지가 아닌 섹션은 회사 1곳 근거여도 괜찮아요.
         self.assertEqual(self.problems("물류를 확대함.[1]"), [None])
+
+    def test_synergy_counts_companies_per_paragraph(self):
+        # 한 문단 안에서 두 회사를 각각 인용하면 협업 문단으로 봐요. 문단이 다르면 안 돼요.
+        synergy = SectionType.SYNERGY
+        self.assertEqual(self.problems("A사는 물류를 확대함.[1] B사는 수주를 늘림.[2]", synergy), [None, None])
+        self.assertEqual(
+            self.problems("A사는 물류를 확대함.[1]\n\nB사는 수주를 늘림.[2]", synergy),
+            [PROBLEM_SYNERGY_ONE_COMPANY, PROBLEM_SYNERGY_ONE_COMPANY],
+        )
+
+    def test_table_number_with_unit_only_in_header(self):
+        # 표는 "(단위: 천원)" 머리글에만 단위가 있어요. 같은 단위면 숫자만 맞아도 통과해요.
+        table = [Chunk(chunk_id="doc#1", text="(단위 : 천원)\n| 연구개발비용 | 6,436,824 |", metadata={})]
+        self.assertIsNone(report_generator._number_problem("연구개발비는 6,436,824천원임.[1]", table))
+        # 단위가 다르면(백만원 표를 천원으로 옮김) 잡아요.
+        table = [Chunk(chunk_id="doc#1", text="(단위 : 백만원)\n| 연구개발비용 | 39,230 |", metadata={})]
+        self.assertIsNotNone(report_generator._number_problem("연구개발비는 39,230천원임.[1]", table))
+        self.assertIsNone(report_generator._number_problem("연구개발비는 39,230백만원임.[1]", table))
 
 
 class MissingCompanyTest(unittest.TestCase):
