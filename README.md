@@ -100,7 +100,8 @@ pip install -r requirements.txt
 # 2. 환경 변수 (API 키, DB 접속 정보, 시드 비밀번호)
 cp .env.example .env                                     # Windows: copy
 
-# 3. DB 테이블 · 계열사 · 시드 계정
+# 3. DB · 테이블 · 계열사 · 시드 계정
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS spaceh CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
 mysql -u root -p spaceh < db/schema.sql                  # 주의: 기존 테이블 삭제 후 재생성
 mysql -u root -p spaceh < db/seed.sql
 python -m scripts.seed_users
@@ -112,7 +113,7 @@ python -m scripts.prepare_ocr
 streamlit run main.py
 ```
 
-시드 계정은 `ADM-0001`(최종 어드민)과 회사별 사원 · 관리자 `HRI` · `MVX` · `ELV`-`0001`/`0002`이고, 비밀번호는 `.env`의 `SEED_DEFAULT_PASSWORD`입니다. OS별 설치와 문제 해결은 [로컬 개발 환경](docs/workflows/local-development.md)을 참고해 주세요.
+시드 계정은 `ADM-0001`(최종 어드민), 사원 `HRI-0001` · `MVX-0001` · `ELV-0001`, 계열사 관리자 `HRI-0002` · `MVX-0002` · `ELV-0002`이고, 비밀번호는 `.env`의 `SEED_DEFAULT_PASSWORD`입니다. OS별 설치와 문제 해결은 [로컬 개발 환경](docs/workflows/local-development.md)을 참고해 주세요.
 
 ## 프로젝트 구조
 
@@ -120,15 +121,16 @@ streamlit run main.py
 spaceh/
 ├── main.py              # Streamlit 진입점 · 화면 이동
 ├── core/                # 설정 · DB 연결 · 보안 · 상수
+├── models/              # 공통 모델 패키지
 ├── app/
 │   ├── auth/            # 로그인 (M-01)
 │   ├── users/           # 내 정보 (M-02)
 │   ├── permissions/     # 권한 필터 · 열람 요청 (S-03, M-03)
-│   ├── search/          # 통합 · 하이브리드 검색, RAG 답변, 후속 질문 (S-01~S-07)
+│   ├── search/          # 통합 · 하이브리드 검색, RAG 답변, 후속 질문 (S-01·02·04·06·07)
 │   ├── documents/       # 출처 · 원문 보기 (S-05)
 │   ├── ingestion/       # 로더 · OCR · 마스킹 · 청킹 · 색인 (I-01~I-03)
-│   ├── admin/           # 업로드 · 문서 관리 · 공유 · 감사 로그 · 승인 (A-01~A-07)
-│   ├── reports/         # 근거 수집 · 보고서 · 각주 · 요약 · 내보내기 (R-01~R-05)
+│   ├── admin/           # 업로드 · 문서 관리 · 공유 · 감사 로그 · 승인 · 계열사 (A-01~A-05, A-07)
+│   ├── reports/         # 근거 수집 · 보고서 · 각주 · 요약 · 내보내기 · 다운로드 통제 (R-01~R-05, A-06)
 │   ├── history/         # 내 사용 기록 (M-04)
 │   └── common/          # 공통 레이아웃 · UI
 ├── db/                  # schema.sql · seed.sql
@@ -137,7 +139,7 @@ spaceh/
 └── docs/                # 설계 · 규칙 · 결정 기록 · 실험
 ```
 
-각 패키지는 `views`(화면) → `services`(업무 로직) → `repositories`(DB) 3계층입니다.
+기능 패키지(`auth` · `users` · `permissions` · `search` · `documents` · `admin` · `reports` · `history`)는 `views`(화면) → `services`(업무 로직) → `repositories`(DB) 3계층입니다. `ingestion`은 `parsers` → `preprocessing` → `indexing` 적재 파이프라인이고, `core` · `models` · `app/common`은 공통 모듈입니다.
 
 ## 기술 스택
 
