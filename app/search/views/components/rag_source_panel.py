@@ -101,3 +101,6 @@ def render_rag_source_panel(sources: list[dict], key_prefix: str = "s61_source")
                     ):
                         # 기존 S-05 원문 뷰어와 동일한 세션 키 사용
                         st.session_state[SELECTED_SOURCE_KEY] = source
+                        # 원문 화면은 search_page가 그리기 시작할 때 이 키를 보고 고른다. 바로 다시 그려야
+                        # 한 번 클릭으로 열린다 (#135).
+                        st.rerun()
