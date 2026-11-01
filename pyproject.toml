@@ -1,0 +1,6 @@
+# 프로젝트 정보만 둔다. 의존성은 requirements.txt 하나로 관리한다.
+[project]
+name = "spaceh"
+version = "0.1.0"
+description = "계열사 통합 문서 검색 플랫폼"
+requires-python = ">=3.11,<3.12"

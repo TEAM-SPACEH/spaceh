@@ -1,0 +1,553 @@
+{
+  "version": 1,
+  "split": "development",
+  "notes": [
+    "기존 12문항에 추가하는 22문항. 합계 비교용 30개·추출 진단용 4개.",
+    "독립 검증용이 아니다. 같은 페이지·표 문항의 상관이 있어 문서별 결과도 함께 본다.",
+    "원본 PDF 텍스트와 DOCX 본문에서 정답을 대조했다. 고정 추출 블록에서도 source_anchors를 확인해야 한다.",
+    "표 셀·제품 조건의 의미 연결은 수동 확인 대상이며 발췌 문자열 검사만으로 검증되지 않는다."
+  ],
+  "questions": [
+    {
+      "id": "Q13",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "text",
+      "question": "승강장안전문(PSD)은 어디에 설치하며, 추락 방지 외에 어떤 효과가 있는가?",
+      "expected_answer": "선로와 승강장 사이에 설치; 역사 냉난방 효율 향상; 열차풍·소음·분진 차단.",
+      "required_facts": [
+        "선로와 승강장 사이에 설치",
+        "역사 냉난방 효율 향상",
+        "열차풍·소음·분진 차단"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          21
+        ]
+      },
+      "source_anchors": [
+        "선로와 승강장 사이",
+        "냉난방 효율 향상",
+        "열차풍, 소음, 분진 차단"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q14",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "사업보고서에서 SRM의 세 가지 동작과 화물 처리 기능은 무엇인가?",
+      "expected_answer": "주행·승하강·포킹 동작; 화물을 랙에 자동 적재하거나 외부로 출고.",
+      "required_facts": [
+        "주행·승하강·포킹 동작",
+        "화물을 랙에 자동 적재하거나 외부로 출고"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          21
+        ]
+      },
+      "source_anchors": [
+        "SRM",
+        "주행, 승하강, 포킹",
+        "랙에 적재하거나 외부로 출고"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q15",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "사업보고서의 Mini Loader는 어떤 화물을 위한 설비인가?",
+      "expected_answer": "경량 화물 전용 고성능 반송 설비; 화물 예시는 박스와 버켓.",
+      "required_facts": [
+        "경량 화물 전용 고성능 반송 설비",
+        "화물 예시는 박스와 버켓"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          21
+        ]
+      },
+      "source_anchors": [
+        "Mini Loader",
+        "경량 화물(박스, 버켓) 전용 고성능 반송 설비"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q16",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "NBS/Singulator는 어떤 공간에서 어떤 화물을 분류하도록 설계되었으며, 어떤 방식의 시스템인가?",
+      "expected_answer": "협소한 공간에서도 높은 정확도로 분류; 다양한 크기의 화물 대상; 벨트 기반 자동 분류 시스템.",
+      "required_facts": [
+        "협소한 공간에서도 높은 정확도로 분류",
+        "다양한 크기의 화물 대상",
+        "벨트 기반 자동 분류 시스템"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          21
+        ]
+      },
+      "source_anchors": [
+        "NBS/Singulator",
+        "협소한 공간에서도 높은 정확도로",
+        "벨트 기반 자동 분류 시스템"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q17",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "사업보고서에서 WMS와 WCS의 기능은 어떻게 다른가?",
+      "expected_answer": "WMS는 자동창고 입출고 주문처리·재고관리·설비제어; WCS는 자동창고 각 장비의 원활한 운영 지원.",
+      "required_facts": [
+        "WMS는 자동창고 입출고 주문처리·재고관리·설비제어",
+        "WCS는 자동창고 각 장비의 원활한 운영 지원"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          22
+        ]
+      },
+      "source_anchors": [
+        "WMS",
+        "입출고 주문처리, 재고관리, 설비제어",
+        "WCS",
+        "각 장비의 원활한 운영"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q18",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "사업보고서의 MRE와 ABES는 각각 무엇을 지원하는 장비인가?",
+      "expected_answer": "MRE는 빌딩 내 서비스로봇의 층간 이동을 위한 전용 엘리베이터; ABES는 AGV 효율적 운영을 위한 자동 배터리 교환 장비.",
+      "required_facts": [
+        "MRE는 빌딩 내 서비스로봇의 층간 이동을 위한 전용 엘리베이터",
+        "ABES는 AGV 효율적 운영을 위한 자동 배터리 교환 장비"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          22
+        ]
+      },
+      "source_anchors": [
+        "MRE",
+        "서비스로봇의 층간 이동",
+        "ABES",
+        "자동 배터리 교환 장비"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q19",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "완전밀폐형과 난간형 승강장안전문은 각각 어디에 적용되며, 난간형의 높이는 얼마인가?",
+      "expected_answer": "완전밀폐형은 선로와 승강장을 완전히 차단하고 지하역사에 적용; 난간형은 지상역사에 적용; 난간형 높이는 약 1.2~1.6m.",
+      "required_facts": [
+        "완전밀폐형은 선로와 승강장을 완전히 차단하고 지하역사에 적용",
+        "난간형은 지상역사에 적용",
+        "난간형 높이는 약 1.2~1.6m"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          22
+        ]
+      },
+      "source_anchors": [
+        "완전밀폐형",
+        "선로부와 승강장을 완전히 차단",
+        "난간형",
+        "1.2~1.6m"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q20",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "table",
+      "question": "사업보고서의 항만솔루션은 어떤 세 장소에서 발생하는 어떤 업무를 처리하는가?",
+      "expected_answer": "터미널·ODCY·CFS 대상; 물류 및 통관절차 관련 모든 업무 처리.",
+      "required_facts": [
+        "터미널·ODCY·CFS 대상",
+        "물류 및 통관절차 관련 모든 업무 처리"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          22
+        ]
+      },
+      "source_anchors": [
+        "항만솔루션",
+        "ODCY",
+        "CFS",
+        "물류 및 통관절차"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q21",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "전망용 엘리베이터 카탈로그가 열거한 전망창 형태 다섯 가지는 무엇인가?",
+      "expected_answer": "1면·2면·3면 전망; 반원형·누드형.",
+      "required_facts": [
+        "1면·2면·3면 전망",
+        "반원형·누드형"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          3,
+          5
+        ]
+      },
+      "source_anchors": [
+        "1면, 2면, 3면, 반원형, 누드형"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q22",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "전망용 엘리베이터가 건축물의 활용공간을 넓히는 설계상의 이유는 무엇인가?",
+      "expected_answer": "승강로를 건물 외부로 설계할 수 있음; 이 때문에 건축물 활용공간이 넓어짐.",
+      "required_facts": [
+        "승강로를 건물 외부로 설계할 수 있음",
+        "이 때문에 건축물 활용공간이 넓어짐"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          3
+        ]
+      },
+      "source_anchors": [
+        "승강로를 건물 외부로 설계 가능하여",
+        "활용공간이 더욱 넓어집니다"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q23",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "반원형 전망 모델의 현장별 전망 유리는 어떤 인증이 필요하며, 비용과 납기에는 어떤 영향이 있는가?",
+      "expected_answer": "승강기 안전 공단의 현장별 개별 인증 필요; 인증에 따른 추가 비용 발생; 수주 후 설치 개시까지 약 7개월 이상 예상.",
+      "required_facts": [
+        "승강기 안전 공단의 현장별 개별 인증 필요",
+        "인증에 따른 추가 비용 발생",
+        "수주 후 설치 개시까지 약 7개월 이상 예상"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          10
+        ]
+      },
+      "source_anchors": [
+        "개별 인증 진행이 필요한 관계로",
+        "추가 비용과 납기",
+        "약 7개월 이상 예상"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q24",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "카탈로그에서 슬림타입 천장에 적용되지 않는 설비는 무엇인가?",
+      "expected_answer": "슬림타입 천장에는 에어컨이 적용되지 않음.",
+      "required_facts": [
+        "슬림타입 천장에는 에어컨이 적용되지 않음"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          15
+        ]
+      },
+      "source_anchors": [
+        "슬림타입 천장은 에어컨이 적용되지 않습니다"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q25",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "카탈로그에서 엘리베이터 용량에 따라 다운라이트 개수가 추가되는 조건은 무엇인가?",
+      "expected_answer": "엘리베이터 용량이 1000kg 초과일 때 다운라이트 개수 추가.",
+      "required_facts": [
+        "엘리베이터 용량이 1000kg 초과일 때 다운라이트 개수 추가"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          15
+        ]
+      },
+      "source_anchors": [
+        "1,000kg 초과 시 다운라이트 개수가 추가됩니다"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q26",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "카탈로그의 별표(*) 천장 모델에 소방구조용을 적용할 수 있는 카 내부 깊이 조건은 무엇인가?",
+      "expected_answer": "카 내부 깊이가 1400 이상일 때 소방구조용 적용 가능.",
+      "required_facts": [
+        "카 내부 깊이가 1400 이상일 때 소방구조용 적용 가능"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          15
+        ]
+      },
+      "source_anchors": [
+        "카내부 깊이가 1400 이상일 경우 소방구조용 적용이 가능합니다"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q27",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "카탈로그에서 HLS-NA1 모델의 점등 시 상부와 하부 램프 색상은 각각 무엇인가?",
+      "expected_answer": "상부 그린; 하부 오렌지.",
+      "required_facts": [
+        "상부 그린",
+        "하부 오렌지"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          15
+        ]
+      },
+      "source_anchors": [
+        "HLS-NA1 모델의 경우 점등 시 램프 색상이 상-그린&하-오렌지"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q28",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "카탈로그에서 HLS-NC와 HLS-NA2 모델의 상부·하부 점등색은 무엇인가?",
+      "expected_answer": "두 모델 모두 상부·하부 화이트.",
+      "required_facts": [
+        "두 모델 모두 상부·하부 화이트"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          15
+        ]
+      },
+      "source_anchors": [
+        "HLS-NC, HLS-NA2 모델의 경우 점등 시 램프 색상이 상/하 모두 화이트"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "대상 제품·모델과 조건의 연결을 확인한다."
+    },
+    {
+      "id": "Q29",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서에서 시리아 재건비를 인프라·주택·비주거 건물로 나눈 금액은 각각 얼마인가?",
+      "expected_answer": "인프라 약 820억 달러; 주택 약 750억 달러; 비주거 건물 약 590억 달러.",
+      "required_facts": [
+        "인프라 약 820억 달러",
+        "주택 약 750억 달러",
+        "비주거 건물 약 590억 달러"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          21
+        ]
+      },
+      "source_anchors": [
+        "인프라 약 820억",
+        "주택 약 750억",
+        "비주거 건물 약 590억 달러"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "모의 문서 내부 주장만 평가하며 외부 사실로 해석하지 않는다."
+    },
+    {
+      "id": "Q30",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서의 가자 분야별 추정에서 수자원·하수, 에너지, 교통의 금액은 각각 얼마인가?",
+      "expected_answer": "수자원·하수 약 42억 달러; 에너지 약 27억 달러; 교통 약 15억 달러.",
+      "required_facts": [
+        "수자원·하수 약 42억 달러",
+        "에너지 약 27억 달러",
+        "교통 약 15억 달러"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          22
+        ]
+      },
+      "source_anchors": [
+        "수자원·하수 약 42억",
+        "에너지 약 27억",
+        "교통 약 15억 달러"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "모의 문서 내부 주장만 평가하며 외부 사실로 해석하지 않는다."
+    },
+    {
+      "id": "Q31",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서가 소개한 보드 오브 피스의 가자 초기 계획은 기간·금액·사업 수가 각각 얼마인가?",
+      "expected_answer": "기간 6개월; 금액 24.5억 달러; 사업 수 66개.",
+      "required_facts": [
+        "기간 6개월",
+        "금액 24.5억 달러",
+        "사업 수 66개"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          23
+        ]
+      },
+      "source_anchors": [
+        "6개월 24.5억 달러, 66개 사업"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "모의 문서 내부 주장만 평가하며 외부 사실로 해석하지 않는다."
+    },
+    {
+      "id": "Q32",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서에서 2027년 중동·중앙아시아 반등은 호르무즈 해협에 관한 어떤 시점의 가정을 전제로 하는가?",
+      "expected_answer": "2027년 3월부터 호르무즈 해협 점진 개방; 같은 해 10월 전쟁 이전 수준 회복.",
+      "required_facts": [
+        "2027년 3월부터 호르무즈 해협 점진 개방",
+        "같은 해 10월 전쟁 이전 수준 회복"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          15
+        ]
+      },
+      "source_anchors": [
+        "2027년 3월부터 점진적으로 열려",
+        "같은 해 10월 전쟁 이전 수준을 회복"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "모의 문서 내부 주장만 평가하며 외부 사실로 해석하지 않는다."
+    },
+    {
+      "id": "Q33",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "table",
+      "question": "중동 모의 보고서의 국가별 표에서 쿠웨이트와 카타르의 2026년 성장률 전망은 각각 얼마인가?",
+      "expected_answer": "쿠웨이트 -16.7%; 카타르 -15.6%.",
+      "required_facts": [
+        "쿠웨이트 -16.7%",
+        "카타르 -15.6%"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          16
+        ]
+      },
+      "source_anchors": [
+        "쿠웨이트",
+        "-16.7%",
+        "카타르",
+        "-15.6%"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "모의 문서 내부 주장만 평가하며 외부 사실로 해석하지 않는다."
+    },
+    {
+      "id": "Q34",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서에서 레바논의 2026년 성장률 전망은 IMF와 세계은행이 각각 어떻게 제시했는가?",
+      "expected_answer": "IMF는 레바논 전망을 제시하지 않음; 세계은행은 2026년 -6.4% 제시.",
+      "required_facts": [
+        "IMF는 레바논 전망을 제시하지 않음",
+        "세계은행은 2026년 -6.4% 제시"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          17
+        ]
+      },
+      "source_anchors": [
+        "레바논은 IMF가 전망을 내지 않았고",
+        "세계은행은 2026년 -6.4%"
+      ],
+      "extraction_status": "verified_frozen_source_20261101",
+      "grading_note": "모의 문서 내부 주장만 평가하며 외부 사실로 해석하지 않는다."
+    }
+  ]
+}

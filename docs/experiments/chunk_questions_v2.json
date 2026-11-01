@@ -1,0 +1,302 @@
+{
+  "version": 1,
+  "created_date": "2026-11-01",
+  "split": "development_smoke",
+  "status": "questions_prepared_not_evaluated",
+  "notes": [
+    "문서당 3개, 총 12개. 청킹 비교용 8개와 추출 진단용 4개를 분리한다.",
+    "최종 검증용 질문이 아니다. 일부 과거 문항·근거를 재사용했다.",
+    "정답과 위치는 원본에서 확인했다. 청크 ID는 정답 위치로 사용하지 않는다.",
+    "추출 상태는 작성 시점의 저장본 기준이며 재색인 후 다시 확인한다.",
+    "중동·ARIA 문서는 모의 자료다. 문서의 내용을 외부 사실이나 실제 성과로 간주하지 않는다."
+  ],
+  "documents": [
+    {
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "file_name": "[현대무벡스]사업보고서(2026.03.18).pdf",
+      "sha256": "e500c849a6b11c7a28677812193bd2221e2f950df8ae14d746526b311fdb76d4"
+    },
+    {
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "file_name": "에스컬레이터_전망용 카탈로그.pdf",
+      "sha256": "3035eb672a9fe83c91b5775fb67b8abda952f54e23ca4b6f1d4e11fd4d972578"
+    },
+    {
+      "doc_id": "bdf4ec7065e64d8cafda6195b31b93e2",
+      "file_name": "프로젝트_ARIA_신기술_기획안.pptx",
+      "sha256": "de0e7e06ec00f91006fe3e66edc9081b00ba8a128af735f235c973eec4a4b9b3"
+    },
+    {
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "file_name": "중동 전쟁 피해지역 재건사업 경제 전망 및 수익성 평가 보고서.docx",
+      "sha256": "589ea9b6a181089f85fd9e05342dace3ad42c2c62bee84b4ec14fca8bc745da2"
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q01",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "text",
+      "question": "현대무벡스 사업보고서는 물류자동화 솔루션을 고도화하기 위해 어떤 두 가지 기술을 발전시킨다고 설명하는가?",
+      "expected_answer": "AGV 등 로봇 기술과 AI 기술.",
+      "required_facts": [
+        "AGV 등 로봇 기술",
+        "AI 기술"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          21
+        ],
+        "section": "II. 사업의 내용 > 사업의 개요 > 물류자동화"
+      },
+      "extraction_status": "verified",
+      "grading_note": "로봇과 AI 두 기술 모두에 대한 근거가 필요하다."
+    },
+    {
+      "id": "Q02",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "chunking",
+      "kind": "text",
+      "question": "현대무벡스 사업보고서에서 IT서비스는 정보시스템의 어떤 업무부터 어떤 업무까지 제공하는가? 사용자 지원도 포함해 설명하라.",
+      "expected_answer": "기획·구축·공급·개발·운영 및 유지보수와 사용자 교육 및 훈련까지 제공한다.",
+      "required_facts": [
+        "기획",
+        "구축",
+        "공급",
+        "개발",
+        "운영 및 유지보수",
+        "사용자 교육 및 훈련"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          21
+        ],
+        "section": "II. 사업의 내용 > 사업의 개요 > IT서비스"
+      },
+      "extraction_status": "verified",
+      "grading_note": "업무 범위와 사용자 교육·훈련이 모두 확인되어야 한다."
+    },
+    {
+      "id": "Q03",
+      "doc_id": "e3c6c3b1d4124a1b91f341b7474f56b6",
+      "track": "extraction_diagnostic",
+      "kind": "ocr",
+      "question": "현대무벡스 사업보고서의 연구개발 조직도에서 개발1·2·3팀 외에 표시된 팀의 이름은 무엇인가?",
+      "expected_answer": "스마트솔루션팀.",
+      "required_facts": [
+        "스마트솔루션팀"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          28
+        ],
+        "section": "연구개발 조직도"
+      },
+      "extraction_status": "ocr_misread",
+      "grading_note": "재색인 저장본은 '스마트슬루선팀'으로 읽었다. 청킹 비교 성공률과 분리해 기록한다."
+    },
+    {
+      "id": "Q04",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "table",
+      "question": "전망용 카탈로그의 LUXEN 로프형 MR 규격표에서 용량 1350kg 모델의 출입구 폭과 카 내부 규격은 얼마인가?",
+      "expected_answer": "출입구 폭 1000mm, 카 내부 CA×CB는 1800×1600mm.",
+      "required_facts": [
+        "LUXEN 로프형 MR의 용량 1350kg 행",
+        "출입구 폭 1000mm",
+        "카 내부 CA×CB 1800×1600mm"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          17
+        ],
+        "section": "표준규격 및 반력표 | LUXEN (로프형 MR)"
+      },
+      "extraction_status": "verified",
+      "grading_note": "용량·열 이름·단위를 함께 확인한다. x, × 및 공백 차이는 허용한다."
+    },
+    {
+      "id": "Q05",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "chunking",
+      "kind": "text",
+      "question": "전망용 카탈로그가 안내하는 천장 표준모델의 조명 색온도 범위는 얼마인가?",
+      "expected_answer": "4000~5000K.",
+      "required_facts": [
+        "천장 표준모델",
+        "색온도 4000~5000K"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          15
+        ],
+        "section": "FIXTURES > CEILINGS"
+      },
+      "extraction_status": "verified",
+      "grading_note": "4000~5000 숫자와 K 단위가 해당 천장 모델에 연결돼 있어야 한다."
+    },
+    {
+      "id": "Q06",
+      "doc_id": "9818ec6ed4df4cb18df9aab141db1047",
+      "track": "extraction_diagnostic",
+      "kind": "table",
+      "question": "전망용 카탈로그의 LUXEN 로프형 MR 1면전망 규격표에서 용량 550kg 모델의 피트 반력 R4(CWT)는 얼마인가?",
+      "expected_answer": "6200kg.",
+      "required_facts": [
+        "LUXEN 로프형 MR 1면전망의 550kg 행",
+        "피트 반력 R4(CWT) 6200kg"
+      ],
+      "source": {
+        "unit": "pdf_page",
+        "positions": [
+          17
+        ],
+        "section": "표준규격 및 반력표 | LUXEN (로프형 MR) > 1면전망"
+      },
+      "extraction_status": "missing_table_cell",
+      "grading_note": "원본에는 있지만 점검 당시 해당 쪽 저장 청크에는 값이 없다. 다른 행의 수치나 외부 지식으로 보충하면 안 된다."
+    },
+    {
+      "id": "Q07",
+      "doc_id": "bdf4ec7065e64d8cafda6195b31b93e2",
+      "track": "chunking",
+      "kind": "ocr",
+      "question": "ARIA 기획안 표지에 적힌 ARIA의 영문 명칭과 한글 명칭은 무엇인가?",
+      "expected_answer": "Adaptive Real-time Intelligent Ascent / 적응형 실시간 지능 승강 시스템.",
+      "required_facts": [
+        "Adaptive Real-time Intelligent Ascent",
+        "적응형 실시간 지능 승강 시스템"
+      ],
+      "source": {
+        "unit": "slide",
+        "positions": [
+          1
+        ],
+        "section": "표지"
+      },
+      "extraction_status": "verified",
+      "grading_note": "두 명칭 모두 필요하다. 영문 대소문자·하이픈·공백 차이는 허용한다."
+    },
+    {
+      "id": "Q08",
+      "doc_id": "bdf4ec7065e64d8cafda6195b31b93e2",
+      "track": "extraction_diagnostic",
+      "kind": "ocr",
+      "question": "ARIA 기획안의 기술 구성 네 단계를 순서대로 설명하라.",
+      "expected_answer": "감지 → 엣지 처리 → AI 분석 → 서비스.",
+      "required_facts": [
+        "1단계 감지",
+        "2단계 엣지 처리",
+        "3단계 AI 분석",
+        "4단계 서비스"
+      ],
+      "source": {
+        "unit": "slide",
+        "positions": [
+          6
+        ],
+        "section": "05 기술 구성"
+      },
+      "extraction_status": "ocr_misread",
+      "grading_note": "저장본은 '엣지 처리'를 '옛지 처리'로, AI를 Al로 읽었다. 올바른 단계명·순서로 판단하고 청킹 점수와 분리한다."
+    },
+    {
+      "id": "Q09",
+      "doc_id": "bdf4ec7065e64d8cafda6195b31b93e2",
+      "track": "extraction_diagnostic",
+      "kind": "ocr",
+      "question": "ARIA 기획안의 리스크 표는 인증·규제 리스크의 내용과 대응을 각각 어떻게 설명하는가?",
+      "expected_answer": "안전 기준·인증 요건 충족이 내용이며, 초기부터 관계 기관과 협의하는 것이 대응이다.",
+      "required_facts": [
+        "인증·규제 리스크",
+        "안전 기준·인증 요건 충족",
+        "초기부터 관계 기관 협의"
+      ],
+      "source": {
+        "unit": "slide",
+        "positions": [
+          10
+        ],
+        "section": "09 리스크와 보안"
+      },
+      "extraction_status": "ocr_misread",
+      "grading_note": "저장본은 '인증'을 '인종'으로 읽었다. 잘못 읽힌 단어를 정답으로 바꾸지 않는다."
+    },
+    {
+      "id": "Q10",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서에 나온 지역별 피해·재건비 추정치를 단순 합산하면 안 되는 이유는 무엇인가?",
+      "expected_answer": "산정 기관·기준 연도·추정 범위가 서로 다르기 때문이다. 범위에는 물리적 피해·경제적 손실·재건비가 섞여 있다.",
+      "required_facts": [
+        "산정 기관 차이",
+        "기준 연도 차이",
+        "물리적 피해·경제적 손실·재건비 등 추정 범위 차이"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          13
+        ],
+        "section": "1. 배경과 피해 현황 뒤 설명 문단"
+      },
+      "extraction_status": "verified",
+      "grading_note": "세 가지 차이를 모두 확인한다. 모의 문서의 주장에 대한 질문이며 실제 국제 정세 검증이 아니다."
+    },
+    {
+      "id": "Q11",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "table",
+      "question": "중동 모의 보고서의 가정 기반 수익성 표에서 B. 지연 시나리오의 확률, IRR, 착공 기준 회수기간은 각각 얼마인가?",
+      "expected_answer": "확률 45%, IRR 10.1%, 회수기간 10년. 모두 보고서가 설정한 가정 기반 예시다.",
+      "required_facts": [
+        "가정 기반 B. 지연 시나리오",
+        "확률 45%",
+        "IRR 10.1%",
+        "착공 기준 회수기간 10년"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          31,
+          32,
+          33
+        ],
+        "section": "5. 수익성 평가 > 표 33"
+      },
+      "extraction_status": "verified",
+      "grading_note": "확률과 IRR을 바꾸지 않는다. 계산 없이 원본 표의 값을 확인하며 실제 투자 실적으로 제시하지 않는다."
+    },
+    {
+      "id": "Q12",
+      "doc_id": "1cf217bc869a4634a47a913b22e80688",
+      "track": "chunking",
+      "kind": "text",
+      "question": "중동 모의 보고서에서 가자 사업에 진입하기 전 충족해야 할 정치·안보 조건과, 착수 전에 필요한 지급 조건은 무엇인가?",
+      "expected_answer": "하마스 무장해제와 국제안정화군 배치를 확인해야 하며, 선급금과 지급 보증이 없으면 착수하지 않는다.",
+      "required_facts": [
+        "하마스 무장해제 확인",
+        "국제안정화군 배치 확인",
+        "선급금과 지급 보증 없이는 착수하지 않음"
+      ],
+      "source": {
+        "unit": "docx_block",
+        "positions": [
+          46
+        ],
+        "section": "7. 진출 전략과 권고 > 게이트 2"
+      },
+      "extraction_status": "verified",
+      "grading_note": "진입 조건과 지급 조건 모두 필요하다. 모의 보고서 내용의 검색을 평가한다."
+    }
+  ]
+}

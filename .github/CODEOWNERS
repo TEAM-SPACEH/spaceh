@@ -1,0 +1,29 @@
+# PR이 열리면 아래 경로의 담당자에게 리뷰를 자동으로 요청한다. 아래쪽 줄이 우선한다.
+# 묶음·담당은 docs/features.md, 리뷰 규칙은 docs/conventions/git.md를 따른다.
+
+# 기본: 팀장
+*                       @Navi-Up
+
+# 검색·계정 (이서현·이상훈) — search는 RAG(김소은)와 같이 쓴다
+/app/search/            @SeoHyun1024 @sh5316 @soeundipia-teez
+/app/auth/              @SeoHyun1024 @sh5316
+/app/users/             @SeoHyun1024 @sh5316
+/app/history/           @SeoHyun1024 @sh5316
+/app/permissions/       @SeoHyun1024 @sh5316 @Navi-Up
+
+# 문서·관리자 (정재연·이승준)
+/app/ingestion/         @jaeyeonjeong62 @s-zuni
+/app/admin/             @jaeyeonjeong62 @s-zuni
+
+# 답변·보고서 (김소은·박예원)
+/app/documents/         @soeundipia-teez @yewon-studio
+/app/reports/           @soeundipia-teez @yewon-studio
+
+# 공통: 팀장
+/core/                  @Navi-Up
+/models/                @Navi-Up
+/main.py                @Navi-Up
+/requirements.txt       @Navi-Up
+/.github/               @Navi-Up
+/scripts/               @Navi-Up
+/db/                    @Navi-Up

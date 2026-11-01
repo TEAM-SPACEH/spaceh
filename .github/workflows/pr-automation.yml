@@ -1,0 +1,27 @@
+# PR이 열리면 작성자를 담당자로 지정하고 라벨을 붙인다. 테스트·린트는 돌리지 않는다.
+name: PR automation
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  assign-author:
+    if: github.event.action == 'opened' || github.event.action == 'reopened'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign PR author
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-assignee "$AUTHOR"
+
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v7
