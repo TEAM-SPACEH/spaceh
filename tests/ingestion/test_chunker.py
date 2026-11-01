@@ -44,15 +44,26 @@ class ChunkerTest(unittest.TestCase):
                     "[현대무벡스 · 점검 문서 · p.1]\n"))
 
     def test_long_text_preserves_all_characters_and_overlap(self):
-        """긴 본문을 800자로 나누고 150자 겹침 제거 후 원문을 복원한다."""
+        """기본값 800/80으로 나누고 겹침 제거 후 원문을 복원한다."""
         original = "".join(chr(0xAC00 + i) for i in range(2100))
         chunks = split_into_chunks([block(original)], self.metadata, {})
+        pieces = [body(chunk) for chunk in chunks]
+        self.assertEqual([len(p) for p in pieces], [800, 800, 660])
+        self.assertEqual(pieces[0][-80:], pieces[1][:80])
+        self.assertEqual(pieces[1][-80:], pieces[2][:80])
+        self.assertEqual(pieces[0] + "".join(p[80:] for p in pieces[1:]),
+                         original)
+
+    def test_explicit_previous_overlap_is_preserved(self):
+        """실험 BASE처럼 150자를 명시하면 기본값 변경과 관계없이 유지한다."""
+        original = "".join(chr(0xAC00 + i) for i in range(2100))
+        chunks = split_into_chunks([block(original)], self.metadata,
+                                   {"chunk_size": 800, "chunk_overlap": 150})
         pieces = [body(chunk) for chunk in chunks]
         self.assertEqual([len(p) for p in pieces], [800, 800, 800])
         self.assertEqual(pieces[0][-150:], pieces[1][:150])
         self.assertEqual(pieces[1][-150:], pieces[2][:150])
-        self.assertEqual(pieces[0] + "".join(p[150:] for p in pieces[1:]),
-                         original)
+        self.assertEqual(pieces[0] + "".join(p[150:] for p in pieces[1:]), original)
 
     def test_sections_can_span_pages_and_new_sections_do_not_merge(self):
         """절은 페이지 경계를 넘어 묶되 다른 절과 제목 경계를 넘지 않는다."""

@@ -38,7 +38,7 @@ def split_into_chunks(
 ) -> list[dict]:
     """I-02 절·페이지별 본문과 행을 보존하는 표 청크를 구성한다."""
     size = chunking_config.get("chunk_size", 800)
-    overlap = chunking_config.get("chunk_overlap", 150)
+    overlap = chunking_config.get("chunk_overlap", 80)
     if (type(size) is not int or type(overlap) is not int
             or size <= 0 or not 0 <= overlap < size):
         raise ValueError("청크 크기는 양수, 겹침은 0 이상 크기 미만이어야 합니다.")
