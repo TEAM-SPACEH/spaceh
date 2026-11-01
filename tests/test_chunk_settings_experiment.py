@@ -114,6 +114,56 @@ class PreparationTest(unittest.TestCase):
 
 
 class IsolationTest(unittest.TestCase):
+    def test_index_path_separates_models_and_keeps_same_model_stable(self):
+        folder = Path(".venv/fixture")
+        first = experiment.experiment_index_path(folder, "BASE", "model-a")
+        self.assertEqual(first, experiment.experiment_index_path(folder, "BASE", "model-a"))
+        self.assertNotEqual(first, experiment.experiment_index_path(folder, "BASE", "model-b"))
+        self.assertNotEqual(first, experiment.experiment_index_path(folder, "C800_O80", "model-a"))
+        self.assertNotEqual(first, folder / "indexes" / "BASE")
+        nested_model = experiment.experiment_index_path(folder, "BASE", "vendor/model")
+        self.assertEqual(len(nested_model.relative_to(folder).parts), 3)
+
+    def test_different_models_in_new_stage_do_not_reuse_same_dimension_vectors(self):
+        from core import config
+        from core.chroma import open_chroma_client
+        from app.ingestion.indexing.indexer import DocumentIndexer
+        frozen = corpus()
+        question = {"id": "Q", "doc_id": "doc", "question": "내용",
+                    "expected_answer": "내용", "required_facts": ["내용"],
+                    "track": "chunking", "kind": "text"}
+        dataset = {"documents": [{"doc_id": "doc"}], "questions": [question]}
+        preflight = experiment.prepare(dataset, frozen, [experiment.BASE], CharacterEncoding())
+        user = {"id": 1, "role": "super_admin", "company_id": None}
+        filters = {"doc_id": {"$in": ["doc"]}}
+
+        def vectors(texts, _client, _folder, model, _encoding):
+            value = [1.0, 0.0] if model == "model-a" else [0.0, 1.0]
+            return [value for _ in texts], {"requests": 0, "prompt_tokens": 0}
+
+        with (TemporaryDirectory() as directory,
+              patch.object(config, "OPENAI_API_KEY", "synthetic-test-key"),
+              patch("openai.OpenAI") as api,
+              patch.object(experiment, "cached_embeddings", side_effect=vectors),
+              patch.object(experiment, "source_snapshot", return_value={}),
+              patch.object(experiment, "evaluate_question", return_value={"outcome": "pass", "facts": []}),
+              patch("app.ingestion.indexing.indexer.DocumentIndexer", wraps=DocumentIndexer) as indexer):
+            folder = Path(directory)
+            for stage, model in (("size", "model-a"), ("overlap", "model-b")):
+                with patch.object(config, "EMBEDDING_MODEL", model):
+                    result = experiment.evaluate(dataset, frozen, preflight, folder, user,
+                                                 filters, {}, CharacterEncoding(), stage)
+                    self.assertEqual(result["status"], "complete_pending_manual_review")
+                path = experiment.experiment_index_path(folder, "BASE", model)
+                with open_chroma_client(path) as client:
+                    saved = client.get_collection(config.CHROMA_COLLECTION).get(include=["embeddings"])
+                expected = [1.0, 0.0] if model == "model-a" else [0.0, 1.0]
+                self.assertEqual(saved["embeddings"].tolist(),
+                                 [expected] * preflight["settings"][0]["chunk_count"])
+            self.assertEqual(indexer.call_count, 2)
+            api.return_value.embeddings.create.assert_not_called()
+            api.return_value.chat.completions.create.assert_not_called()
+
     def test_resume_skips_finished_judgments_and_preserves_existing_index(self):
         from core import config
         from app.ingestion.indexing.indexer import DocumentIndexer
@@ -196,7 +246,8 @@ class IsolationTest(unittest.TestCase):
             self.assertEqual(report["status"], "complete_pending_manual_review")
             self.assertEqual(len(report["records"]), 8)
             self.assertTrue(all(r["chunks"] for r in report["records"]))
-            with open_chroma_client(folder / "indexes/BASE") as client:
+            index_path = experiment.experiment_index_path(folder, "BASE", config.EMBEDDING_MODEL)
+            with open_chroma_client(index_path) as client:
                 self.assertEqual(client.get_collection(config.CHROMA_COLLECTION).count(),
                                  preflight["settings"][0]["chunk_count"])
             api.return_value.embeddings.create.assert_not_called()

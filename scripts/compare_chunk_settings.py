@@ -297,6 +297,11 @@ def resume_report(path: Path, current: dict, questions: list[dict]) -> dict:
     return prior
 
 
+def experiment_index_path(folder: Path, setting_name: str, embedding_model: str) -> Path:
+    """모델 식별자를 해시한 경로로 모델별 실험 벡터를 격리한다."""
+    return folder / "indexes" / digest({"embedding_model": embedding_model})[:16] / setting_name
+
+
 def index_matches(index_path: Path, chunks: list[dict]) -> bool:
     """동일한 실험 청크의 기존 색인은 재삽입하지 않아 검색 순서를 유지한다."""
     from chromadb.errors import NotFoundError
@@ -379,7 +384,7 @@ def evaluate(dataset: dict, corpus: dict, preflight: dict, folder: Path,
                                                 cache / "embeddings", config.EMBEDDING_MODEL, encoding)
             for key, value in actual.items():
                 usage[key] += value
-            index_path = folder / "indexes" / candidate["name"]
+            index_path = experiment_index_path(folder, candidate["name"], config.EMBEDDING_MODEL)
             if index_path.resolve().is_relative_to(config.CHROMA_DIR.resolve()):
                 raise ValueError("기존 앱 색인 안에 실험 색인을 만들 수 없습니다.")
             if not index_matches(index_path, chunks):
