@@ -6,6 +6,7 @@ import streamlit as st
 
 from app.admin.services.document_service import get_upload_companies, upload_document
 from app.admin.views.components.document_labels import DOC_TYPE_NAMES, format_tile_html
+from app.admin.views.components.document_list import notice
 from app.admin.views.components.duplicate_notice import render_duplicate_notice
 from app.common.ui import ACCESS_LABELS, show_text, upload_status_html
 
@@ -48,7 +49,8 @@ def _file_type(file_name: str) -> str:
     return file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
 
 
-@st.dialog("문서 올리기", width="small")
+# 대화상자 안의 동작은 창 안쪽만 다시 그린다. 닫을 때 화면 전체를 다시 그려야 뒤의 문서 목록·요약 카드에 새 문서가 보인다.
+@st.dialog("문서 올리기", width="small", on_dismiss="rerun")
 def render_document_upload(user: dict) -> None:
     """A-01 여러 파일의 등록 정보를 받아 파일별 저장·색인 결과를 표시한다."""
     try:
@@ -148,6 +150,11 @@ def render_document_upload(user: dict) -> None:
             }, user)
             results[file.file_id] = result
             _show_result(slots[file.file_id], result, file.size)
+        # 모두 올라가면 창을 닫고 문서 화면에 결과를 알린다. 중복·실패가 섞이면 파일별 결과를 보도록 창을 그대로 둔다.
+        if all(result["index_status"] == "done" for result in results.values()):
+            notice("success", f"문서 {len(results)}개를 올렸습니다.")
+            clear_upload_files()
+            st.rerun()
 
 
 def _show_result(slot, result: dict, size: int) -> None:
