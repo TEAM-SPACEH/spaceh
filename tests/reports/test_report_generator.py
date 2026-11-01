@@ -401,6 +401,26 @@ class NumberAndSynergyCheckTest(unittest.TestCase):
         self.assertIsNotNone(report_generator._number_problem("연구개발비는 39,230천원임.[1]", table))
         self.assertIsNone(report_generator._number_problem("연구개발비는 39,230백만원임.[1]", table))
 
+    def test_unit_label_is_not_borrowed_from_another_chunk(self):
+        # [1] 백만원 표의 39,230과 [2]의 "단위: 천원"을 섞어 "39,230천원"을 통과시키면 안 돼요.
+        cited = [
+            Chunk(chunk_id="doc#1", text="(단위 : 백만원)\n| 연구개발비용 | 39,230 |", metadata={}),
+            Chunk(chunk_id="doc#2", text="(단위 : 천원)\n| 정부보조금 | 10 |", metadata={}),
+        ]
+        self.assertIsNotNone(report_generator._number_problem("연구개발비는 39,230천원임.[1][2]", cited))
+
+    def test_synergy_ignores_companies_of_failed_sentences(self):
+        # [2](MVX)를 인용한 문장이 수치 검사에 실패해 빠지면, 남는 문장은 ELV 한 곳뿐이에요.
+        problems = self.problems("A사는 물류를 확대함.[1] B사 수주잔고는 999억 원임.[2]", SectionType.SYNERGY)
+        self.assertEqual(problems[0], PROBLEM_SYNERGY_ONE_COMPANY)
+        self.assertIn("999억", problems[1])
+
+    def test_several_sentences_borrow_paragraph_end_number(self):
+        # "가. 나. 다[1]."처럼 번호 없는 문장이 이어져도 문단 끝 번호를 빌려요.
+        self.assertEqual(self.problems("가 사실임. 나 사실임. 매출이 1,234억원임.[1]"), [None, None, None])
+        # 빌린 근거로도 수치를 검사해요. [1]에 없는 3,000억 원은 걸려요.
+        self.assertIsNotNone(self.problems("수주잔고는 3,000억 원임. 매출은 1,234억원임.[1]")[0])
+
 
 class MissingCompanyTest(unittest.TestCase):
 
